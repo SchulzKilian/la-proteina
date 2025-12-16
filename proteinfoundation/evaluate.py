@@ -444,4 +444,32 @@ if __name__ == "__main__":
     # Code for FID results
     if cfg_metric.compute_fid:
         raise NotImplementedError("New metrics not implemented.")
+    # <--- EVAL BLOCK FOR IMMEDIATE OVERVIEW --->
+    print("\n" + "="*50)
+    print("RESULTS SUMMARY")
+    print("="*50)
+
+
+    target_col = "_res_scRMSD_ca_esmfold"
+
+    if target_col in df.columns:
+
+        valid_scores = df[target_col][(df[target_col] > 0) & (df[target_col] < float('inf'))]
+        
+        if len(valid_scores) > 0:
+            avg_rmsd = valid_scores.mean()
+            success_rate = (valid_scores < 2.0).mean() * 100
+            
+            print(f"✅ Average scRMSD:  {avg_rmsd:.3f} Å")
+            print(f"🏆 Success Rate (<2Å): {success_rate:.1f}%")
+            print(f"📉 Total Samples:   {len(df)}")
+            print(f"❌ Failed/Crashed:  {len(df) - len(valid_scores)}")
+        else:
+            print("⚠️ No valid scores found (all crashed or infinite).")
+    else:
+        print(f"⚠️ Could not find column '{target_col}' in results.")
+    print("="*50 + "\n")
+    # <--- END BLOCK --->
+    
+    df.to_csv(csv_path, index=False)
     df.to_csv(csv_path, index=False)
