@@ -19,12 +19,14 @@ bash script_utils/download_pmpnn_weights.sh
 # Note: You might need to adjust the path to 'conda.sh' depending on your installation (e.g., ~/miniconda3/etc/...)
 source $(conda info --base)/etc/profile.d/conda.sh
 
-if [ -d "$ENV_PATH" ]; then
+if conda info --envs | grep -q "^laproteina_env "; then
     echo "Environment exists. Updating..."
-    conda env update --prefix "$ENV_PATH" -f environment.yaml
+    conda env update --name "$laproteina_env" --file environment.yaml --prune
 else
     echo "Creating new environment..."
-    conda env create --prefix "$ENV_PATH" -f environment.yaml
+    conda env create --name "$laproteina_env" --file environment.yaml
+
+    
 fi
 
 conda activate "$ENV_PATH"
