@@ -34,15 +34,18 @@ conda activate "$ENV_PATH"
 # 4. DOWNLOAD CHECKPOINTS TO SCRATCH (Answering your question)
 echo "Setting up checkpoints in scratch space..."
 
-# Create the directory in scratch if it doesn't exist
-mkdir -p "$CHECKPOINT_DIR"
+if [ -d "$CHECKPOINT_DIR" ]; then
+    echo "✅ Checkpoint folder exists at $CHECKPOINT_DIR. Skipping download."
+else
+    echo "⬇️  Checkpoint folder not found. Creating and downloading..."
+    
+    # Create the directory
+    mkdir -p "$CHECKPOINT_DIR"
 
-# Download files directly into the scratch folder
-curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ld1_ucond_notri_512.ckpt/1.0/files?redirect=true&path=LD1_ucond_notri_512.ckpt' -o "$CHECKPOINT_DIR/LD1_ucond_notri_512.ckpt"
-curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae1_ucond_512.ckpt/1.0/files?redirect=true&path=AE1_ucond_512.ckpt' -o "$CHECKPOINT_DIR/AE1_ucond_512.ckpt"
-
-# OPTIONAL: Create a symlink so your python code finds the folder locally
-# This makes "./checkpoints_laproteina" point to the scratch folder
+    # Download files
+    curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ld1_ucond_notri_512.ckpt/1.0/files?redirect=true&path=LD1_ucond_notri_512.ckpt' -o "$CHECKPOINT_DIR/LD1_ucond_notri_512.ckpt"
+    curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae1_ucond_512.ckpt/1.0/files?redirect=true&path=AE1_ucond_512.ckpt' -o "$CHECKPOINT_DIR/AE1_ucond_512.ckpt"
+fi
 ln -sfn "$CHECKPOINT_DIR" ./checkpoints_laproteina
 
 # 5. Run the evaluation script
