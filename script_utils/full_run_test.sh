@@ -4,7 +4,7 @@
 set -e
 
 # --- SETUP VARIABLES ---
-SCRATCH_DIR=""
+SCRATCH_DIR="/homes/ks2218/la-proteina"
 ENV_PATH="$SCRATCH_DIR/my_env"
 CHECKPOINT_DIR="$SCRATCH_DIR/checkpoints_laproteina"
 
