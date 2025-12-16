@@ -21,12 +21,12 @@ source $(conda info --base)/etc/profile.d/conda.sh
 
 if conda info --envs | grep -q "^laproteina_env "; then
     echo "Environment exists. Updating..."
-    conda env update --name "$laproteina_env" --file environment.yaml --prune
+    conda env update --name "laproteina_env" --file environment.yaml --prune
 else
     echo "Creating new environment..."
-    conda env create --name "$laproteina_env" --file environment.yaml
+    conda env create --name "laproteina_env" --file environment.yaml
 
-    
+
 fi
 
 conda activate "$ENV_PATH"
