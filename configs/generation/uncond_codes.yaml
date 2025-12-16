@@ -8,7 +8,7 @@ dataset:
   # Lengths to sample. If not None, then use length-centric sampling
   # Uses `nres_lens` if specified, otherwise arange(min_len, max_len+1, step)
   nlens_cfg:
-    nres_lens: [100, 200, 300, 400, 500]
+    nres_lens: [400] #, 200, 300, 400] 
     min_len:
     max_len:
     step_len:
@@ -16,7 +16,7 @@ dataset:
   cath_codes: null
 
   # Number of samples per protein length or per cath code
-  nsamples: 100
+  nsamples: 1
 
   # Maximum number of samples in each batch
   max_nsamples_per_batch: 10
@@ -27,7 +27,8 @@ dataset:
     # Path to the empirical (len, cath_code) distribution file
     len_cath_code_path: null
 
-    # Level of cath codes to generate
+    # Level of cath codes to generate  compute_codesignability: True
+
     cath_code_level: null
 
     # Arguments for bucketizing the length distribution

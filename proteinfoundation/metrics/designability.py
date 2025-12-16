@@ -93,7 +93,7 @@ def run_proteinmpnn(
     sampling_temp: float = 0.1,
     seed: Optional[int] = None,
     ca_only: bool = True,
-    verbose: bool = False,
+    verbose: bool = True,
 ) -> List[Dict[str, float]]:
     """Runs ProteinMPNN for protein sequence design.
 

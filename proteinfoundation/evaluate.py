@@ -1,7 +1,8 @@
 import os
 import sys
 from typing import Dict, List, Tuple
-
+import gc
+import traceback
 root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
 # isort: split
@@ -13,7 +14,8 @@ from biotite.structure.io import load_structure
 from dotenv import load_dotenv
 from loguru import logger
 from omegaconf import OmegaConf
-
+import gc
+import traceback
 from proteinfoundation.generate import parse_args_and_cfg, setup
 from proteinfoundation.metrics.designability import (
     extract_seq_from_pdb,
@@ -194,195 +196,215 @@ def compute_traditional_metrics(
     results = []
 
     for i, pdb_path in enumerate(samples_paths):
-        seq = extract_seq_from_pdb(pdb_path)
-        n = len(seq)
+        try:
+            seq = extract_seq_from_pdb(pdb_path)
+            n = len(seq)
 
-        res_row = list(flat_dict.values()) + [i, pdb_path, n]
-        results.append(res_row)
+            res_row = list(flat_dict.values()) + [i, pdb_path, n]
+            results.append(res_row)
 
-        # create tmp_dir for this sample
-        tmp_dir = os.path.splitext(pdb_path)[0]  # removes extension ".pdb"
-        assert not os.path.exists(tmp_dir), f"tmp_dir {tmp_dir} already exists"
-        os.makedirs(tmp_dir, exist_ok=False)
+            # create tmp_dir for this sample
+            tmp_dir = os.path.splitext(pdb_path)[0]  # removes extension ".pdb"
+            assert not os.path.exists(tmp_dir), f"tmp_dir {tmp_dir} already exists"
+            os.makedirs(tmp_dir, exist_ok=False)
 
-        # Initialize motif-related variables
-        motif_index = None
-        motif_residue_indices = None
-        
-        if needs_motif_setup:
-            sample_id = int(os.path.basename(pdb_path).split("_")[3])
-            contig_string = motif_info[motif_info["sample_num"] == sample_id][
-                "contig"
-            ].values[0]
+            # Initialize motif-related variables
+            motif_index = None
+            motif_residue_indices = None
+            
+            if needs_motif_setup:
+                sample_id = int(os.path.basename(pdb_path).split("_")[3])
+                contig_string = motif_info[motif_info["sample_num"] == sample_id][
+                    "contig"
+                ].values[0]
 
-            gen_prot = load_pdb(pdb_path)
-            gen_coors = torch.Tensor(gen_prot.atom_positions)
-            gen_mask = torch.Tensor(gen_prot.atom_mask).bool()
-            gen_aa_type = torch.Tensor(gen_prot.aatype)
+                gen_prot = load_pdb(pdb_path)
+                gen_coors = torch.Tensor(gen_prot.atom_positions)
+                gen_mask = torch.Tensor(gen_prot.atom_mask).bool()
+                gen_aa_type = torch.Tensor(gen_prot.aatype)
 
-            #######################################################
-            # Some manual changes needed here for the motif task
-            #######################################################
+                #######################################################
+                # Some manual changes needed here for the motif task
+                #######################################################
 
-            # This is for indexed models
-            motif_mask_full, x_motif_full, residue_type_full = pad_motif_to_full_length(
-                motif_mask, x_motif, residue_type, contig_string
-            )
+                # This is for indexed models
+                motif_mask_full, x_motif_full, residue_type_full = pad_motif_to_full_length(
+                    motif_mask, x_motif, residue_type, contig_string
+                )
 
-            # # This is for unindexed models
-            # motif_mask_full, x_motif_full, residue_type_full = pad_motif_to_full_length_unindexed(
-            #     motif_mask=motif_mask,
-            #     x_motif=x_motif,
-            #     residue_type=residue_type,
-            #     gen_coors=gen_coors,
-            #     gen_mask=gen_mask,
-            #     gen_aa_type=gen_aa_type,
-            # )
+                # # This is for unindexed models
+                # motif_mask_full, x_motif_full, residue_type_full = pad_motif_to_full_length_unindexed(
+                #     motif_mask=motif_mask,
+                #     x_motif=x_motif,
+                #     residue_type=residue_type,
+                #     gen_coors=gen_coors,
+                #     gen_mask=gen_mask,
+                #     gen_aa_type=gen_aa_type,
+                # )
 
-            #######################################################
-            #######################################################
-            #######################################################
+                #######################################################
+                #######################################################
+                #######################################################
 
-            # Get motif index for ProteinMPNN fixing and sequence recovery
-            from openfold.np.residue_constants import restype_num, restype_order
+                # Get motif index for ProteinMPNN fixing and sequence recovery
+                from openfold.np.residue_constants import restype_num, restype_order
 
-            gen_residue_type = torch.as_tensor(
-                [restype_order.get(r, restype_num) for r in seq]
-            )
-            logger.info(f"Gen residue type: {gen_residue_type.shape}")
-            motif_sequence_mask = motif_mask_full.any(dim=1)
+                gen_residue_type = torch.as_tensor(
+                    [restype_order.get(r, restype_num) for r in seq]
+                )
+                logger.info(f"Gen residue type: {gen_residue_type.shape}")
+                motif_sequence_mask = motif_mask_full.any(dim=1)
 
-            motif_index = []
-            motif_residue_indices = []
-            for i in motif_sequence_mask.nonzero():
-                # Convert to 1-indexed for ProteinMPNN (PDB residue numbering)
-                motif_index.append(f"A{i.item() + 1}")
-                # Keep 0-indexed for tensor operations
-                motif_residue_indices.append(i.item())
+                motif_index = []
+                motif_residue_indices = []
+                for i in motif_sequence_mask.nonzero():
+                    # Convert to 1-indexed for ProteinMPNN (PDB residue numbering)
+                    motif_index.append(f"A{i.item() + 1}")
+                    # Keep 0-indexed for tensor operations
+                    motif_residue_indices.append(i.item())
 
-            # Direct motif RMSD computation (generated structure vs ground truth motif)
-            if cfg_metric.get("compute_motif_rmsd", True):
-                for m in motif_rmsd_modes:
-                    metrics[f"_res_motif_rmsd_{m}"].append(
-                        rmsd_metric(
-                            coors_1_atom37=gen_coors,
-                            coors_2_atom37=x_motif_full,
-                            mask_atom_37=gen_mask * motif_mask_full,
-                            mode=m,
+                # Direct motif RMSD computation (generated structure vs ground truth motif)
+                if cfg_metric.get("compute_motif_rmsd", True):
+                    for m in motif_rmsd_modes:
+                        metrics[f"_res_motif_rmsd_{m}"].append(
+                            rmsd_metric(
+                                coors_1_atom37=gen_coors,
+                                coors_2_atom37=x_motif_full,
+                                mask_atom_37=gen_mask * motif_mask_full,
+                                mode=m,
+                            )
                         )
-                    )
+                    
+                    # Direct motif sequence recovery computation
+                    is_same_motif_residue = (gen_residue_type == residue_type_full)[motif_sequence_mask]
+                    metrics["_res_motif_seq_rec"].append(is_same_motif_residue.float().mean().item())
+
+            # Designability evaluation
+            if cfg_metric.compute_designability:
+                # Use unified scRMSD function that computes both normal and motif RMSD when needed
+                res_designability = scRMSD(
+                    pdb_file_path=pdb_path,
+                    ret_min=False,
+                    tmp_path=tmp_dir,
+                    use_pdb_seq=False,
+                    rmsd_modes=designability_modes,
+                    motif_index=motif_index,  # Fix motif positions if in motif task
+                    motif_residue_indices=motif_residue_indices if (designability_motif_eval and needs_motif_setup) else None,
+                    folding_models=designability_folding_models,
+                    keep_outputs=cfg_metric.get("keep_folding_outputs", False),
+                )
                 
-                # Direct motif sequence recovery computation
-                is_same_motif_residue = (gen_residue_type == residue_type_full)[motif_sequence_mask]
-                metrics["_res_motif_seq_rec"].append(is_same_motif_residue.float().mean().item())
-
-        # Designability evaluation
-        if cfg_metric.compute_designability:
-            # Use unified scRMSD function that computes both normal and motif RMSD when needed
-            res_designability = scRMSD(
-                pdb_file_path=pdb_path,
-                ret_min=False,
-                tmp_path=tmp_dir,
-                use_pdb_seq=False,
-                rmsd_modes=designability_modes,
-                motif_index=motif_index,  # Fix motif positions if in motif task
-                motif_residue_indices=motif_residue_indices if (designability_motif_eval and needs_motif_setup) else None,
-                folding_models=designability_folding_models,
-                keep_outputs=cfg_metric.get("keep_folding_outputs", False),
-            )
-            
-            # Extract normal designability results
-            for model in designability_folding_models:
-                for mode in designability_modes:
-                    if res_designability[mode][model]:
-                        metrics[f"_res_scRMSD_{mode}_{model}"].append(
-                            min(res_designability[mode][model])
-                        )
-                        metrics[f"_res_scRMSD_all_{mode}_{model}"].append(
-                            res_designability[mode][model]
-                        )
-                    else:
-                        metrics[f"_res_scRMSD_{mode}_{model}"].append(float("inf"))
-                        metrics[f"_res_scRMSD_all_{mode}_{model}"].append([float("inf")])
-
-            # Extract motif designability results if they were computed
-            if designability_motif_eval and needs_motif_setup:
+                # Extract normal designability results
                 for model in designability_folding_models:
-                    for m in designability_modes:
-                        motif_key = f"{m}_motif"
-                        col_name = f"_res_des_motif_scRMSD_{m}_{model}"
-                        if motif_key in res_designability and res_designability[motif_key][model]:
-                            metrics[col_name].append(min(res_designability[motif_key][model]))
+                    for mode in designability_modes:
+                        if res_designability[mode][model]:
+                            metrics[f"_res_scRMSD_{mode}_{model}"].append(
+                                min(res_designability[mode][model])
+                            )
+                            metrics[f"_res_scRMSD_all_{mode}_{model}"].append(
+                                res_designability[mode][model]
+                            )
                         else:
-                            metrics[col_name].append(float("inf"))
+                            metrics[f"_res_scRMSD_{mode}_{model}"].append(float("inf"))
+                            metrics[f"_res_scRMSD_all_{mode}_{model}"].append([float("inf")])
 
-                # Designability-style sequence recovery for each model
-                for model in designability_folding_models:
-                    col_name = f"_res_des_motif_seq_rec_{model}"
-                    is_same_motif_residue = (gen_residue_type == residue_type_full)[
-                        motif_sequence_mask
-                    ]
-                    metrics[col_name].append(is_same_motif_residue.float().mean().item())
+                # Extract motif designability results if they were computed
+                if designability_motif_eval and needs_motif_setup:
+                    for model in designability_folding_models:
+                        for m in designability_modes:
+                            motif_key = f"{m}_motif"
+                            col_name = f"_res_des_motif_scRMSD_{m}_{model}"
+                            if motif_key in res_designability and res_designability[motif_key][model]:
+                                metrics[col_name].append(min(res_designability[motif_key][model]))
+                            else:
+                                metrics[col_name].append(float("inf"))
 
-        # Codesignability evaluation
-        if cfg_metric.compute_codesignability:
-            # Use unified scRMSD function that computes both normal and motif RMSD when needed
-            res_codesignability = scRMSD(
-                pdb_file_path=pdb_path,
-                ret_min=False,
-                tmp_path=tmp_dir,
-                use_pdb_seq=True,
-                rmsd_modes=codesignability_modes,
-                motif_index=motif_index,  # Fix motif positions if in motif task
-                motif_residue_indices=motif_residue_indices if (codesignability_motif_eval and needs_motif_setup) else None,
-                folding_models=codesignability_folding_models,
-                keep_outputs=cfg_metric.get("keep_folding_outputs", False),
-            )
-            
-            # Extract normal codesignability results
-            for model in codesignability_folding_models:
-                for m in codesignability_modes:
-                    if res_codesignability[m][model]:
-                        metrics[f"_res_co_scRMSD_{m}_{model}"].append(
-                            min(res_codesignability[m][model])
-                        )
-                        metrics[f"_res_co_scRMSD_all_{m}_{model}"].append(
-                            res_codesignability[m][model]
-                        )
-                    else:
-                        metrics[f"_res_co_scRMSD_{m}_{model}"].append(float("inf"))
-                        metrics[f"_res_co_scRMSD_all_{m}_{model}"].append(
-                            [float("inf")]
-                        )
+                    # Designability-style sequence recovery for each model
+                    for model in designability_folding_models:
+                        col_name = f"_res_des_motif_seq_rec_{model}"
+                        is_same_motif_residue = (gen_residue_type == residue_type_full)[
+                            motif_sequence_mask
+                        ]
+                        metrics[col_name].append(is_same_motif_residue.float().mean().item())
 
-            # Extract motif codesignability results if they were computed
-            if codesignability_motif_eval and needs_motif_setup:
+            # Codesignability evaluation
+            if cfg_metric.compute_codesignability:
+                # Use unified scRMSD function that computes both normal and motif RMSD when needed
+                res_codesignability = scRMSD(
+                    pdb_file_path=pdb_path,
+                    ret_min=False,
+                    tmp_path=tmp_dir,
+                    use_pdb_seq=True,
+                    rmsd_modes=codesignability_modes,
+                    motif_index=motif_index,  # Fix motif positions if in motif task
+                    motif_residue_indices=motif_residue_indices if (codesignability_motif_eval and needs_motif_setup) else None,
+                    folding_models=codesignability_folding_models,
+                    keep_outputs=cfg_metric.get("keep_folding_outputs", False),
+                )
+                
+                # Extract normal codesignability results
                 for model in codesignability_folding_models:
                     for m in codesignability_modes:
-                        motif_key = f"{m}_motif"
-                        col_name = f"_res_co_motif_scRMSD_{m}_{model}"
-                        if motif_key in res_codesignability and res_codesignability[motif_key][model]:
-                            metrics[col_name].append(min(res_codesignability[motif_key][model]))
+                        if res_codesignability[m][model]:
+                            metrics[f"_res_co_scRMSD_{m}_{model}"].append(
+                                min(res_codesignability[m][model])
+                            )
+                            metrics[f"_res_co_scRMSD_all_{m}_{model}"].append(
+                                res_codesignability[m][model]
+                            )
                         else:
-                            metrics[col_name].append(float("inf"))
+                            metrics[f"_res_co_scRMSD_{m}_{model}"].append(float("inf"))
+                            metrics[f"_res_co_scRMSD_all_{m}_{model}"].append(
+                                [float("inf")]
+                            )
 
-                # Codesignability-style sequence recovery for each model
-                for model in codesignability_folding_models:
-                    col_name = f"_res_co_motif_seq_rec_{model}"
-                    is_same_motif_residue = (gen_residue_type == residue_type_full)[
-                        motif_sequence_mask
-                    ]
-                    metrics[col_name].append(is_same_motif_residue.float().mean().item())
+                # Extract motif codesignability results if they were computed
+                if codesignability_motif_eval and needs_motif_setup:
+                    for model in codesignability_folding_models:
+                        for m in codesignability_modes:
+                            motif_key = f"{m}_motif"
+                            col_name = f"_res_co_motif_scRMSD_{m}_{model}"
+                            if motif_key in res_codesignability and res_codesignability[motif_key][model]:
+                                metrics[col_name].append(min(res_codesignability[motif_key][model]))
+                            else:
+                                metrics[col_name].append(float("inf"))
 
-        if cfg_metric.compute_co_sequence_recovery:
-            res_seqres = sc_sequence_recovery(
-                pdb_file_path=pdb_path,
-                ret_max=False,
-                tmp_path=tmp_dir,
-                motif_index=motif_index,  # Fix motif positions if in motif task
-            )
-            metrics["_res_co_seq_rec"].append(max(res_seqres))
-            metrics["_res_co_seq_rec_all"].append(res_seqres)
+                    # Codesignability-style sequence recovery for each model
+                    for model in codesignability_folding_models:
+                        col_name = f"_res_co_motif_seq_rec_{model}"
+                        is_same_motif_residue = (gen_residue_type == residue_type_full)[
+                            motif_sequence_mask
+                        ]
+                        metrics[col_name].append(is_same_motif_residue.float().mean().item())
+
+            if cfg_metric.compute_co_sequence_recovery:
+                res_seqres = sc_sequence_recovery(
+                    pdb_file_path=pdb_path,
+                    ret_max=False,
+                    tmp_path=tmp_dir,
+                    motif_index=motif_index,  # Fix motif positions if in motif task
+                )
+                metrics["_res_co_seq_rec"].append(max(res_seqres))
+                metrics["_res_co_seq_rec_all"].append(res_seqres)
+        except Exception as e:
+
+            print(f"\n\033[91m[WARNING] Error processing {pdb_path}: {e}. Skipping.\033[0m")
+            
+
+            torch.cuda.empty_cache()
+            gc.collect()
+
+
+            if len(results) > i + 1: 
+                results = results[:i+1]
+            elif len(results) == i:
+
+                results.append(list(flat_dict.values()) + [i, pdb_path, 0])
+            
+
+            for key in metrics:
+                if len(metrics[key]) <= i:
+                    metrics[key].append(-1.0)
     df = pd.DataFrame(results, columns=columns)
     for metric in metrics:
         df[metric] = metrics[metric]

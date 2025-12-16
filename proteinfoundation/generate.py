@@ -24,6 +24,7 @@ from proteinfoundation.proteina import Proteina
 from proteinfoundation.partial_autoencoder.autoencoder import AutoEncoder
 from proteinfoundation.utils.pdb_utils import write_prot_to_pdb
 
+torch.set_float32_matmul_precision('high')
 
 def parse_args_and_cfg() -> Tuple[Dict, Dict, str]:
     """
