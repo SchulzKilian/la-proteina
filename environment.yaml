@@ -41,6 +41,8 @@ dependencies:
     - scikit-learn
     - seaborn
     - xarray
+    - graphein
+    - biotite
 
 
 # To create the full environment, run at the end:
