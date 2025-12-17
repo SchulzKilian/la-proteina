@@ -3,7 +3,7 @@ __pycache__/
 lightning_logs
 
 .DS_Store
-
+myenv/
 .vscode/
 .env
 .logs/
@@ -27,3 +27,4 @@ wandb/
 /inference
 /ProteinMPNN/ca_model_weights/*.pt
 /ProteinMPNN/vanilla_model_weights/*.pt
+/my_env

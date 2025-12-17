@@ -29,7 +29,7 @@ else
 
 fi
 
-conda activate "$ENV_PATH"
+conda activate laproteina_env
 
 # 4. DOWNLOAD CHECKPOINTS TO SCRATCH (Answering your question)
 echo "Setting up checkpoints in scratch space..."
