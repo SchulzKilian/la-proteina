@@ -31,22 +31,26 @@ fi
 
 conda activate laproteina_env
 
-# 4. DOWNLOAD CHECKPOINTS TO SCRATCH 
-echo "Setting up checkpoints in scratch space..."
+# 4. DOWNLOAD OR SETUP CHECKPOINTS LOCALLY
+echo "Setting up checkpoints..."
 
-if [ -d "$CHECKPOINT_DIR" ]; then
-    echo "✅ Checkpoint folder exists at $CHECKPOINT_DIR. Skipping download."
+LOCAL_CHECKPOINT_DIR=$CHECKPOINT_DIR
+
+mkdir -p "$LOCAL_CHECKPOINT_DIR"
+
+
+if [ -f "$LOCAL_CHECKPOINT_DIR/LD1_ucond_notri_512.ckpt" ]; then
+    echo "✅ Checkpoints already present in $LOCAL_CHECKPOINT_DIR. Skipping."
 else
-    echo "⬇️  Checkpoint folder not found. Creating and downloading..."
+    echo "⬇️  Checkpoints missing. Downloading directly to project folder..."
     
-    # Create the directory
-    mkdir -p "$CHECKPOINT_DIR"
-
-    # Download files
-    curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ld1_ucond_notri_512.ckpt/1.0/files?redirect=true&path=LD1_ucond_notri_512.ckpt' -o "$CHECKPOINT_DIR/LD1_ucond_notri_512.ckpt"
-    curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae1_ucond_512.ckpt/1.0/files?redirect=true&path=AE1_ucond_512.ckpt' -o "$CHECKPOINT_DIR/AE1_ucond_512.ckpt"
+    curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ld1_ucond_notri_512.ckpt/1.0/files?redirect=true&path=LD1_ucond_notri_512.ckpt' \
+         -o "$LOCAL_CHECKPOINT_DIR/LD1_ucond_notri_512.ckpt"
+    
+    curl -L 'https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae1_ucond_512.ckpt/1.0/files?redirect=true&path=AE1_ucond_512.ckpt' \
+         -o "$LOCAL_CHECKPOINT_DIR/AE1_ucond_512.ckpt"
 fi
-ln -sfn "$CHECKPOINT_DIR" ./checkpoints_laproteina
+
 
 # 5. Run the evaluation script
 echo "Running generation and evaluation..."
