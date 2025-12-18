@@ -5,6 +5,7 @@ set -e
 
 # --- SETUP VARIABLES ---
 SCRATCH_DIR="/homes/ks2218/la-proteina"
+SCRATCH_DIR="$HOME/Programming/la-proteina"
 ENV_PATH="$SCRATCH_DIR/my_env"
 CHECKPOINT_DIR="$SCRATCH_DIR/checkpoints_laproteina"
 
@@ -15,12 +16,11 @@ echo "Downloading ProteinMPNN weights..."
 bash script_utils/download_pmpnn_weights.sh
 
 # 3. Handle Conda Environment
-# We use 'source' to ensure conda works inside this script
-# Note: You might need to adjust the path to 'conda.sh' depending on your installation (e.g., ~/miniconda3/etc/...)
+
 source $(conda info --base)/etc/profile.d/conda.sh
 
 if conda info --envs | grep -q "^laproteina_env "; then
-    echo "Environment exists. Updating..."
+    echo "Environment exists. Updating..."github.com/SchulzKilian/la-proteinagithub.com/SchulzKilian/la-proteina
     conda env update --name "laproteina_env" --file environment.yaml --prune
 else
     echo "Creating new environment..."
@@ -31,7 +31,7 @@ fi
 
 conda activate laproteina_env
 
-# 4. DOWNLOAD CHECKPOINTS TO SCRATCH (Answering your question)
+# 4. DOWNLOAD CHECKPOINTS TO SCRATCH 
 echo "Setting up checkpoints in scratch space..."
 
 if [ -d "$CHECKPOINT_DIR" ]; then
@@ -49,8 +49,6 @@ fi
 ln -sfn "$CHECKPOINT_DIR" ./checkpoints_laproteina
 
 # 5. Run the evaluation script
-# I have changed this to 'bash' assuming it is a shell script. 
-# If it is actually a python file, change 'bash' to 'python3' and rename the file to .py
 echo "Running generation and evaluation..."
 bash script_utils/gen_n_eval.sh
 

@@ -23,6 +23,7 @@ from proteinfoundation.datasets.gen_dataset import GenDataset
 from proteinfoundation.proteina import Proteina
 from proteinfoundation.partial_autoencoder.autoencoder import AutoEncoder
 from proteinfoundation.utils.pdb_utils import write_prot_to_pdb
+from proteinfoundation.utils.performance_utils import measure_performance, save_performance_metrics
 
 torch.set_float32_matmul_precision('high')
 
@@ -50,6 +51,12 @@ def parse_args_and_cfg() -> Tuple[Dict, Dict, str]:
         type=int,
         default=0,
         help="Job id for this config to determine which split to use.",
+    )
+    parser.add_argument(
+        "--task_name",
+        type=str,
+        default="inference",
+        help="Name of the task to be performed.",
     )
     parser.add_argument(
         "--config_subdir",
@@ -412,7 +419,12 @@ def main():
 
     # Sample model
     trainer = L.Trainer(accelerator="gpu", devices=1)
-    predictions = trainer.predict(model, dataloader)
+    results = {}
+    print(args.config_name)
+    with measure_performance(results, task_name=args.config_name) as metrics: # Measure performance of the generation step
+        predictions = trainer.predict(model, dataloader)
+
+    save_performance_metrics(root_path, args.config_name, metrics)
 
     chain_indexes = None
 
