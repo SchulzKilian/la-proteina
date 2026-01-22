@@ -19,6 +19,10 @@ class CopyCoordinatesTransform(T.BaseTransform):
     def __call__(self, graph: Data) -> Data:
         graph.coords_unmodified = graph.coords.clone()
 
+    def forward(self, x):
+
+        return self.__call__(x)
+
 
 class ChainBreakCountingTransform(T.BaseTransform):
     """Counting the number of chain breaks in the protein coordinates and saving it as an attribute."""
@@ -35,6 +39,9 @@ class ChainBreakCountingTransform(T.BaseTransform):
         graph.chain_breaks = (ca_dists > self.chain_break_cutoff).sum().item()
         return graph
 
+    def forward(self, x):
+
+        return self.__call__(x)
 
 class ChainBreakPerResidueTransform(T.BaseTransform):
     """Creates a binary mask indicating whether residue has chain break or not."""
@@ -58,6 +65,10 @@ class ChainBreakPerResidueTransform(T.BaseTransform):
             )
         )
         return graph
+    
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class PaddingTransform(T.BaseTransform):
@@ -90,6 +101,11 @@ class PaddingTransform(T.BaseTransform):
         return f"{self.__class__.__name__}(max_size={self.max_size}, fill_value={self.fill_value})"
 
 
+    def forward(self, x):
+
+        return self.__call__(x)
+    
+
 class GlobalRotationTransform(T.BaseTransform):
     """Modifies the global rotation of the atom37 representation randomly.
 
@@ -112,6 +128,10 @@ class GlobalRotationTransform(T.BaseTransform):
             graph.coords_nm, rot
         )  # [n, 37, 3] * [3, 3] -> [n, 37, 3]
         return graph
+    
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class StructureNoiseTransform(T.BaseTransform):
@@ -190,6 +210,10 @@ class StructureNoiseTransform(T.BaseTransform):
             f"gaussian_std={self.gaussian_std}, uniform_min={self.uniform_min}, "
             f"uniform_max={self.uniform_max})"
         )
+    
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class CenterStructureTransform(T.BaseTransform):
@@ -201,6 +225,10 @@ class CenterStructureTransform(T.BaseTransform):
         com = mean_w_mask(ca_coords, mask, keepdim=True)  # [1, 3]
         graph.coords_nm = graph.coords_nm - com[None, ...]  # [n, 37, 3] - [1, 3]
         return graph
+    
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class GlobalTranslationTransform(T.BaseTransform):
@@ -249,6 +277,10 @@ class GlobalTranslationTransform(T.BaseTransform):
             f"gaussian_mean={self.normal_mean}, gaussian_std={self.normal_std}, "
             f"uniform_min={self.uniform_min}, uniform_max={self.uniform_max})"
         )
+    
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class CoordsToNanometers(T.BaseTransform):
@@ -257,6 +289,10 @@ class CoordsToNanometers(T.BaseTransform):
     def __call__(self, graph: Data) -> Data:
         graph.coords_nm = ang_to_nm(graph.coords)
         return graph
+
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class OpenFoldFrameTransform(T.BaseTransform):
@@ -283,6 +319,11 @@ class OpenFoldFrameTransform(T.BaseTransform):
         graph.rotations_gt = rotations_gt
 
         return graph
+
+
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class CenteringTransform(T.BaseTransform):
@@ -377,6 +418,10 @@ class CenteringTransform(T.BaseTransform):
                 nres, -1, 3
             )
         return graph
+    
+    def forward(self, x):
+
+        return self.__call__(x)
 
 
 class MotifMaskTransform(T.BaseTransform):
@@ -642,6 +687,10 @@ class MotifMaskTransform(T.BaseTransform):
         graph.seq_motif = graph.residue_type * graph.seq_motif_mask  # [n]
         return graph
 
+    def forward(self, x):
+
+        return self.__call__(x)
+
 
 class ExtractMotifCoordinatesTransform(T.BaseTransform):
     """
@@ -658,3 +707,7 @@ class ExtractMotifCoordinatesTransform(T.BaseTransform):
         graph.seq_motif_mask = graph.motif_mask.sum(dim=-1).bool()  # [n]
         graph.seq_motif = graph.residue_type * graph.seq_motif_mask  # [n]
         return graph
+    
+
+    def forward(self, x):
+        return self.__call__(x)
