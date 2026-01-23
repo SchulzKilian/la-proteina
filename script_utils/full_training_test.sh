@@ -61,6 +61,27 @@ fi
 # ==============================================================================
 # 4. Data & Directory Setup
 # ==============================================================================
+
+echo "[+] Setting up Data Paths..."
+
+# --- DEBUGGING LINES ---
+echo "DEBUG INFO:"
+echo "  Current Directory (pwd): $(pwd)"
+echo "  PROJECT_DIR: '$PROJECT_DIR'"
+echo "  DATA_PATH:   '$DATA_PATH'"
+echo "  CHECKPOINT_DIR: '$CHECKPOINT_DIR'"
+# -----------------------
+
+# Fallback: If variables are empty, force them to default values
+if [ -z "$DATA_PATH" ]; then 
+    echo "⚠️  DATA_PATH was empty. Setting default."
+    DATA_PATH="$(pwd)/data" 
+fi
+
+if [ -z "$CHECKPOINT_DIR" ]; then 
+    echo "⚠️  CHECKPOINT_DIR was empty. Setting default."
+    CHECKPOINT_DIR="$(pwd)/checkpoints_laproteina" 
+fi
 echo "[+] Setting up Data Paths..."
 mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
