@@ -4,6 +4,15 @@
 # Note: We handle the wget failure manually, so it won't crash the script immediately
 set -e 
 
+
+
+
+if [ -f .env ]; then
+    # This automatically exports every variable in your .env file
+    set -o allexport
+    source .env
+    set +o allexport
+fi
 # ==============================================================================
 # 1. Configuration & Secrets
 # ==============================================================================
