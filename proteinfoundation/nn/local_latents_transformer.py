@@ -108,7 +108,7 @@ class LocalLatentsTransformer(torch.nn.Module):
             torch.nn.Linear(self.token_dim, 3, bias=False),
         )
 
-    @torch.compile
+    # @torch.compile
     def forward(self, input: Dict) -> Dict[str, Dict[str, torch.Tensor]]:
         """
         Runs the network.
