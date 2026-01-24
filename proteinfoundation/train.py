@@ -7,22 +7,41 @@ root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
 # --- MONKEYPATCH FIX FOR BROKEN CATH URL ---
 import graphein.ml.datasets.pdb_data
+NEW_CATH_URL = "ftp://orengoftp.biochem.ucl.ac.uk/cath/releases/latest-release/cath-classification-data/cath-domain-list.txt"
 
-graphein.ml.datasets.pdb_data.CATH_ID_CATH_CODE_URL = "ftp://orengoftp.biochem.ucl.ac.uk/cath/releases/latest-release/cath-classification-data/cath-domain-list.txt"
+# 2. Update the global variable in the library (so other parts see it)
+graphein.ml.datasets.pdb_data.CATH_ID_CATH_CODE_URL = NEW_CATH_URL
 
+# 3. Define the download function that renames the file
 def fixed_download_cath(self):
-
+    # Ensure we use the correct URL (overwriting any stale instance variable)
+    self.cath_id_cath_code_url = NEW_CATH_URL
+    
+    # We force the filename to be 'cath-b-newest-all.txt'
+    # This is the "Rename" step. Even though the URL ends in 'cath-domain-list.txt',
+    # we save it as 'cath-b-newest-all.txt' so the rest of the code works.
     target_path = self.root_dir / "cath-b-newest-all.txt"
     
+    print(f"[Patch] Checking for file: {target_path}")
+    print(f"[Patch] URL source: {self.cath_id_cath_code_url}")
+
     if not target_path.exists():
-        print(f"[Patch] Downloading CATH from FTP to {target_path}...")
-        # wget.download handles FTP natively in Python
-        wget.download(self.cath_id_cath_code_url, out=str(target_path))
+        print(f"[Patch] File not found. Downloading...")
+        try:
+            # This is the line you want to contribute to the library
+            wget.download(self.cath_id_cath_code_url, out=str(target_path))
+            print("\n[Patch] Download complete!")
+        except Exception as e:
+            print(f"\n[Patch] Python download failed: {e}")
+            print("[Patch] Attempting fallback to system curl...")
+            import subprocess
+            # Fallback for your cluster (keep this local, don't put in PR)
+            subprocess.run(["curl", "-o", str(target_path), self.cath_id_cath_code_url], check=True)
     else:
-        print("[Patch] CATH file already exists. Skipping.")
+        print("[Patch] File already exists. Skipping download.")
 
+# 4. Apply the monkeypatch
 graphein.ml.datasets.pdb_data.PDBManager._download_cath_id_cath_code_map = fixed_download_cath
-
 import json
 import pickle
 from pathlib import Path
