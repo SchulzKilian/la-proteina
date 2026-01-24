@@ -1,6 +1,7 @@
 import os
 import sys
-
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
 # import torch_performance_linter
