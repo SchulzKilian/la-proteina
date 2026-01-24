@@ -4,6 +4,13 @@ import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
+# --- MONKEYPATCH FIX FOR BROKEN CATH URL ---
+import graphein.ml.datasets.pdb_data
+
+# The original URL 'http://download.cathdb.info/...' is dead.
+# We point it to the new mirror at Orengo Lab (UCL).
+graphein.ml.datasets.pdb_data.CATH_ID_CATH_CODE_URL = "http://orengolab.org/cath/releases/daily-release/newest/cath-b-newest-all.txt"
+# -------------------------------------------
 # import torch_performance_linter
 # isort: split
 
