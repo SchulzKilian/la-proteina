@@ -1,18 +1,27 @@
 import os
 import sys
 import ssl
+import wget
 ssl._create_default_https_context = ssl._create_unverified_context
 root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
 # --- MONKEYPATCH FIX FOR BROKEN CATH URL ---
 import graphein.ml.datasets.pdb_data
 
-# The original URL 'http://download.cathdb.info/...' is dead.
-# We point it to the new mirror at Orengo Lab (UCL).
 graphein.ml.datasets.pdb_data.CATH_ID_CATH_CODE_URL = "ftp://orengoftp.biochem.ucl.ac.uk/cath/releases/latest-release/cath-classification-data/cath-domain-list.txt"
-# -------------------------------------------
-# import torch_performance_linter
-# isort: split
+
+def fixed_download_cath(self):
+
+    target_path = self.root_dir / "cath-b-newest-all.txt"
+    
+    if not target_path.exists():
+        print(f"[Patch] Downloading CATH from FTP to {target_path}...")
+        # wget.download handles FTP natively in Python
+        wget.download(self.cath_id_cath_code_url, out=str(target_path))
+    else:
+        print("[Patch] CATH file already exists. Skipping.")
+
+graphein.ml.datasets.pdb_data.PDBManager._download_cath_id_cath_code_map = fixed_download_cath
 
 import json
 import pickle
