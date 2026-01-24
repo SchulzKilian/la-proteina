@@ -9,7 +9,7 @@ import graphein.ml.datasets.pdb_data
 
 # The original URL 'http://download.cathdb.info/...' is dead.
 # We point it to the new mirror at Orengo Lab (UCL).
-graphein.ml.datasets.pdb_data.CATH_ID_CATH_CODE_URL = "http://orengolab.org/cath/releases/daily-release/newest/cath-b-newest-all.txt"
+graphein.ml.datasets.pdb_data.CATH_ID_CATH_CODE_URL = "ftp://orengoftp.biochem.ucl.ac.uk/cath/releases/latest-release/cath-classification-data/cath-domain-list.txt"
 # -------------------------------------------
 # import torch_performance_linter
 # isort: split
