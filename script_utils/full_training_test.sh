@@ -148,8 +148,6 @@ echo "[+] Starting TRAINING..."
 python proteinfoundation/train.py \
     dataset=pdb/pdb_train_ucond \
     nn=local_latents_score_nn_160M \
-    logger=wandb \
-    logger.wandb.project="laproteina-training" \
     hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)"
 
 echo "[+] Process Complete."
