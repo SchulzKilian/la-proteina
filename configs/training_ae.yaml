@@ -35,7 +35,7 @@ force_precision_f32: False  # If false will use bf16-mixed precision
 # Optimization
 opt:
   lr: 0.0001
-  max_epochs: 1000   #0000
+  max_epochs: 10000000
   accumulate_grad_batches: 1
   skip_nan_grad: False  # Skip updates with nan gradient
   grad_and_weight_analysis: True  # Log some statistics of gradients and weights
