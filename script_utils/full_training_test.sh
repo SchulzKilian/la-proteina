@@ -144,7 +144,7 @@ fi
 # ==============================================================================
 echo "[+] Starting TRAINING..."
 
-
+cd ..
 
 # Note: Added logger=wandb configuration
 python proteinfoundation/train.py \
