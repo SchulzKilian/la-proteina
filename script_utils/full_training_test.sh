@@ -20,7 +20,7 @@ fi
 
 PROJECT_DIR="$(pwd)"
 # DATA_PATH="$PROJECT_DIR/data"
-DATA_PATH="/datasets/public/AlphaFold/data/pdb_mmcif"
+DATA_PATH="/rds/user/ks2218/hpc-work/la-proteina/data/pdb_train/raw"
 # CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
@@ -80,10 +80,7 @@ if [ -z "$DATA_PATH" ]; then
     DATA_PATH="$(pwd)/data" 
 fi
 
-if [ -z "$CHECKPOINT_DIR" ]; then 
-    echo "⚠️  CHECKPOINT_DIR was empty. Setting default."
-    CHECKPOINT_DIR="$(pwd)/checkpoints_laproteina" 
-fi
+
 echo "[+] Setting up Data Paths..."
 mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
