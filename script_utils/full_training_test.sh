@@ -22,7 +22,7 @@ PROJECT_DIR="$(pwd)"
 # DATA_PATH="$PROJECT_DIR/data"
 DATA_PATH="/datasets/public/AlphaFold/data/pdb_mmcif"
 # CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
-CHECKPOINT_DIR="$/rds/user/ks2218/hpc-work/checkpoints_laproteina"
+CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
 
 # Architecture choice
