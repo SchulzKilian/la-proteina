@@ -19,8 +19,10 @@ fi
 # export WANDB_API_KEY="your_api_key_here"
 
 PROJECT_DIR="$(pwd)"
-DATA_PATH="$PROJECT_DIR/data"
-CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
+# DATA_PATH="$PROJECT_DIR/data"
+DATA_PATH="/datasets/public/AlphaFold/data/pdb_mmcif"
+# CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
+CHECKPOINT_DIR="$/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
 
 # Architecture choice
@@ -150,6 +152,7 @@ cd ..
 python proteinfoundation/train.py \
     dataset=pdb/pdb_train_ucond \
     nn=local_latents_score_nn_160M \
-    hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)"
+    hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
+
 
 echo "[+] Process Complete."
