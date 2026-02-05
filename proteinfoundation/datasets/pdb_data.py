@@ -610,14 +610,23 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 if not (self.processed_dir / f"{pdb}.pt").exists()
             ]
 
-        file_names = []
-        for tuple_ in tqdm(index_pdb_tuples, desc="Processing structures", unit="file"):
-            result = self._load_and_process_pdb(tuple_)
-            if result is not None:
-                file_names.append(result)
+        from multiprocessing import Pool
+        n_workers = self.num_workers if self.num_workers > 0 else 4
         
-        logger.info("Completed processing.")
-        return file_names
+        with Pool(processes=n_workers) as pool:
+
+            results = list(tqdm(
+                pool.imap(self._load_and_process_pdb, index_pdb_tuples),
+                total=len(index_pdb_tuples),
+                desc="Processing structures (Parallel)",
+                unit="file"
+            ))
+                
+
+            file_names = [r for r in results if r is not None]
+            
+            logger.info("Completed processing.")
+            return file_names
 
     def _load_and_process_pdb(
         self, index_pdb_tuple: Union[Tuple[int, str], Tuple[int, str, str]]

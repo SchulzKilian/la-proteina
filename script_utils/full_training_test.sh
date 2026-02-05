@@ -19,8 +19,8 @@ fi
 # export WANDB_API_KEY="your_api_key_here"
 
 PROJECT_DIR="$(pwd)"
-# DATA_PATH="$PROJECT_DIR/data"
-DATA_PATH="/rds/user/ks2218/hpc-work/la-proteina/data/pdb_train/raw"
+DATA_PATH="$PROJECT_DIR/data"
+# DATA_PATH="/rds/user/ks2218/hpc-work/la-proteina/data/pdb_train/raw"
 # CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
