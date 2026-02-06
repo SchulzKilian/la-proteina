@@ -81,7 +81,7 @@ mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
 
 # Write the correct path to .env so Hydra picks it up
-echo "DATA_PATH=$DATA_PATH" > .env
+echo "DATA_PATH=$DATA_PATH" >> .env
 
 # --- ProteinMPNN Weights ---
 mkdir -p ProteinMPNN
