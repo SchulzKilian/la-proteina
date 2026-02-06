@@ -432,12 +432,23 @@ class PDBLightningDataModule(BaseLightningDataModule):
 
     def _process_structure_data(self, pdb_codes, chains):
         """Process raw data. Supports serial execution if num_workers=0."""
+        
+        # --- OPTIMIZATION START ---
+        # Read processed directory ONCE
+        logger.info("Checking processed directory contents...")
+        try:
+            processed_files = set(os.listdir(self.processed_dir))
+        except FileNotFoundError:
+            processed_files = set()
+        # --- OPTIMIZATION END ---
+
         tasks = []
         for i, pdb in enumerate(pdb_codes):
             chain = chains[i] if chains is not None else "all"
-            
             fname = f"{pdb}.pt" if chain == "all" else f"{pdb}_{chain}.pt"
-            if (self.processed_dir / fname).exists():
+            
+            # Check against memory instead of disk
+            if fname in processed_files:
                 continue
                 
             tasks.append((
@@ -455,7 +466,6 @@ class PDBLightningDataModule(BaseLightningDataModule):
         file_names = []
         if len(tasks) > 0:
             if self.num_workers > 0:
-                # --- PARALLEL MODE (Use Pool) ---
                 n_workers = self.num_workers
                 logger.info(f"Processing {len(tasks)} files with {n_workers} workers...")
                 
@@ -472,7 +482,6 @@ class PDBLightningDataModule(BaseLightningDataModule):
                     logger.error("Parallel processing crashed!")
                     raise e
             else:
-                # --- SERIAL MODE (Main Process) ---
                 logger.info(f"Processing {len(tasks)} files in SERIAL mode...")
                 for task in tqdm(tasks, desc="Processing (Serial)", unit="file"):
                     res = process_single_pdb_file(task)
