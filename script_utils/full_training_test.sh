@@ -86,6 +86,7 @@ cd ProteinMPNN
 if [ -d "ca_model_weights" ] && [ "$(ls -A ca_model_weights)" ] && \
    [ -d "vanilla_model_weights" ] && [ "$(ls -A vanilla_model_weights)" ]; then
     echo "[+] ProteinMPNN weights found."
+    cd ..
 else
     echo "[+] Downloading ProteinMPNN weights..."
     rm -rf ca_model_weights vanilla_model_weights
