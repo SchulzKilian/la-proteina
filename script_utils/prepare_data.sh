@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Necessary in order to not waste previous GPU time on downloading data and checkpoints, which can be done on CPU.
+
+
 # Stop execution immediately if any command fails
 set -e 
 
@@ -25,7 +28,7 @@ fi
 # 1. Configuration & Directories
 # ==============================================================================
 # Define your paths relative to the robust PROJECT_DIR
-DATA_PATH="$PROJECT_DIR/data"
+export DATA_PATH="$PROJECT_DIR/data"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 # CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina" 
 
