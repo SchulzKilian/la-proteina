@@ -563,25 +563,35 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 ]
             )
             to_download = list(set(to_download))
+            
             # Determine whether to download raw structures
             if to_download:
                 logger.info(
-                    f"Downloading {len(to_download)} structures to {self.processed_dir}"
+                    f"Attempting to download {len(to_download)} structures to {self.processed_dir}"
                 )
                 file_format = (
                     self.format[:-3] if self.format.endswith(".gz") else self.format
                 )
+                
                 # calculate number of downloads per worker
                 chunksize = (
                     len(to_download) // self.num_workers + 1
-                )  # +1 handles edge case where num_workers > len(to_download)
-                download_pdb_multiprocessing(
-                    to_download,
-                    self.raw_dir,
-                    format=file_format,
-                    max_workers=self.num_workers,
-                    chunksize=chunksize,
                 )
+                
+                # --- FIX: WRAP DOWNLOAD IN TRY/EXCEPT ---
+                try:
+                    download_pdb_multiprocessing(
+                        to_download,
+                        self.raw_dir,
+                        format=file_format,
+                        max_workers=self.num_workers,
+                        chunksize=chunksize,
+                    )
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"⚠️  DOWNLOAD FAILED: Could not write to disk ({e}).")
+                    logger.warning("⚠️  Continuing with ONLY the files that already exist locally.")
+                    # We catch the error so the code doesn't crash. 
+                    # The 'prepare_data' method will then filter out the missing files in the next step.
             else:
                 logger.info(
                     f"No structures to download, all {len(pdb_codes)} structure files already present"
