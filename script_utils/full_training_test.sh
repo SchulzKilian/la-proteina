@@ -1,31 +1,32 @@
 #!/bin/bash
 
-# Stop execution immediately if any command fails (saves you from cascading errors)
-# Note: We handle the wget failure manually, so it won't crash the script immediately
+# Stop execution immediately if any command fails
 set -e 
 
+# ==============================================================================
+# 0. ROBUST PATH SETUP (Run from anywhere)
+# ==============================================================================
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-
+# Navigate to Project Root
+cd "$PROJECT_DIR"
 
 if [ -f .env ]; then
-    # This automatically exports every variable in your .env file
     set -o allexport
     source .env
     set +o allexport
 fi
+
 # ==============================================================================
 # 1. Configuration & Secrets
 # ==============================================================================
 # export WANDB_API_KEY="your_api_key_here"
 
-PROJECT_DIR="$(pwd)"
 DATA_PATH="$PROJECT_DIR/data"
-# DATA_PATH="/rds/user/ks2218/hpc-work/la-proteina/data/pdb_train/raw"
-# CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
+# CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
-
-# Architecture choice
 REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 
 # ==============================================================================
@@ -68,22 +69,15 @@ echo "[+] Setting up Data Paths..."
 
 # --- DEBUGGING LINES ---
 echo "DEBUG INFO:"
-echo "  Current Directory (pwd): $(pwd)"
 echo "  PROJECT_DIR: '$PROJECT_DIR'"
 echo "  DATA_PATH:   '$DATA_PATH'"
 echo "  CHECKPOINT_DIR: '$CHECKPOINT_DIR'"
 # -----------------------
 
-# Fallback: If variables are empty, force them to default values
-if [ -z "$DATA_PATH" ]; then 
-    echo "⚠️  DATA_PATH was empty. Setting default."
-    DATA_PATH="$(pwd)/data" 
-fi
-
-
-echo "[+] Setting up Data Paths..."
 mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
+
+# Write the correct path to .env so Hydra picks it up
 echo "DATA_PATH=$DATA_PATH" > .env
 
 # --- ProteinMPNN Weights ---
@@ -97,7 +91,6 @@ else
     rm -rf ca_model_weights vanilla_model_weights
     mkdir -p ca_model_weights vanilla_model_weights
 
-    # Using -qnc (quiet, no-clobber)
     cd ca_model_weights
     wget -qnc https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_002.pt
     wget -qnc https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_010.pt
@@ -118,12 +111,10 @@ AE_URL="https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae1_ucond_
 if [ ! -f "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" ]; then
     echo "⚠️  Autoencoder missing. Attempting download from NVIDIA NGC..."
     
-    # Run wget. If it fails, we catch it in the next step
     wget --content-disposition "$AE_URL" \
          --output-document "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" \
          --progress=bar:force:noscroll || echo "Wget failed."
 
-    # Verify Size (>1MB)
     FILE_SIZE=$(stat -c%s "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" 2>/dev/null || echo 0)
     
     if [ "$FILE_SIZE" -lt 1000000 ]; then
@@ -143,13 +134,10 @@ fi
 # ==============================================================================
 echo "[+] Starting TRAINING..."
 
-cd ..
-
-# Note: Added logger=wandb configuration
+# Note: We are already in PROJECT_DIR because of the 'cd' at step 0.
 python proteinfoundation/train.py \
     dataset=pdb/pdb_train_ucond \
     nn=local_latents_score_nn_160M \
     hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
-
 
 echo "[+] Process Complete."

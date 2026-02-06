@@ -3,6 +3,17 @@
 # Stop execution immediately if any command fails
 set -e 
 
+# ==============================================================================
+# 0. ROBUST PATH SETUP (Run from anywhere)
+# ==============================================================================
+# Get the directory where this script is located (script_utils)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+# Get the project root (one level up)
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Navigate to Project Root so python imports work
+cd "$PROJECT_DIR"
+
 # Load .env variables if present
 if [ -f .env ]; then
     set -o allexport
@@ -13,12 +24,8 @@ fi
 # ==============================================================================
 # 1. Configuration & Directories
 # ==============================================================================
-PROJECT_DIR="$(pwd)"
-
-# Define your paths (Adjust these if your cluster paths differ)
+# Define your paths relative to the robust PROJECT_DIR
 DATA_PATH="$PROJECT_DIR/data"
-# DATA_PATH="/rds/user/ks2218/hpc-work/la-proteina/data/pdb_train/raw"
-
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 # CHECKPOINT_DIR="$PROJECT_DIR/checkpoints_laproteina" 
 
@@ -89,16 +96,10 @@ fi
 # ==============================================================================
 echo "[+] Starting DATA PREPARATION script..."
 
-# We execute the python script you already created.
-# We override:
-#   1. data_dir -> to point to your $DATA_PATH
-#   2. num_workers -> 16 (for parallel CPU processing)
-#   3. accelerator -> cpu (to avoid NVME errors)
-#   4. nolog -> true (to disable WandB completely)
-
+# We target the specific pdb_train subdirectory here!
 python prepare_data.py \
     dataset=pdb/pdb_train_ucond \
-    dataset.datamodule.data_dir="$DATA_PATH" \
+    dataset.datamodule.data_dir="$DATA_PATH/pdb_train" \
     dataset.datamodule.num_workers=16 \
     +nolog=true \
     ++hardware.accelerator=cpu \
