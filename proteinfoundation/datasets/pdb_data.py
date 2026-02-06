@@ -550,19 +550,21 @@ class PDBLightningDataModule(BaseLightningDataModule):
 
     def _download_structure_data(self, pdb_codes) -> None:
         if pdb_codes is not None:
-            to_download = (
-                pdb_codes
-                if self.overwrite
-                else [
-                    pdb
-                    for pdb in pdb_codes
-                    if not (
-                        (self.raw_dir / f"{pdb}.{self.format}").exists()
-                        or (self.raw_dir / f"{pdb}.{self.format}.gz").exists()
-                    )
-                ]
-            )
-            to_download = list(set(to_download))
+
+            if not self.overwrite:
+                logger.info("Checking local files (optimized)...")
+                # Get all files in the directory into a fast-lookup set
+                existing_files = set(os.listdir(self.raw_dir))
+                
+                to_download = []
+                for pdb in pdb_codes:
+                    # Check against the set in memory (instant)
+                    f1 = f"{pdb}.{self.format}"
+                    f2 = f"{pdb}.{self.format}.gz"
+                    if f1 not in existing_files and f2 not in existing_files:
+                        to_download.append(pdb)
+            else:
+                to_download = pdb_codes
             
             # Determine whether to download raw structures
             if to_download:
