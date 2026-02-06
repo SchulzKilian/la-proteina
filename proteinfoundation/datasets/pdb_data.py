@@ -492,38 +492,22 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 logger.info(
                     f"{df_data_name} already exists, skipping data selection and processing stage."
                 )
-
             else:
                 logger.info(f"{df_data_name} does not exist yet, creating dataset now.")
                 df_data = self.dataselector.create_dataset()
-
-                logger.info("Verifying local file availability (skipping download due to read-only raw dir)...")
-                existing_pdbs = []
-                unique_pdbs = df_data["pdb"].unique()
-                
-                for pdb in tqdm(unique_pdbs, desc="Checking files"):
-
-                    if (self.raw_dir / f"{pdb}.{self.format}").exists() or \
-                    (self.raw_dir / f"{pdb}.{self.format}.gz").exists():
-                        existing_pdbs.append(pdb)
-                
-                existing_pdbs_set = set(existing_pdbs)
-                missing_count = len(unique_pdbs) - len(existing_pdbs)
-                
-                if missing_count > 0:
-                    logger.warning(f"⚠️  Dropping {missing_count} PDBs because they are missing from the read-only raw directory.")
-                    df_data = df_data[df_data["pdb"].isin(existing_pdbs_set)]
-
-                if missing_count > 5000:
-                    logger.warning(f"⚠️  A large number of {missing_count} PDBs are missing from the read-only raw directory. Consider adjusting your selection criteria to ensure a sufficient number of samples for training.")
-
                 logger.info(
-                    f"Dataset filtered to {len(df_data)} entries. Now processing..."
+                    f"Dataset created with {len(df_data)} entries. Now downloading structure data..."
                 )
-
+                self._download_structure_data(df_data["pdb"].tolist())
+                # process pdb files into seperate chains and save processed objects as .pt files
                 self._process_structure_data(
                     df_data["pdb"].tolist(), df_data["chain"].tolist()
-                            )
+                )
+
+                # save df_data to disk for later use (in splitting, dataloading etc)
+                logger.info(f"Saving dataset csv to {df_data_name}")
+                df_data.to_csv(self.data_dir / df_data_name, index=False)
+
         else:  # user-provided dataset
             df_data_name = f"{self.data_dir.name}.csv"
             if not self.overwrite and (self.data_dir / df_data_name).exists():
@@ -626,23 +610,14 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 if not (self.processed_dir / f"{pdb}.pt").exists()
             ]
 
-        from multiprocessing import Pool
-        n_workers = self.num_workers if self.num_workers > 0 else 4
+        file_names = []
+        for tuple_ in tqdm(index_pdb_tuples, desc="Processing structures", unit="file"):
+            result = self._load_and_process_pdb(tuple_)
+            if result is not None:
+                file_names.append(result)
         
-        with Pool(processes=n_workers) as pool:
-
-            results = list(tqdm(
-                pool.imap(self._load_and_process_pdb, index_pdb_tuples),
-                total=len(index_pdb_tuples),
-                desc="Processing structures (Parallel)",
-                unit="file"
-            ))
-                
-
-            file_names = [r for r in results if r is not None]
-            
-            logger.info("Completed processing.")
-            return file_names
+        logger.info("Completed processing.")
+        return file_names
 
     def _load_and_process_pdb(
         self, index_pdb_tuple: Union[Tuple[int, str], Tuple[int, str, str]]
