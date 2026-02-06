@@ -4,7 +4,7 @@ hardware:
   ncpus_per_task_train_: 24  # Number of CPUs per tast during training
   ncpus_per_task_prepro_: 32  # Number of CPUs used for data preprocessing run
   accelerator: gpu
-  ngpus_per_node_: 1
+  ngpus_per_node_: 4
   nnodes_: 1
 
 defaults:
@@ -78,7 +78,7 @@ opt:
 # wandb logging and checkpoints
 log:
   wandb_project: laproteina
-  log_wandb: False  # whether to log to wandb
+  log_wandb: True  # whether to log to wandb
   log_every_n_steps: 10  # wandb logging frequency
   checkpoint: True  # whether to store checkpoints
   checkpoint_every_n_steps: 10000  # How often we store a checkpoint, should be greater than val_check_interval in `opt`
