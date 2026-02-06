@@ -492,22 +492,38 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 logger.info(
                     f"{df_data_name} already exists, skipping data selection and processing stage."
                 )
+
             else:
                 logger.info(f"{df_data_name} does not exist yet, creating dataset now.")
                 df_data = self.dataselector.create_dataset()
+
+                logger.info("Verifying local file availability (skipping download due to read-only raw dir)...")
+                existing_pdbs = []
+                unique_pdbs = df_data["pdb"].unique()
+                
+                for pdb in tqdm(unique_pdbs, desc="Checking files"):
+
+                    if (self.raw_dir / f"{pdb}.{self.format}").exists() or \
+                    (self.raw_dir / f"{pdb}.{self.format}.gz").exists():
+                        existing_pdbs.append(pdb)
+                
+                existing_pdbs_set = set(existing_pdbs)
+                missing_count = len(unique_pdbs) - len(existing_pdbs)
+                
+                if missing_count > 0:
+                    logger.warning(f"⚠️  Dropping {missing_count} PDBs because they are missing from the read-only raw directory.")
+                    df_data = df_data[df_data["pdb"].isin(existing_pdbs_set)]
+
+                if missing_count > 5000:
+                    logger.warning(f"⚠️  A large number of {missing_count} PDBs are missing from the read-only raw directory. Consider adjusting your selection criteria to ensure a sufficient number of samples for training.")
+
                 logger.info(
-                    f"Dataset created with {len(df_data)} entries. Now downloading structure data..."
+                    f"Dataset filtered to {len(df_data)} entries. Now processing..."
                 )
-                self._download_structure_data(df_data["pdb"].tolist())
-                # process pdb files into seperate chains and save processed objects as .pt files
+
                 self._process_structure_data(
                     df_data["pdb"].tolist(), df_data["chain"].tolist()
-                )
-
-                # save df_data to disk for later use (in splitting, dataloading etc)
-                logger.info(f"Saving dataset csv to {df_data_name}")
-                df_data.to_csv(self.data_dir / df_data_name, index=False)
-
+                            )
         else:  # user-provided dataset
             df_data_name = f"{self.data_dir.name}.csv"
             if not self.overwrite and (self.data_dir / df_data_name).exists():
