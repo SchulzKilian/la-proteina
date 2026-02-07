@@ -393,11 +393,18 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 logger.info("Verifying file availability...")
                 existing_pdbs = []
                 unique_pdbs = df_data["pdb"].unique()
-                
-                # Check which files actually exist (in case download failed for some)
+                try:
+                    # Get all filenames currently on disk
+                    raw_files_on_disk = set(os.listdir(self.raw_dir))
+                except FileNotFoundError:
+                    raw_files_on_disk = set()
+
                 for pdb in tqdm(unique_pdbs, desc="Verifying files"):
-                    if (self.raw_dir / f"{pdb}.{self.format}").exists() or \
-                       (self.raw_dir / f"{pdb}.{self.format}.gz").exists():
+                    # Check if .cif OR .cif.gz exists in our set
+                    fname = f"{pdb}.{self.format}"
+                    fname_gz = f"{pdb}.{self.format}.gz"
+                    
+                    if fname in raw_files_on_disk or fname_gz in raw_files_on_disk:
                         existing_pdbs.append(pdb)
                 
                 existing_pdbs_set = set(existing_pdbs)
@@ -433,23 +440,25 @@ class PDBLightningDataModule(BaseLightningDataModule):
     def _process_structure_data(self, pdb_codes, chains):
         """Process raw data. Supports serial execution if num_workers=0."""
         
-        # --- OPTIMIZATION START ---
-        # Read processed directory ONCE
+
         logger.info("Checking processed directory contents...")
         try:
+            # We explicitly check for files in the processed directory
             processed_files = set(os.listdir(self.processed_dir))
         except FileNotFoundError:
             processed_files = set()
-        # --- OPTIMIZATION END ---
+        # -----------------------------------------
 
         tasks = []
         for i, pdb in enumerate(pdb_codes):
             chain = chains[i] if chains is not None else "all"
+            
             fname = f"{pdb}.pt" if chain == "all" else f"{pdb}_{chain}.pt"
             
-            # Check against memory instead of disk
+            # Check against the set in memory, NOT the disk ---
             if fname in processed_files:
                 continue
+
                 
             tasks.append((
                 pdb,
@@ -466,6 +475,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
         file_names = []
         if len(tasks) > 0:
             if self.num_workers > 0:
+                # --- PARALLEL MODE (Use Pool) ---
                 n_workers = self.num_workers
                 logger.info(f"Processing {len(tasks)} files with {n_workers} workers...")
                 
@@ -482,6 +492,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
                     logger.error("Parallel processing crashed!")
                     raise e
             else:
+                # --- SERIAL MODE (Main Process) ---
                 logger.info(f"Processing {len(tasks)} files in SERIAL mode...")
                 for task in tqdm(tasks, desc="Processing (Serial)", unit="file"):
                     res = process_single_pdb_file(task)
