@@ -7,10 +7,11 @@
 #SBATCH --cpus-per-task=16       # Matches your --cpus-per-task
 #SBATCH --time=05:00:00          # I increased this to 4h (1h might be tight for downloading)
 #SBATCH --output=slurm_prep_%j.out
-
+source $HOME/.bashrc
 # 1. Load Environment (Optional but recommended if your .bashrc isn't loaded)
 # Your prepare_data.sh handles conda, but loading the module first is safe:
-source /rds/user/ks2218/hpc-work/conda_root/etc/profile.d/conda.sh
+
+
 
 # 2. Activate the environment explicitly here
 conda activate laproteina_env

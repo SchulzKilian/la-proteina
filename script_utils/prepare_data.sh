@@ -38,7 +38,7 @@ REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 # Ensure directories exist
 mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
-
+"""
 # ==============================================================================
 # 2. Setup Conda Environment
 # ==============================================================================
@@ -58,7 +58,7 @@ else
     pip install graphein==1.7.7 --no-deps
     pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
 fi
-
+"""
 # ==============================================================================
 # 3. Download Dependencies (Weights & Checkpoints)
 # ==============================================================================
