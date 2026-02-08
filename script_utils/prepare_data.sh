@@ -38,27 +38,29 @@ REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 # Ensure directories exist
 mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
-"""
+
+
+
 # ==============================================================================
 # 2. Setup Conda Environment
 # ==============================================================================
-echo "[+] Setting up Environment..."
-CONDA_CMD="conda"
-if command -v mamba &> /dev/null; then CONDA_CMD="mamba"; fi
-source $(conda info --base)/etc/profile.d/conda.sh
+#echo "[+] Setting up Environment..."
+#CONDA_CMD="conda"
+#if command -v mamba &> /dev/null; then CONDA_CMD="mamba"; fi
+#source $(conda info --base)/etc/profile.d/conda.sh
+#
+#if $CONDA_CMD env list | grep -q "$ENV_NAME"; then
+#    echo "[+] Activating environment '$ENV_NAME'..."
+#    conda activate "$ENV_NAME"
+#else
+#    echo "[+] Creating environment '$ENV_NAME'..."
+#    $CONDA_CMD env create -f environment.yaml
+#    conda activate "$ENV_NAME"
+#    pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu118
+#    pip install graphein==1.7.7 --no-deps
+#    pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
+#fi
 
-if $CONDA_CMD env list | grep -q "$ENV_NAME"; then
-    echo "[+] Activating environment '$ENV_NAME'..."
-    conda activate "$ENV_NAME"
-else
-    echo "[+] Creating environment '$ENV_NAME'..."
-    $CONDA_CMD env create -f environment.yaml
-    conda activate "$ENV_NAME"
-    pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu118
-    pip install graphein==1.7.7 --no-deps
-    pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
-fi
-"""
 # ==============================================================================
 # 3. Download Dependencies (Weights & Checkpoints)
 # ==============================================================================
