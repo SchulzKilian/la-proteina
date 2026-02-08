@@ -360,8 +360,15 @@ class PDBLightningDataModule(BaseLightningDataModule):
         self.data_dir = pathlib.Path(data_dir)
         self.raw_dir = self.data_dir / "raw"
         self.processed_dir = self.data_dir / "processed"
-        self.raw_dir.mkdir(parents=True, exist_ok=True)
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.raw_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            pass
+
+        try:
+            self.processed_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            pass
         self.dataselector = dataselector
         self.datasplitter = datasplitter
         self.sampling_mode = sampling_mode
