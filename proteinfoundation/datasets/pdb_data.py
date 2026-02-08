@@ -596,7 +596,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
             # Determine whether to download raw structures
             if to_download:
                 logger.info(
-                    f"Attempting to download {len(to_download)} structures to {self.processed_dir}"
+                    f"Attempting to download {len(to_download)} structures to {self.raw_dir}"
                 )
                 file_format = (
                     self.format[:-3] if self.format.endswith(".gz") else self.format
