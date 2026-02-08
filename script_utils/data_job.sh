@@ -10,10 +10,13 @@
 
 # 1. Load Environment (Optional but recommended if your .bashrc isn't loaded)
 # Your prepare_data.sh handles conda, but loading the module first is safe:
-. /etc/profile.d/modules.sh
-module purge
-module load miniconda/3
+source /rds/user/ks2218/hpc-work/conda_root/etc/profile.d/conda.sh
 
+# 2. Activate the environment explicitly here
+conda activate laproteina_env
+
+# 3. Force the script to use the environment's python by verifying path
+which python
 # 2. Navigate to your project folder
 # (Assuming you submit this from your home directory or the la-proteina folder)
 cd $HOME/la-proteina
