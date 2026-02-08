@@ -18,7 +18,7 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
-export SLURM_NTASKS=1
+export SLURM_NTASKS=4
 
 
 # ==============================================================================
