@@ -4,7 +4,7 @@
 #SBATCH -p ampere                # <--- GPU partition
 #SBATCH --gres=gpu:1             # Request 1 GPU
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=16       # 16 CPUs for data loading
 #SBATCH --time=04:00:00          # 4 hours (adjust as needed)
 #SBATCH --output=slurm_train_%j.out
