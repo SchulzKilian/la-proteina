@@ -46,22 +46,26 @@ fi
 # ==============================================================================
 # 3. Setup Conda Environment
 # ==============================================================================
-CONDA_CMD="conda"
-if command -v mamba &> /dev/null; then CONDA_CMD="mamba"; fi
-source $(conda info --base)/etc/profile.d/conda.sh
-
-if $CONDA_CMD env list | grep -q "$ENV_NAME"; then
-    echo "[+] Activating environment '$ENV_NAME'..."
-    conda activate "$ENV_NAME"
+if [[ "$CONDA_DEFAULT_ENV" == "$ENV_NAME" ]]; then
+    echo "[+] Environment '$ENV_NAME' is already active. Skipping internal setup."
 else
-    echo "[+] Creating environment '$ENV_NAME'..."
-    $CONDA_CMD env create -f environment.yaml
-    conda activate "$ENV_NAME"
-    
-    echo "[+] Installing pip dependencies..."
-    pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu118
-    pip install graphein==1.7.7 --no-deps
-    pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
+    CONDA_CMD="conda"
+    if command -v mamba &> /dev/null; then CONDA_CMD="mamba"; fi
+    source $(conda info --base)/etc/profile.d/conda.sh
+
+    if $CONDA_CMD env list | grep -q "$ENV_NAME"; then
+        echo "[+] Activating environment '$ENV_NAME'..."
+        conda activate "$ENV_NAME"
+    else
+        echo "[+] Creating environment '$ENV_NAME'..."
+        $CONDA_CMD env create -f environment.yaml
+        conda activate "$ENV_NAME"
+        
+        echo "[+] Installing pip dependencies..."
+        pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu118
+        pip install graphein==1.7.7 --no-deps
+        pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
+    fi
 fi
 
 # ==============================================================================
