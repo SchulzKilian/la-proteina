@@ -79,7 +79,7 @@ opt:
 log:
   wandb_project: laproteina
   log_wandb: True  # whether to log to wandb
-  log_every_n_steps: 10  # wandb logging frequency
+  log_every_n_steps: 1  # wandb logging frequency
   checkpoint: True  # whether to store checkpoints
   checkpoint_every_n_steps: 10000  # How often we store a checkpoint, should be greater than val_check_interval in `opt`
   last_ckpt_every_n_steps: 1500  # How often do we update our last ckpt, needed for requeuing without losing progress
