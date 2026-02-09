@@ -141,7 +141,7 @@ fi
 # 6. Execution: Train
 # ==============================================================================
 echo "[+] Starting TRAINING..."
-
+export SLURM_NTASKS_PER_NODE=$SLURM_NTASKS
 # Note: We are already in PROJECT_DIR because of the 'cd' at step 0.
 srun python proteinfoundation/train.py \
     dataset=pdb/pdb_train_ucond \
