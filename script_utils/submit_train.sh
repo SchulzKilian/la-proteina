@@ -2,10 +2,10 @@
 #SBATCH -J train_test
 #SBATCH -A CHANGEME-GPU          # <--- CHANGE to your GPU account (e.g., COMPUTERLAB-SL3-GPU)
 #SBATCH -p ampere                # <--- GPU partition
-#SBATCH --gres=gpu:1             # Request 1 GPU
+#SBATCH --gres=gpu:4             # Request 1 GPU
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=16       # 16 CPUs for data loading
+#SBATCH --cpus-per-task=24       # 16 CPUs for data loading
 #SBATCH --time=04:00:00          # 4 hours (adjust as needed)
 #SBATCH --output=slurm_train_%j.out
 
