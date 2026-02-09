@@ -105,7 +105,7 @@ echo "[+] Starting DATA PREPARATION script..."
 python prepare_data.py \
     dataset=pdb/pdb_train_ucond \
     dataset.datamodule.data_dir="$DATA_PATH/pdb_train" \
-    dataset.datamodule.num_workers=64 \
+    dataset.datamodule.num_workers=42 \
     +nolog=true \
     ++hardware.accelerator=cpu \
     ++hardware.ngpus_per_node_=1

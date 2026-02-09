@@ -11,7 +11,7 @@ def main(cfg):
     print("🚀 Starting Data Preparation on CPU...")
     
     # 1. Force CPU-friendly settings
-    cfg.dataset.datamodule.num_workers = 64  # Use all your CPU cores (adjust as needed)
+    cfg.dataset.datamodule.num_workers = 42  # Use all your CPU cores (adjust as needed)
     
     # 2. Instantiate ONLY the DataModule (skips Model/Trainer)
     print(f"Loading DataModule config...")

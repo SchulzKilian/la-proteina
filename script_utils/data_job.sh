@@ -3,8 +3,8 @@
 #SBATCH -A COMPUTERLAB-SL3-CPU   # Matches your -A
 #SBATCH -p sapphire              # Matches your -p
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=16       # Matches your --cpus-per-task
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=42       # Matches your --cpus-per-task
 #SBATCH --time=12:00:00          # I increased this to 4h (1h might be tight for downloading)
 #SBATCH --output=slurm_prep_%j.out
 source $HOME/.bashrc
