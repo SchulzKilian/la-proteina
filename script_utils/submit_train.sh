@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J train_test
-#SBATCH -A CHANGEME-GPU          # <--- CHANGE to your GPU account (e.g., COMPUTERLAB-SL3-GPU)
+#SBATCH -A COMPUTERLAB-SL3-GPU          # <--- CHANGE to your GPU account (e.g., COMPUTERLAB-SL3-GPU)
 #SBATCH -p ampere                # <--- GPU partition
 #SBATCH --gres=gpu:4             # Request 1 GPU
 #SBATCH --nodes=1
