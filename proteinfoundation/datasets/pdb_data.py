@@ -83,8 +83,12 @@ def process_single_pdb_file(args):
         if pre_filter:
             if pre_filter(graph) is not True:
                 return None
+        shard = pdb[0:2].lower()
+        shard_dir = processed_dir / shard
+        shard_dir.mkdir(exist_ok=True, parents=True)
+        
 
-        torch.save(graph, processed_dir / fname)
+        torch.save(graph, shard_dir / fname)
         return fname
 
     except Exception as e:
@@ -297,9 +301,16 @@ class PDBDataset(Dataset):
         self.sequence_id_to_idx = None
 
         if self.in_memory:
-            logger.info("Reading data into memory")
-            self.data = [torch.load(self.processed_dir / f) for f in tqdm(file_names)]
+            logger.info("Reading data into memory (sharded)...")
+            self.data = []
+            for f in tqdm(file_names):
+                fname = f if f.endswith(".pt") else f"{f}.pt"
+                shard = fname[0:2].lower()
+                path = self.processed_dir / shard / fname
 
+                if not path.exists():
+                    path = self.processed_dir / fname
+                self.data.append(torch.load(path, weights_only=False))
     def __len__(self):
         return len(self.file_names)
 
@@ -314,7 +325,13 @@ class PDBDataset(Dataset):
             else:
                 fname = f"{self.pdb_codes[idx]}.pt"
 
-            graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
+            shard = fname[0:2].lower()
+            file_path = self.data_dir / "processed" / shard / fname
+            
+            if not file_path.exists():
+                file_path = self.data_dir / "processed" / fname
+                
+            graph = torch.load(file_path, weights_only=False)
 
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
         graph.coord_mask = graph.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
@@ -448,11 +465,14 @@ class PDBLightningDataModule(BaseLightningDataModule):
         """Process raw data. Supports serial execution if num_workers=0."""
         
 
-        logger.info("Checking processed directory contents...")
+        import glob
+        logger.info("Scanning sharded processed directory (this may take a minute)...")
         try:
-            # We explicitly check for files in the processed directory
-            processed_files = set(os.listdir(self.processed_dir))
-        except FileNotFoundError:
+            # SHARDING FIX: Recursively find all .pt files in subfolders
+            existing_paths = glob.glob(str(self.processed_dir / "**" / "*.pt"), recursive=True)
+            processed_files = {os.path.basename(p) for p in existing_paths}
+        except Exception as e:
+            logger.warning(f"Could not scan processed directory: {e}")
             processed_files = set()
         # -----------------------------------------
 
@@ -489,7 +509,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 try:
                     with Pool(processes=n_workers) as pool:
                         results = list(tqdm(
-                            pool.imap(process_single_pdb_file, tasks), 
+                            pool.imap_unordered(process_single_pdb_file, tasks), 
                             total=len(tasks),
                             desc="Processing (Parallel)",
                             unit="file"
@@ -579,13 +599,13 @@ class PDBLightningDataModule(BaseLightningDataModule):
         if pdb_codes is not None:
 
             if not self.overwrite:
-                logger.info("Checking local files (optimized)...")
-                # Get all files in the directory into a fast-lookup set
+                logger.info("Checking local raw files...")
+
                 existing_files = set(os.listdir(self.raw_dir))
                 
                 to_download = []
                 for pdb in pdb_codes:
-                    # Check against the set in memory (instant)
+                    # Check for raw files (e.g. 1abc.cif or 1abc.cif.gz)
                     f1 = f"{pdb}.{self.format}"
                     f2 = f"{pdb}.{self.format}.gz"
                     if f1 not in existing_files and f2 not in existing_files:
