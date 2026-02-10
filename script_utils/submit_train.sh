@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=24       # 16 CPUs for data loading
-#SBATCH --time=04:00:00          # 4 hours (adjust as needed)
+#SBATCH --time=12:00:00          # 4 hours (adjust as needed)
 #SBATCH --output=slurm_train_%j.out
 
 # 1. Load your personal shell config (Reliable Conda setup)
