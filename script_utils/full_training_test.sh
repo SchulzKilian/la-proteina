@@ -144,7 +144,6 @@ echo "[+] Starting TRAINING..."
 export SLURM_NTASKS_PER_NODE=$SLURM_NTASKS
 # Note: We are already in PROJECT_DIR because of the 'cd' at step 0.
 srun python proteinfoundation/train.py \
-    num_workers=24 \
     dataset=pdb/pdb_train_ucond \
     nn=local_latents_score_nn_160M \
     hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
