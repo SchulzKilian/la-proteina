@@ -564,9 +564,33 @@ class PDBLightningDataModule(BaseLightningDataModule):
             logger.info(f"Loading dataset csv from {df_data_name}")
             self.df_data = pd.read_csv(self.data_dir / df_data_name)
 
-        (self.dfs_splits, self.clusterid_to_seqid_mappings) = (
-            self.datasplitter.split_data(self.df_data, file_identifier)
-        )
+        # --- RANK GUARD START ---
+        # We ensure clustering and file-moving only happens on Rank 0
+        if torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            
+            if rank == 0:
+                # Rank 0 performs the clustering/splitting first
+                (self.dfs_splits, self.clusterid_to_seqid_mappings) = (
+                    self.datasplitter.split_data(self.df_data, file_identifier)
+                )
+            
+            # All other ranks wait here until Rank 0 finishes writing files to disk
+            torch.distributed.barrier()
+            
+            if rank != 0:
+                # Now that Rank 0 is done, other ranks call split_data.
+                # Because the files now exist, they will skip the mmseqs2 clustering 
+                # and just load the results into memory.
+                (self.dfs_splits, self.clusterid_to_seqid_mappings) = (
+                    self.datasplitter.split_data(self.df_data, file_identifier)
+                )
+        else:
+            # Standard execution for single-GPU or non-distributed setups
+            (self.dfs_splits, self.clusterid_to_seqid_mappings) = (
+                self.datasplitter.split_data(self.df_data, file_identifier)
+            )
+        # --- RANK GUARD END ---
 
         if stage == "fit" or stage is None:
             self.train_ds = self._get_dataset("train")
