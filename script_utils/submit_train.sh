@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=24
-#SBATCH --mem=0                 # <--- FIX: Request ALL System RAM to feed the 4 GPUs
+#SBATCH --mem=0                
 #SBATCH --time=4:00:00
 #SBATCH
 
