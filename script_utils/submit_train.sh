@@ -5,10 +5,9 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=24
 #SBATCH --mem=0                
 #SBATCH --time=4:00:00
-#SBATCH
+
 
 # 1. Load your personal shell config (Reliable Conda setup)
 source $HOME/.bashrc
