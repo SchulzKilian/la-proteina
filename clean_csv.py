@@ -11,7 +11,7 @@ def clean_dataset_strict():
     processed_dir = base_dir / "processed"
     
     # 2. Find CSV
-    csv_files = list(base_dir.glob("*.csv"))
+    csv_files = list(base_dir.glob("df_pdb_f1*.csv"))
     if not csv_files:
         print(f"❌ No CSV found in {base_dir}")
         return
