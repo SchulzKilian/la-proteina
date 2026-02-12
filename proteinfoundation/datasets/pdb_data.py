@@ -319,18 +319,26 @@ class PDBDataset(Dataset):
             graph = self.data[idx]
         else:
             if self.file_names is not None:
-                fname = f"{self.file_names[idx]}.pt"
+                fname = self.file_names[idx]
+                if not fname.endswith(".pt"):
+                    fname = f"{fname}.pt"
             elif self.chains is not None:
                 fname = f"{self.pdb_codes[idx]}_{self.chains[idx]}.pt"
             else:
                 fname = f"{self.pdb_codes[idx]}.pt"
 
+            # 1. First, try the sharded path (e.g., processed/4c/4ct3_E.pt)
             shard = fname[0:2].lower()
-            file_path = self.data_dir / "processed" / shard / fname
-            
+            file_path = self.processed_dir / shard / fname
+
+            # 2. Fallback: Check the root processed directory (e.g., processed/4ct3_E.pt)
             if not file_path.exists():
-                file_path = self.data_dir / "processed" / fname
-                
+                file_path = self.processed_dir / fname
+
+            # 3. Final check: ensure we found it before loading
+            if not file_path.exists():
+                raise FileNotFoundError(f"Could not find processed file {fname} in {self.processed_dir} (checked shards and root).")
+
             graph = torch.load(file_path, weights_only=False)
 
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
