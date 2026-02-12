@@ -20,6 +20,7 @@ fi
 
 export SLURM_NTASKS=4
 
+export TORCH_COMPILE_DISABLE=1
 
 # ==============================================================================
 # 1. Configuration & Secrets
