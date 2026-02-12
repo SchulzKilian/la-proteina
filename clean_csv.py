@@ -24,10 +24,10 @@ def clean_dataset_strict():
     valid_indices = []
     missing_count = 0
     
-    print(f"🔍 Strictly checking {original_len} files in {processed_dir}...")
+    print(f"🔍 Strictly checking {original_len} files...")
 
     # 3. STRICT Check (Exactly matching DataLoader logic)
-    for idx, row in tqdm(df.iterrows(), total=len(df)):
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Verifying locations"):
         pdb = row["pdb"]
         chain = row["chain"] if "chain" in row and pd.notna(row["chain"]) else "all"
         
@@ -40,22 +40,22 @@ def clean_dataset_strict():
         path_sharded = processed_dir / shard / fname
         path_root = processed_dir / fname
         
+        # We only keep it if it is in the CORRECT location
         if path_sharded.exists() or path_root.exists():
             valid_indices.append(idx)
         else:
             missing_count += 1
-            # print(f"❌ Missing strict: {fname}") # Uncomment to see filenames
 
     # 4. Save
     if missing_count > 0:
-        print(f"\n⚠️  Found {missing_count} files that exist loosely but are missing from strict locations.")
-        print("   Removing them to fix the DataLoader crash...")
+        print(f"\n⚠️  Found {missing_count} files that are in the wrong location or missing.")
+        print("   Removing them from CSV to fix the crash...")
         
         df_clean = df.loc[valid_indices]
         df_clean.to_csv(csv_path, index=False)
         print(f"✅ CSV Rewritten! Size: {original_len} -> {len(df_clean)}")
     else:
-        print("\n✅ No strict mismatches found. (If you still crash, delete the CSV manually and re-run prepare_data.sh)")
+        print("\n✅ No strict mismatches found.")
 
 if __name__ == "__main__":
     clean_dataset_strict()
