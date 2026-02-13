@@ -11,7 +11,7 @@ def check_dataset_fast(target_folder="pdb_train"):
     processed_dir = data_dir / "processed"
 
     # 2. Load the CSV (Manifest)
-    csv_files = list(data_dir.glob("*.csv"))
+    csv_files = list(data_dir.glob("df_pdb_f1*.csv"))
     if not csv_files:
         print(f"❌ No CSV file found in {data_dir}")
         return
