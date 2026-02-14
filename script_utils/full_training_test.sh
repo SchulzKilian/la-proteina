@@ -19,7 +19,7 @@ if [ -f .env ]; then
 fi
 
 export SLURM_NTASKS=4
-
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export TORCH_COMPILE_DISABLE=1
 
 # ==============================================================================
