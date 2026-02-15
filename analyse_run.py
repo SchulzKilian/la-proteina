@@ -1,62 +1,66 @@
-import wandb
-import datetime
-import pandas as pd
+import json
+import os
+from datetime import datetime, timedelta
 
-# Replace with your actual entity (username) and project name from train.py
-ENTITY = "kilianschulz" 
-PROJECT = "test_release_diffusion" # From cfg_exp.log.wandb_project
+def analyze_local_run(run_dir):
+    # Paths to the local W&B state files
+    summary_path = os.path.join(run_dir, "files", "wandb-summary.json")
+    metadata_path = os.path.join(run_dir, "files", "wandb-metadata.json")
 
-def analyze_latest_run():
-    api = wandb.Api()
-    
-    # Get the latest run from the project
-    runs = api.runs(f"{ENTITY}/{PROJECT}")
-    if not runs:
-        print("No runs found.")
+    # Fallback if structure is different
+    if not os.path.exists(summary_path):
+        summary_path = os.path.join(run_dir, "wandb-summary.json")
+    if not os.path.exists(metadata_path):
+        metadata_path = os.path.join(run_dir, "wandb-metadata.json")
+
+    if not os.path.exists(summary_path) or not os.path.exists(metadata_path):
+        print(f"Error: Could not find JSON files in {run_dir}")
         return
+
+    # Load the data
+    with open(summary_path, 'r') as f:
+        summary = json.load(f)
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    # 1. Timeline (Start/End/Duration)
+    # W&B stores startedAt in ISO format
+    start_str = metadata.get("startedAt")
+    start_dt = datetime.strptime(start_str.split(".")[0], "%Y-%m-%dT%H:%M:%S")
     
-    run = runs[0] # The most recent run
-    print(f"Analyzing Run: {run.name} ({run.id})")
-    print("-" * 30)
+    runtime_sec = summary.get("_runtime", 0)
+    end_dt = start_dt + timedelta(seconds=runtime_sec)
 
-    # 1. Start and End Times
-    start_dt = datetime.datetime.fromtimestamp(run.summary.get("_timestamp") - run.summary.get("_runtime"))
-    end_dt = datetime.datetime.fromtimestamp(run.summary.get("_timestamp"))
-    print(f"Timeline: {start_dt.strftime('%Y-%m-%d %H:%M')} to {end_dt.strftime('%Y-%m-%d %H:%M')}")
-    print(f"Total Duration: {str(datetime.timedelta(seconds=int(run.summary.get('_runtime'))))}")
+    # 2. Throughput (Samples per second)
+    # Pulls nsamples_processed from your Proteina.py logging
+    total_samples = summary.get("scaling/nsamples_processed", 0)
+    samples_per_sec = total_samples / runtime_sec if runtime_sec > 0 else 0
 
-    # 2. Average GPU Power Usage
-    # Note: Power usage is in system metrics, which we average over the history
-    system_metrics = run.history(stream="system")
-    power_keys = [k for k in system_metrics.columns if "gpu.0.powerUsageWatts" in k]
-    if power_keys:
-        avg_power = system_metrics[power_keys[0]].mean()
-        print(f"Avg GPU 0 Power Usage: {avg_power:.2f} Watts")
+    # 3. GPU Power
+    # Note: Summary only stores the LAST recorded value. 
+    # The average is usually computed by the W&B server from binary logs.
+    gpu_power_last = summary.get("system.gpu.0.powerUsageWatts")
+
+    # 4. Final Losses
+    losses = {k: v for k, v in summary.items() if "loss" in k.lower() and isinstance(v, (int, float))}
+
+    print(f"--- Analysis for: {run_dir} ---")
+    print(f"Start Time:     {start_dt}")
+    print(f"End Time:       {end_dt}")
+    print(f"Active Runtime: {str(timedelta(seconds=int(runtime_sec)))}")
+    print(f"\nThroughput:      {samples_per_sec:.2f} samples/sec")
+    print(f"Total Samples:   {total_samples:,}")
+    
+    if gpu_power_last:
+        print(f"Last GPU Power:  {gpu_power_last:.2f} W")
     else:
-        print("GPU Power Usage not found (Check if system metrics were logged).")
+        print("GPU Power:       Not found in local summary (check history).")
 
-    # 3. Final Losses
-    # We pull from the 'summary' which holds the last logged values
-    losses = {k: v for k, v in run.summary.items() if "loss" in k and "epoch" not in k}
     print("\nFinal Loss Metrics:")
-    for k, v in losses.items():
-        print(f"  - {k}: {v:.4f}")
-
-    # 4. Throughput (Samples/Sec)
-    # Using your logged 'nsamples_processed' and total active runtime
-    total_samples = run.summary.get("scaling/nsamples_processed", 0)
-    runtime = run.summary.get("_runtime", 0)
-    
-    if runtime > 0:
-        samples_per_sec = total_samples / runtime
-        print(f"\nThroughput: {samples_per_sec:.2f} samples/sec")
-    
-    # Step-based throughput (using your step_duration_secs)
-    avg_step_time = run.summary.get("train_info/step_duration_secs")
-    if avg_step_time:
-        # Effective batch size = samples / global_steps
-        eff_batch = total_samples / run.summary.get("trainer/global_step", 1)
-        print(f"Instantaneous Throughput: {eff_batch / avg_step_time:.2f} samples/sec (based on last step)")
+    for name, val in losses.items():
+        print(f"  - {name}: {val:.6f}")
 
 if __name__ == "__main__":
-    analyze_latest_run()
+    # Your provided path
+    run_folder = "/home/ks2218/la-proteina/wandb/latest-run"
+    analyze_local_run(run_folder)
