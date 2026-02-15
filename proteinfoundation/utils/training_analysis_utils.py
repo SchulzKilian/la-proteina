@@ -29,7 +29,7 @@ class LogEpochTimeCallback(Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         curr_time = time.time()
-        duration = curr_time  # - self.epoch_start
+        duration = curr_time  - self.epoch_start
         pl_module.log(
             "train_info/epoch_duration_secs",
             duration,
