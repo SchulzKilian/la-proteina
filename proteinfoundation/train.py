@@ -2,6 +2,7 @@ import os
 import sys
 import ssl
 import wget
+import time
 ssl._create_default_https_context = ssl._create_unverified_context
 root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
@@ -134,7 +135,7 @@ def get_run_dirs(cfg_exp):
     run_name = cfg_exp.run_name_
     log_info(f"Job name: {run_name}")
     root_run = os.path.join(
-        ".", "store", run_name
+        ".", "store", run_name, f"{int(time.time())}"
     )  # Everything stored in ./store/<run_id>
     log_info(f"Root run: {root_run}")
 
@@ -331,7 +332,7 @@ def main(cfg_exp) -> None:
     wandb_logger = None
     if cfg_exp.log.log_wandb and not nolog:
         wandb_logger = WandbLogger(
-            project=cfg_exp.log.wandb_project, id=run_name,
+            project=cfg_exp.log.wandb_project, name=run_name,
         )
 
     # checkpoints
