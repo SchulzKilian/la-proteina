@@ -4,8 +4,7 @@
 #SBATCH -p ampere
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --mem=0                
+#SBATCH --ntasks-per-node=4             
 #SBATCH --time=4:00:00
 
 # Note: I reduced gpus to 1 as generation/evaluation often doesn't require 
