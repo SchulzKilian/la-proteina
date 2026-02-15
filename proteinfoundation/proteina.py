@@ -198,6 +198,7 @@ class Proteina(L.LightningModule):
         return nn_out
 
     def training_step(self, batch: Dict, batch_idx: int):
+
         """
         Computes training loss for batch of samples.
 
@@ -207,55 +208,67 @@ class Proteina(L.LightningModule):
         Returns:
             Training loss averaged over batch dimension.
         """
-        val_step = batch_idx == -1  # validation step is indicated with batch_idx -1
-        log_prefix = "validation_loss" if val_step else "train"
 
-        # Add clean samples for all data modes / spaces we are working on
-        batch = self.add_clean_samples(batch)
+        try:
 
-        # Corrupt the batch
-        batch = self.fm.corrupt_batch(batch)  # adds x_1, t, x_0, x_t, mask
-        bs, n = batch["mask"].shape
+            val_step = batch_idx == -1  # validation step is indicated with batch_idx -1
+            log_prefix = "validation_loss" if val_step else "train"
 
-        # Handle conditioning variables
-        batch = self.handle_self_cond(
-            batch
-        )  # self conditioning, adds ["x_sc"] to batch prob 0.5
-        batch = self.handle_folding_n_inverse_folding(
-            batch
-        )  # folding and inverse folding iterations
+            # Add clean samples for all data modes / spaces we are working on
+            batch = self.add_clean_samples(batch)
 
-        # Number of recycling steps
-        n_recycle = self.handle_recycling()
+            # Corrupt the batch
+            batch = self.fm.corrupt_batch(batch)  # adds x_1, t, x_0, x_t, mask
+            bs, n = batch["mask"].shape
 
-        nn_out = self.call_nn(batch, n_recycle=n_recycle)
-        losses = self.fm.compute_loss(
-            batch=batch,
-            nn_out=nn_out,
-        )  # Dict[str, Tensor w.batch shape [*]]
+            # Handle conditioning variables
+            batch = self.handle_self_cond(
+                batch
+            )  # self conditioning, adds ["x_sc"] to batch prob 0.5
+            batch = self.handle_folding_n_inverse_folding(
+                batch
+            )  # folding and inverse folding iterations
 
-        self.log_losses(bs=bs, losses=losses, log_prefix=log_prefix, batch=batch)
-        train_loss = sum([torch.mean(losses[k]) for k in losses if "_justlog" not in k])
+            # Number of recycling steps
+            n_recycle = self.handle_recycling()
 
-        self.log(
-            f"{log_prefix}/loss",
-            train_loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-            batch_size=bs,
-            sync_dist=True,
-            add_dataloader_idx=False,
-        )
+            nn_out = self.call_nn(batch, n_recycle=n_recycle)
+            losses = self.fm.compute_loss(
+                batch=batch,
+                nn_out=nn_out,
+            )  # Dict[str, Tensor w.batch shape [*]]
 
-        if not val_step:  # Don't log these for val step
-            self.log_train_loss_n_prog_bar(bs, train_loss)
-            self.update_n_log_flops(bs, n)
-            self.update_n_log_nsamples_processed(bs)
-            self.log_nparams()
+            self.log_losses(bs=bs, losses=losses, log_prefix=log_prefix, batch=batch)
+            train_loss = sum([torch.mean(losses[k]) for k in losses if "_justlog" not in k])
 
-        return train_loss
+            self.log(
+                f"{log_prefix}/loss",
+                train_loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+                batch_size=bs,
+                sync_dist=True,
+                add_dataloader_idx=False,
+            )
+
+            if not val_step:  # Don't log these for val step
+                self.log_train_loss_n_prog_bar(bs, train_loss)
+                self.update_n_log_flops(bs, n)
+                self.update_n_log_nsamples_processed(bs)
+                self.log_nparams()
+
+            return train_loss
+        
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                logger.warning(f"⚠️  OOM detected in batch {batch_idx}. Skipping this batch.")
+                # Clear cache to prevent subsequent batches from failing
+                torch.cuda.empty_cache()
+                return None # Lightning will skip the optimizer step for this batch
+            else:
+                raise e
 
     def add_clean_samples(self, batch: Dict) -> Dict:
         """
