@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4             
-#SBATCH --time=4:00:00
+#SBATCH --time=2:00:00
 
 # Note: I reduced gpus to 1 as generation/evaluation often doesn't require 
 # multi-gpu parallelism unless your code specifically supports it. 
