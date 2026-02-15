@@ -3,8 +3,8 @@ import datetime
 import pandas as pd
 
 # Replace with your actual entity (username) and project name from train.py
-ENTITY = "ks2218" 
-PROJECT = "laproteina" # From cfg_exp.log.wandb_project
+ENTITY = "kilianschulz" 
+PROJECT = "test_release_diffusion" # From cfg_exp.log.wandb_project
 
 def analyze_latest_run():
     api = wandb.Api()
