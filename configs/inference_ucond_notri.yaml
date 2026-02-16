@@ -4,5 +4,6 @@ defaults:
   - _self_
 
 run_name_: laproteina_ucond_notri
-ckpt_name: LD1_ucond_notri_512.ckpt
+ckpt_path: ./store/test_release_diffusion/checkpoints  
+ckpt_name: last.ckpt
 autoencoder_ckpt_path: ./checkpoints_laproteina/AE1_ucond_512.ckpt
