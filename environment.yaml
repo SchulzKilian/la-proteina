@@ -42,7 +42,7 @@ dependencies:
     - seaborn
     - xarray
     - graphein
-    - biotite
+
 
 
 # To create the full environment, run at the end:
