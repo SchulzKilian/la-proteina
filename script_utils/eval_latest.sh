@@ -51,9 +51,6 @@ fi
 # 6. Run Generation
 echo "Starting Generation..."
 python proteinfoundation/generate.py --config_name "$CONFIG_NAME" \
-    ckpt_path="$CKPT_PATH" \
-    ckpt_name="$CKPT_NAME" \
-    autoencoder_ckpt_path="$AUTOENCODER_PATH"
 
 # 7. Run Evaluation
 echo "Starting Evaluation..."
