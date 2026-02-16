@@ -1,6 +1,6 @@
 run_name_:
-ckpt_path: ./store/test_release_diffusion/checkpoints  
-ckpt_name: last.ckpt
+ckpt_path: ./checkpoints_laproteina
+ckpt_name: 
 autoencoder_ckpt_path: 
 
 # Job management
