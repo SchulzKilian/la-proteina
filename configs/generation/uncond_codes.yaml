@@ -8,7 +8,7 @@ dataset:
   # Lengths to sample. If not None, then use length-centric sampling
   # Uses `nres_lens` if specified, otherwise arange(min_len, max_len+1, step)
   nlens_cfg:
-    nres_lens: [100] #, 200, 300, 400] 
+    nres_lens: [100, 200] 
     min_len:
     max_len:
     step_len:
@@ -16,7 +16,7 @@ dataset:
   cath_codes: null
 
   # Number of samples per protein length or per cath code
-  nsamples: 2
+  nsamples: 50
 
   # Maximum number of samples in each batch
   max_nsamples_per_batch: 10
