@@ -30,7 +30,7 @@ else
         exit 1
     fi
     LATEST_JOB_ID=$(ls -t "$PROJECT_DIR" | head -1)
-    FULL_CKPT_PATH="${PROJECT_DIR}/${LATEST_JOB_ID}/checkpoints/last.ckpt"
+    FULL_CKPT_PATH="${PROJECT_DIR}/${LATEST_JOB_ID}/checkpoints/last-EMA.ckpt"
 fi
 
 # 4. Verify file existence
