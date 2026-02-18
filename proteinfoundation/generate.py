@@ -344,99 +344,66 @@ def save_motif_predictions(
         )
 
 
-def main():
+@hydra.main(version_base=None, config_path="../configs", config_name="inference_base")
+def main(cfg: Dict) -> None:
     load_dotenv()
 
-    # Parse arguments, load appropriate config, and set up root path
-    args, cfg, config_name = parse_args_and_cfg()
-    # cfg.run_name_
-    motif_cond = cfg.generation.args.get("motif_cond", False)
-    target_cond = cfg.generation.args.get("target_cond", False)
-    cfg.generation.args.get("multi_cond", False)
-    cfg.generation.args.get("fold_cond", False)
+    # 1. Use the cfg object directly (Hydra has already parsed CLI overrides)
+    # These can be overridden via command line (e.g., job_id=1)
+    config_name = cfg.get("config_name", "inference_base") 
+    job_id = cfg.get("job_id", 0)
     njobs = cfg.get("gen_njobs", 1)
-    root_path = setup(
-        cfg, create_root=True, config_name=config_name, job_id=args.job_id
-    )
 
-    # Exit if results from analysis already exist (assumes samples already there)
-    # File to store analysis (next step, this is generate) results
-    csv_filename = f"results_{config_name}_{args.job_id}.csv"
+    # 2. Setup paths and seed
+    root_path = setup(cfg, create_root=True, config_name=config_name, job_id=job_id)
+
+    # 3. Check for existing results to avoid redundant work
+    csv_filename = f"results_{config_name}_{job_id}.csv"
     csv_path = os.path.join(root_path, "..", csv_filename)
-    # Exit if results from analysis already exist
     if os.path.exists(csv_path):
-        logger.info(f"Results already exist at {csv_path}. Exiting generate.py.")
+        logger.info(f"Results already exist at {csv_path}. Exiting.")
         sys.exit(0)
 
+    # 4. Check configuration validity and load the model
+    # This now correctly uses any overrides passed to ckpt_path or ckpt_name
     cfg_gen = cfg.generation
     check_cfg_validity(cfg_gen.dataset, cfg_gen.args)
-
-    # Load model
     model = load_ckpt_n_configure_inference(cfg)
 
-    # Create generation dataset
-    cfg_gen = split_by_job(cfg_gen, args.job_id, njobs)
+    # 5. Handle dataset splitting and creation
+    motif_cond = cfg_gen.args.get("motif_cond", False)
+    cfg_gen = split_by_job(cfg_gen, job_id, njobs)
 
-    # Motif-specific dataset creation
-    if motif_cond or ("motif_task_name" in cfg.generation.dataset):
+    if motif_cond or ("motif_task_name" in cfg_gen.dataset):
         motif_csv_path = os.path.join(
             root_path,
-            f"{cfg_gen.dataset.get('motif_task_name', 'motif')}_{args.job_id}_motif_info.csv",
+            f"{cfg_gen.dataset.get('motif_task_name', 'motif')}_{job_id}_motif_info.csv",
         )
-        """
-        Motif Configuration Examples:
-        
-        The motif dataset supports two modes for specifying which atoms to include:
-        
-        1. **Atom-level specification** (precise control):
-           motif_dict_cfg:
-             my_motif:
-               motif_pdb_path: "path/to/motif.pdb"
-               motif_atom_spec: "A64: [O, CG]; A65: [N, CA]; A66: [CB, CD]"
-               # atom_selection_mode is ignored when motif_atom_spec is provided
-        
-        2. **Residue/range-based specification** (automatic atom selection):
-           motif_dict_cfg:
-             my_motif:
-               motif_pdb_path: "path/to/motif.pdb" 
-               contig_string: "A1-7/A28-79"
-               atom_selection_mode: "tip_atoms"  # NEW: Choose atom selection mode
-               
-           Available atom_selection_mode options:
-           - "ca_only": Only CA atoms (default, fastest)
-           - "all": All available atoms (most complete motif)
-           - "backbone": Backbone atoms only (N, CA, C, O)
-           - "sidechain": Sidechain atoms only
-           - "tip_atoms": Tip atoms of sidechains (e.g., OH for Ser, NH2 for Arg)
-           - "random": Random subset of available atoms
-           
-        If atom_selection_mode is not specified, defaults to "ca_only" for backward compatibility.
-        """
         dataset = GenDataset(motif_csv_path=motif_csv_path, **cfg_gen.dataset)
     else:
         dataset = GenDataset(**cfg_gen.dataset)
+        
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
-    # Sample model
+    # 6. Run prediction with Lightning Trainer
     trainer = L.Trainer(accelerator="gpu", devices=1)
     results = {}
-    print(args.config_name)
-    with measure_performance(results, task_name=args.config_name) as metrics: # Measure performance of the generation step
+    
+    # Measure and save performance metrics
+    with measure_performance(results, task_name=config_name) as metrics:
         predictions = trainer.predict(model, dataloader)
 
-    save_performance_metrics(root_path, args.config_name, metrics)
+    save_performance_metrics(root_path, config_name, metrics)
 
-    chain_indexes = None
-
-    if motif_cond or ("motif_task_name" in cfg.generation.dataset):
+    # 7. Save the generated PDB files
+    if motif_cond or ("motif_task_name" in cfg_gen.dataset):
         save_motif_predictions(
             root_path,
             predictions,
-            job_id=args.job_id,
+            job_id=job_id,
             motif_pdb_name=cfg_gen.dataset.get("motif_task_name", None),
         )
         import shutil
-
         motif_csv = f"./{cfg_gen.dataset.get('motif_task_name', '')}_motif_info.csv"
         if os.path.exists(motif_csv):
             shutil.copy(motif_csv, root_path)
@@ -444,8 +411,8 @@ def main():
         save_predictions(
             root_path,
             predictions,
-            job_id=args.job_id,
-            chain_indexes=chain_indexes,
+            job_id=job_id,
+            chain_indexes=None,
             cath_codes=dataset.cath_codes,
         )
 
