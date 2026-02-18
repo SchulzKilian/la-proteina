@@ -43,4 +43,4 @@ if [ ! -f "$CHECKPOINT_PATH" ]; then
 fi
 
 # 4. Run the training resume script
-bash script_utils/full_training_resume.sh "$CHECKPOINT_PATH"
+bash script_utils/full_training_resume.sh "$CHECKPOINT_PATH" "${@:2}"

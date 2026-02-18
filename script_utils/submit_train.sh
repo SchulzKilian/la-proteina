@@ -22,4 +22,4 @@ echo "GPUs available: $CUDA_VISIBLE_DEVICES"
 
 # 4. Run the training test script
 # We run it directly since the environment is already active
-bash script_utils/full_training_test.sh
+bash script_utils/full_training_test.sh "$@"
