@@ -27,7 +27,7 @@ LATEST_JOB_ID=$(ls -t "$PROJECT_DIR" | head -1)
 
 # Construct the full path to the checkpoints
 CKPT_DIR="${PROJECT_DIR}/${LATEST_JOB_ID}/checkpoints"
-CKPT_NAME="last.ckpt" 
+CKPT_NAME="last-EMA.ckpt" 
 
 # Full path for the python script
 FULL_CKPT_PATH="${CKPT_DIR}/${CKPT_NAME}"
