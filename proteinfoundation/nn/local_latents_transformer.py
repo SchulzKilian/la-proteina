@@ -1,13 +1,15 @@
 from typing import Dict
 
 import torch
-
+import torch.nn as nn 
+import torch.nn.functional as F
 from openfold.np.residue_constants import RESTYPE_ATOM37_MASK
 from proteinfoundation.nn.feature_factory import FeatureFactory
 from proteinfoundation.nn.modules.attn_n_transition import MultiheadAttnAndTransition
 from proteinfoundation.nn.modules.pair_update import PairReprUpdate
 from proteinfoundation.nn.modules.seq_transition_af3 import Transition
 from proteinfoundation.nn.modules.pair_rep_initial import PairReprBuilder
+from proteinfoundation.nn.modules.downsampling import DownsampleBlock, UpsampleBlock
 
 
 def get_atom_mask(device: torch.device = None):
@@ -26,6 +28,7 @@ class LocalLatentsTransformer(torch.nn.Module):
         Initializes the NN. The seqs and pair representations used are just zero in case
         no features are required."""
         super(LocalLatentsTransformer, self).__init__()
+
         self.nlayers = kwargs["nlayers"]
         self.token_dim = kwargs["token_dim"]
         self.pair_repr_dim = kwargs["pair_repr_dim"]
@@ -34,6 +37,15 @@ class LocalLatentsTransformer(torch.nn.Module):
         self.use_tri_mult = kwargs["use_tri_mult"]
         self.use_qkln = kwargs["use_qkln"]
         self.output_param = kwargs["output_parameterization"]
+        self.use_downsampling = kwargs.get("use_downsampling", False)
+        
+        if self.use_downsampling:
+            print("Initializing Downsampling/Upsampling modules...")
+            self.seq_downsample = DownsampleBlock(self.token_dim)
+            self.cond_downsample = DownsampleBlock(kwargs["dim_cond"])
+            self.seq_upsample = UpsampleBlock(self.token_dim)
+            # Use AvgPool2d for the pair representation
+            self.pair_downsample = nn.AvgPool2d(kernel_size=2, stride=2)
         # To form initial representation
         self.init_repr_factory = FeatureFactory(
             feats=kwargs["feats_seq"],
@@ -149,6 +161,28 @@ class LocalLatentsTransformer(torch.nn.Module):
 
         pair_rep = self.pair_repr_builder(input)  # [b, n, n, pair_dim]
 
+        if self.use_downsampling:
+            original_n = seqs.shape[1]
+            
+            # 1. Downsample Sequence and Conditioning
+            seqs = self.seq_downsample(seqs) 
+            c = self.cond_downsample(c)
+            
+            # 2. Downsample Mask (Max pool keeps 'True' if any residue in window is valid)
+            mask_float = mask.float().unsqueeze(1) # [b, 1, n]
+            mask_down = F.max_pool1d(mask_float, kernel_size=2, stride=2).squeeze(1)
+            mask = mask_down > 0.5 
+            
+            # 3. Downsample Pair Representation (2D)
+            # [b, n, n, d] -> [b, d, n, n]
+            pair_rep = pair_rep.permute(0, 3, 1, 2)
+            pair_rep = self.pair_downsample(pair_rep)
+            # [b, d, n', n'] -> [b, n', n', d]
+            pair_rep = pair_rep.permute(0, 2, 3, 1)
+            
+            # Re-apply mask to sequence
+            seqs = seqs * mask[..., None]
+
         # Run trunk
         for i in range(self.nlayers):
             seqs = self.transformer_layers[i](
@@ -161,6 +195,12 @@ class LocalLatentsTransformer(torch.nn.Module):
                         pair_rep = self.pair_update_layers[i](
                             seqs, pair_rep, mask
                         )  # [b, n, n, pair_dim]
+
+        if self.use_downsampling:
+            seqs = self.seq_upsample(seqs, target_length=original_n)
+            # Restore original mask for final output
+            mask = input["mask"] 
+            seqs = seqs * mask[..., None]
 
         # Get outputs
         local_latents_out = (
