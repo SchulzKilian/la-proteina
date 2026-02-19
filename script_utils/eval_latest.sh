@@ -57,6 +57,7 @@ if [ -d "inference" ]; then rm -r inference; fi
 echo "Starting Generation..."
 python proteinfoundation/generate.py \
     --config_name "$CONFIG_NAME" \
+    ++config_name "$CONFIG_NAME" \
     ++ckpt_path="$CKPT_DIR_OVERRIDE" \
     ++ckpt_name="$CKPT_NAME_OVERRIDE"
 
