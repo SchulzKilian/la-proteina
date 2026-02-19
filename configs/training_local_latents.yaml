@@ -9,7 +9,7 @@ hardware:
 
 defaults:
   - dataset: pdb/pdb_train_ucond
-  - nn: local_latents_score_nn_160M
+  - nn: local_latents_score_nn_70M
   - generation: validation_local_latents    # specifies all arguments for validation
   - _self_
 
