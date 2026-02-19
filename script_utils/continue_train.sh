@@ -5,7 +5,8 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --mem=0                
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=500GB                
 #SBATCH --time=5:00:00
 
 # 1. Load shell config and activate environment

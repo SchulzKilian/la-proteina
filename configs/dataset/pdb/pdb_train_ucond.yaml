@@ -1,7 +1,7 @@
 datamodule:
   _target_: "proteinfoundation.datasets.pdb_data.PDBLightningDataModule"
   data_dir: ${oc.env:DATA_PATH}/pdb_train/ # Directory where the dataset is stored
-  in_memory: False
+  in_memory: True
   format: "cif" # format for file download
   overwrite: False # Whether to overwrite existing dataset files and reprocess the raw data
   # arguments for BaseLightningDataModule class
@@ -16,7 +16,7 @@ datamodule:
       max_size: 256
       fill_value: 0
   batch_size: 16 # Batch size for dataloader
-  num_workers: 24 # Number of workers for dataloader
+  num_workers: 8 # Number of workers for dataloader
   pin_memory: True # Pin memory for dataloader
 
   dataselector:
