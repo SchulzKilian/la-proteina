@@ -56,6 +56,7 @@ if [ -d "inference" ]; then rm -r inference; fi
 # Pass overrides directly to Hydra (no '--' for ckpt_path and ckpt_name)
 echo "Starting Generation..."
 python proteinfoundation/generate.py \
+    --config-name "$CONFIG_NAME" \
     ++config_name="$CONFIG_NAME" \
     ++ckpt_path="$CKPT_DIR_OVERRIDE" \
     ++ckpt_name="$CKPT_NAME_OVERRIDE"
