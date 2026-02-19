@@ -69,7 +69,7 @@ lora:
 opt:
   lr: 0.0001
   max_epochs: 10000000
-  accumulate_grad_batches: 4
+  accumulate_grad_batches: 1
   skip_nan_grad: False  # Skip updates with nan gradient
   grad_and_weight_analysis: False  # Log some statistics of gradients and weights
   dist_strategy: ddp  # For multi GPU training, do not change

@@ -19,7 +19,7 @@ class BlurPool1D(nn.Module):
     def forward(self, x):
         # x: [b, c, n]
         return F.conv1d(x, self.kernel.expand(self.channels, -1, -1), 
-                        stride=self.stride, padding=1, groups=self.channels)
+            stride=self.stride, padding=1, groups=self.channels)
 
 class DownsampleBlock(nn.Module):
     def __init__(self, dim):
@@ -50,12 +50,16 @@ class DownsampleBlock(nn.Module):
 
 class UpsampleBlock(nn.Module):
     """
-    SOTA 'Resize-Convolution' approach.
-    Uses Nearest Neighbor upsampling followed by a Convolution.
-    Avoids checkerboard artifacts of Transposed Convolutions.
+    SOTA 'Resize-Blur-Convolution' approach.
+    Uses Nearest Neighbor upsampling, an anti-aliasing blur, 
+    followed by a Convolution to maintain shift-equivariance.
     """
     def __init__(self, dim):
         super().__init__()
+        # 1. Added the Blur filter
+        self.blur = BlurPool1D(dim)
+        
+        # 2. Refinement Convolution
         self.conv = nn.Conv1d(dim, dim, kernel_size=3, padding=1)
         self.norm = nn.LayerNorm(dim)
         self.act = nn.SiLU()
@@ -64,15 +68,17 @@ class UpsampleBlock(nn.Module):
         # x: [b, n', d]
         
         # 1. Nearest Neighbor Upsampling (Learnable "Resize")
-        # We perform interpolation on [b, d, n]
-        x = x.transpose(1, 2)
+        x = x.transpose(1, 2) # [b, d, n']
         x = F.interpolate(x, size=target_length, mode='nearest')
         
-        # 2. Convolution (The "Refinement" step)
-        x = self.conv(x)
-        x = x.transpose(1, 2) # [b, n, d]
+        # 2. Anti-aliasing Blur (Smooths the NN "step edges")
+        x = self.blur(x)
         
-        # 3. Norm + Act
+        # 3. Convolution (The "Refinement" step)
+        x = self.conv(x)
+        x = x.transpose(1, 2) # Back to [b, n, d]
+        
+        # 4. Norm + Act
         x = self.norm(x)
         x = self.act(x)
         
