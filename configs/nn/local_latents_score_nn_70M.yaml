@@ -4,14 +4,13 @@ output_parameterization:
   bb_ca: v
   local_latents: v
 
-# Reduced depth: 6 layers instead of 14. 
-# This is the most effective way to speed up training without changing token_dim.
+# 6 instead of 14 layers
 nlayers: 6  
 
-# FIXED: Must stay 768 to remain compatible with your autoencoder latents
+# Stays the same to not retrain autoencoder
 token_dim: 768  
 
-# FIXED: Must remain 12 (768 / 12 = 64 head dim) for standard transformer performance
+# Stays the same to not change transformer performance 
 nheads: 12  
 
 parallel_mha_transition: False
