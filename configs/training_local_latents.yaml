@@ -32,6 +32,11 @@ product_flowmatcher:
 
 autoencoder_ckpt_path: ./checkpoints_laproteina/AE1_ucond_512.ckpt
 
+
+dataset:
+  datamodule:
+    use_precomputed_latents: True
+
 # Loss
 loss:
   t_distribution:

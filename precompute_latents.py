@@ -54,7 +54,7 @@ def verify_precomputed_latents(output_dir, expected_dim):
 
     logger.info("✅ Latent verification passed successfully! All shapes and values are valid.")
 
-@hydra.main(config_path="../configs", config_name="inference_ae")
+@hydra.main(config_path="./configs", config_name="inference_ae")
 def main(cfg):
     L.seed_everything(cfg.seed)
     
