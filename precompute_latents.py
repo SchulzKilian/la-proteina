@@ -23,6 +23,7 @@ def main():
             # Format single item into a dummy batch for the AE
             d_norm = transform(data.clone())
             batch = {
+                "coords": data.coords.unsqueeze(0).cuda(),
                 "coords_nm": d_norm.coords_nm.unsqueeze(0).cuda(),
                 "residue_type": d_norm.residue_type.unsqueeze(0).cuda(),
                 "mask_dict": {"coords": d_norm.coord_mask.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).cuda()}
