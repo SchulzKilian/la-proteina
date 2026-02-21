@@ -7,8 +7,8 @@ from proteinfoundation.datasets.transforms import CoordsToNanometers
 
 def main():
     # 1. Setup paths and load AE
-    data_dir = "data/pdb/processed"                  # Point to your actual processed dir
-    out_dir = "data/pdb/processed_latents"
+    data_dir = "data/pdb_train/processed"                  # Point to your actual processed dir
+    out_dir = "data/pdb_train/processed_latents"
     
     ae_path = "./checkpoints_laproteina/AE1_ucond_512.ckpt"
     ae = AutoEncoder.load_from_checkpoint(ae_path).cuda().eval()
