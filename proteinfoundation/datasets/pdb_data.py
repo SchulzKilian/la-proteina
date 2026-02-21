@@ -288,6 +288,7 @@ class PDBDataset(Dataset):
         file_names: Optional[List[str]] = None,
         num_workers: int = 64,
         use_precomputed_latents: bool = False,
+
     ):
         self.database = "pdb"
         self.pdb_codes = [pdb.lower() for pdb in pdb_codes]
@@ -300,6 +301,8 @@ class PDBDataset(Dataset):
         self.num_workers = num_workers
         self.transform = transform
         self.sequence_id_to_idx = None
+        self.use_precomputed_latents = use_precomputed_latents
+
 
         if self.use_precomputed_latents:
             self.processed_dir = self.data_dir / "processed_latents"
@@ -335,29 +338,26 @@ class PDBDataset(Dataset):
 
                 graph_or_dict = torch.load(file_path, map_location='cpu', weights_only=False)
 
-            if self.use_precomputed_latents:
-                if isinstance(graph_or_dict, dict):
-                    graph_or_dict = Data(
-                        id=graph_or_dict.get("id", "unknown"),
-                        coords_nm=graph_or_dict["ca_coords"], 
-                        mean=graph_or_dict["mean"],
-                        log_scale=graph_or_dict["log_scale"],
-                        residue_type=graph_or_dict["residue_type"]
-                    )
-                
-            if self.transform:
-                graph_or_dict = self.transform(graph_or_dict)
-            return graph_or_dict
+            if isinstance(graph_or_dict, dict):
+                graph_or_dict = Data(**graph_or_dict)
+
+
+            if not self.use_precomputed_latents:
+                # Standard training: Slice 37 atoms using the PDB_TO_OPENFOLD index
+                if hasattr(graph_or_dict, 'coords') and graph_or_dict.coords.ndim == 3:
+                    graph_or_dict.coords = graph_or_dict.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
+                    graph_or_dict.coord_mask = graph_or_dict.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
+
+            else:
+                assert hasattr(graph_or_dict, "mean") and hasattr(graph_or_dict, "log_scale"), \
+                f"File {fname} is missing precomputed latents ('mean' or 'log_scale'). " \
+                "Did you run precompute_latents.py?"
             
-
-            graph_or_dict.coords = graph_or_dict.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
-            graph_or_dict.coord_mask = graph_or_dict.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
-
+            # 4. Apply transforms (e.g., CoordsToNanometers)
             if self.transform:
                 graph_or_dict = self.transform(graph_or_dict)
 
             return graph_or_dict
-
 
 class PDBLightningDataModule(BaseLightningDataModule):
     def __init__(

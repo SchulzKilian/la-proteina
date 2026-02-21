@@ -33,6 +33,7 @@ def create_dir(dir):
 
 class Proteina(L.LightningModule):
     def __init__(self, cfg_exp, store_dir=None, autoencoder_ckpt_path=None, use_precomputed_latents=False):
+
         super().__init__()
         self.save_hyperparameters()
         self.cfg_exp = cfg_exp
@@ -54,7 +55,10 @@ class Proteina(L.LightningModule):
             cfg_exp.autoencoder_ckpt_path = autoencoder_ckpt_path
             # Re-enable struct mode if needed
             OmegaConf.set_struct(cfg_exp, True)
-
+            
+        assert self.use_precomputed_latents or self.autoencoder is not None, \
+    "Model must either use precomputed latents or load a dynamic AutoEncoder."
+        
         if self.use_precomputed_latents:
             logger.info("Skipping AutoEncoder load -> using precomputed latents.")
             self.autoencoder = None
@@ -322,25 +326,28 @@ class Proteina(L.LightningModule):
             Clean sample for the given data mode.
         """
         if dm == "bb_ca":
-            return batch["coords_nm"][:, :, 1, :]  # [b, n, 3]
+            # Check if the coordinates are already stripped to CA only [B, N, 3]
+            if batch["coords_nm"].ndim == 3:
+                return batch["coords_nm"]
+            # Otherwise, extract the CA atom (index 1) from the 37-atom representation [B, N, 37, 3]
+            else:
+                return batch["coords_nm"][:, :, 1, :]
+                
         elif dm == "local_latents":
             if self.use_precomputed_latents:
-                # 1. Fetch the precomputed statistics directly from the lightweight batch
+                assert "mean" in batch and "log_scale" in batch, \
+                "Precomputed latents enabled but 'mean' or 'log_scale' not found in batch."
+                # Reparameterization trick using precomputed statistics
                 mean = batch["mean"]
                 log_scale = batch["log_scale"]
-                
-                # 2. Sample z_latent using the reparameterization trick
                 std = torch.exp(log_scale)
                 z_latent = mean + std * torch.randn_like(std)
                 return z_latent
             else:
-                # Original dynamic encoding
                 encoded_batch = self.autoencoder.encode(batch)
                 return encoded_batch["z_latent"]
         else:
-            raise ValueError(
-                f"Loading clean samples from data mode {dm} not supported."
-            )
+            raise ValueError(f"Loading clean samples from data mode {dm} not supported.")
         
     def handle_self_cond(self, batch: Dict) -> Dict:
         n_recycle = self.cfg_exp.training.get(
