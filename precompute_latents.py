@@ -20,13 +20,28 @@ def main():
         for f in tqdm(files, desc="Precomputing"):
             data = torch.load(f, map_location='cpu', weights_only=False)
             
-            # Format single item into a dummy batch for the AE
             d_norm = transform(data.clone())
+            
+            # 1. Base tensors with batch dim added
+            coords = data.coords.unsqueeze(0).cuda()
+            coords_nm = d_norm.coords_nm.unsqueeze(0).cuda()
+            coord_mask = d_norm.coord_mask.unsqueeze(0).cuda()
+            residue_type = d_norm.residue_type.unsqueeze(0).cuda()
+            
+            # 2. Sequence mask (Extract just the CA atom presence: [1, n])
+            seq_mask = coord_mask[:, :, 1].bool() 
+
+            # 3. Assemble dummy batch
             batch = {
-                "coords": data.coords.unsqueeze(0).cuda(),
-                "coords_nm": d_norm.coords_nm.unsqueeze(0).cuda(),
-                "residue_type": d_norm.residue_type.unsqueeze(0).cuda(),
-                "mask_dict": {"coords": d_norm.coord_mask.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).cuda()}
+                "coords": coords,
+                "coords_nm": coords_nm,
+                "coord_mask": coord_mask,
+                "residue_type": residue_type,
+                "mask": seq_mask,
+                "mask_dict": {
+                    "residue_type": seq_mask,
+                    "coords": coord_mask.unsqueeze(-1).unsqueeze(-1)
+                }
             }
             batch["mask"] = batch["mask_dict"]["coords"][..., 0, 0]
             
