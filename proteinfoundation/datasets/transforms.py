@@ -34,7 +34,7 @@ class ChainBreakCountingTransform(T.BaseTransform):
         self.chain_break_cutoff = chain_break_cutoff
 
     def __call__(self, graph: Data) -> Data:
-        ca_coords = graph.coords[:, 1, :]
+        ca_coords = graph.coords if graph.coords.ndim == 2 else graph.coords[:, 1, :]
         ca_dists = torch.norm(ca_coords[1:] - ca_coords[:-1], dim=1)
         graph.chain_breaks = (ca_dists > self.chain_break_cutoff).sum().item()
         return graph
@@ -53,7 +53,7 @@ class ChainBreakPerResidueTransform(T.BaseTransform):
         self.chain_break_cutoff = chain_break_cutoff
 
     def __call__(self, graph: Data) -> Data:
-        ca_coords = graph.coords[:, 1, :]
+        ca_coords = graph.coords if graph.coords.ndim == 2 else graph.coords[:, 1, :]
         ca_dists = torch.norm(ca_coords[1:] - ca_coords[:-1], dim=1)
         chain_breaks_per_residue = ca_dists > self.chain_break_cutoff
         graph.chain_breaks_per_residue = torch.cat(
@@ -220,7 +220,7 @@ class CenterStructureTransform(T.BaseTransform):
     """Centers the structure based on CA coordinates."""
 
     def __call__(self, graph: Data) -> Data:
-        ca_coords = graph.coords_nm[:, 1, :]  # [n, 3]
+        ca_coords = graph.coords_nm if graph.coords_nm.ndim == 2 else graph.coords_nm[:, 1, :]
         mask = torch.ones(ca_coords.shape[0], dtype=torch.bool, device=ca_coords.device)
         com = mean_w_mask(ca_coords, mask, keepdim=True)  # [1, 3]
         graph.coords_nm = graph.coords_nm - com[None, ...]  # [n, 37, 3] - [1, 3]
@@ -389,7 +389,7 @@ class CenteringTransform(T.BaseTransform):
 
         # set the correct data mode for centering
         if self.data_mode == "bb_ca":
-            coords = graph.coords_nm[:, 1, :]
+            coords = graph.coords_nm if graph.coords_nm.ndim == 2 else graph.coords_nm[:, 1, :]
         elif self.data_mode == "all-atom":
             coords = graph.coords_nm.flatten(0, 1)
         else:

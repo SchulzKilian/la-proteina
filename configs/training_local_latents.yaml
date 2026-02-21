@@ -27,7 +27,7 @@ product_flowmatcher:
   local_latents:
     zero_com_noise: False  # whether to center noise samples
     guidance_enabled: True
-    dim: null  # Overwritten in the code by the correct value loaded from the autoencoder (likely 4 or 8)
+    dim: 8
     
 
 autoencoder_ckpt_path: ./checkpoints_laproteina/AE1_ucond_512.ckpt

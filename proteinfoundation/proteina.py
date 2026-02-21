@@ -55,11 +55,15 @@ class Proteina(L.LightningModule):
             cfg_exp.autoencoder_ckpt_path = autoencoder_ckpt_path
             # Re-enable struct mode if needed
             OmegaConf.set_struct(cfg_exp, True)
-            
+
         assert self.use_precomputed_latents or self.autoencoder is not None, \
     "Model must either use precomputed latents or load a dynamic AutoEncoder."
         
+        
+        
         if self.use_precomputed_latents:
+            assert "motif" not in cfg_exp.nn.name.lower(), \
+                f"FATAL: Motif scaffolding (NN: {cfg_exp.nn.name}) requires full 37-atom coordinates, but precomputed latents discard them. Disable precomputed latents."
             logger.info("Skipping AutoEncoder load -> using precomputed latents.")
             self.autoencoder = None
             latent_dim = cfg_exp.product_flowmatcher.local_latents.get("dim", 8)
