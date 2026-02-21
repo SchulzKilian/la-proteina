@@ -80,9 +80,7 @@ def parse_args_and_cfg() -> Tuple[Dict, Dict, str]:
         config_path = f"../configs/{args.config_subdir}"
 
 
-    from hydra.core.global_hydra import GlobalHydra
-    if GlobalHydra.instance().is_initialized():
-        GlobalHydra.instance().clear()
+    
 
     with hydra.initialize(config_path, version_base=hydra.__version__):
         # If number provided use it, otherwise name

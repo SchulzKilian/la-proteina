@@ -1,107 +1,50 @@
 import os
-import glob
-import random
 import torch
-import hydra
-from loguru import logger
+from glob import glob
 from tqdm import tqdm
-import lightning as L
-
-# Import paths from your project
 from proteinfoundation.partial_autoencoder.autoencoder import AutoEncoder
-from proteinfoundation.partial_autoencoder.inference import load_dataloader
+from proteinfoundation.datasets.transforms import NormalizeCoords
 
-def verify_precomputed_latents(output_dir, expected_dim):
-    """Checks the integrity of the generated latents."""
-    logger.info("--- Starting Latent Verification ---")
+def main():
+    # 1. Setup paths and load AE
+    data_dir = "data/pdb/processed"                  # Point to your actual processed dir
+    out_dir = "data/pdb/processed_latents"
     
-    # 1. Check total files
-    all_files = glob.glob(os.path.join(output_dir, "**", "*.pt"), recursive=True)
-    logger.info(f"Found {len(all_files)} precomputed files.")
-    if len(all_files) == 0:
-        logger.error("No files found! Precomputation failed.")
-        return
-
-    # 2. Check a random sample of files for integrity
-    sample_size = min(100, len(all_files))
-    sample_files = random.sample(all_files, sample_size)
+    ae_path = "./checkpoints_laproteina/AE1_ucond_512.ckpt"
+    ae = AutoEncoder.load_from_checkpoint(ae_path).cuda().eval()
     
-    logger.info(f"Verifying {sample_size} random files for structural integrity and NaNs...")
+    files = glob(os.path.join(data_dir, "**", "*.pt"), recursive=True)
+    transform = NormalizeCoords() # AutoEncoder needs coords_nm
     
-    for filepath in sample_files:
-        try:
-            data = torch.load(filepath, map_location='cpu', weights_only=False)
-        except Exception as e:
-            logger.error(f"Failed to load {filepath}: {e}")
-            continue
-            
-        # Check required keys
-        required_keys = ["ca_coords", "mean", "log_scale", "residue_type"]
-        for key in required_keys:
-            assert key in data, f"Missing key '{key}' in {filepath}"
-            
-        seq_len = data["residue_type"].shape[0]
-        
-        # Check Shapes
-        assert data["ca_coords"].shape == (seq_len, 3), f"ca_coords shape mismatch in {filepath}"
-        assert data["mean"].shape == (seq_len, expected_dim), f"mean shape mismatch in {filepath}"
-        assert data["log_scale"].shape == (seq_len, expected_dim), f"log_scale shape mismatch in {filepath}"
-        
-        # Check for NaNs or Infs
-        for key in ["ca_coords", "mean", "log_scale"]:
-            assert not torch.isnan(data[key]).any(), f"NaNs found in {key} for {filepath}"
-            assert not torch.isinf(data[key]).any(), f"Infs found in {key} for {filepath}"
-
-    logger.info("✅ Latent verification passed successfully! All shapes and values are valid.")
-
-@hydra.main(config_path="./configs", config_name="inference_ae")
-def main(cfg):
-    L.seed_everything(cfg.seed)
-    
-    dataloader = load_dataloader(cfg) 
-    model = AutoEncoder.load_from_checkpoint(cfg.ckpt_file)
-    model.eval()
-    model.cuda()
-    
-    expected_dim = model.cfg_ae.nn_ae["latent_z_dim"]
-    output_dir = os.path.join(dataloader.dataset.data_dir, "processed_latents")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    logger.info(f"Saving precomputed latents to: {output_dir}")
-
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Precomputing Latents"):
-            batch = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        for f in tqdm(files, desc="Precomputing"):
+            data = torch.load(f, map_location='cpu', weights_only=False)
             
-            mask = batch["mask_dict"]["coords"][..., 0, 0] # [b, n]
-            batch["mask"] = mask
+            # Format single item into a dummy batch for the AE
+            d_norm = transform(data.clone())
+            batch = {
+                "coords_nm": d_norm.coords_nm.unsqueeze(0).cuda(),
+                "residue_type": d_norm.residue_type.unsqueeze(0).cuda(),
+                "mask_dict": {"coords": d_norm.coord_mask.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).cuda()}
+            }
+            batch["mask"] = batch["mask_dict"]["coords"][..., 0, 0]
             
-            output_enc = model.encoder(batch)
-            mean = output_enc["mean"]           
-            log_scale = output_enc["log_scale"] 
-            ca_coors_nm = batch["coords_nm"][..., 1, :] 
-
-            bs = mask.shape[0]
-            for i in range(bs):
-                seq_len = mask[i].sum().item() 
-                pdb_id = batch["id"][i]
-                
-                latent_dict = {
-                    "id" : pdb_id,
-                    "ca_coords": ca_coors_nm[i, :int(seq_len)].cpu(),
-                    "mean": mean[i, :int(seq_len)].cpu(),
-                    "log_scale": log_scale[i, :int(seq_len)].cpu(),
-                    "residue_type": batch["residue_type"][i, :int(seq_len)].cpu(),
-                }
-                
-                shard = pdb_id[:2].lower()
-                shard_dir = os.path.join(output_dir, shard)
-                os.makedirs(shard_dir, exist_ok=True)
-                
-                torch.save(latent_dict, os.path.join(shard_dir, f"{pdb_id}.pt"))
-
-    # Run verification at the end
-    verify_precomputed_latents(output_dir, expected_dim)
+            # Encode
+            out = ae.encoder(batch)
+            
+            # Add latents directly to the PyG Data object
+            data.mean = out["mean"][0].cpu()
+            data.log_scale = out["log_scale"][0].cpu()
+            
+            # ELEGANT RAM SAVING: Discard the 37 atoms, keep only C-alpha (index 1)
+            # This makes the object tiny, allowing in_memory=True to hold 10x more proteins
+            data.coords = data.coords[:, 1, :] 
+            data.coord_mask = data.coord_mask[:, 1]
+            
+            # Save
+            out_path = f.replace("processed", "processed_latents")
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            torch.save(data, out_path)
 
 if __name__ == "__main__":
     main()
