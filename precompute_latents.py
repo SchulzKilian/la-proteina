@@ -3,7 +3,7 @@ import torch
 from glob import glob
 from tqdm import tqdm
 from proteinfoundation.partial_autoencoder.autoencoder import AutoEncoder
-from proteinfoundation.datasets.transforms import NormalizeCoords
+from proteinfoundation.datasets.transforms import CoordsToNanometers
 
 def main():
     # 1. Setup paths and load AE
@@ -14,7 +14,7 @@ def main():
     ae = AutoEncoder.load_from_checkpoint(ae_path).cuda().eval()
     
     files = glob(os.path.join(data_dir, "**", "*.pt"), recursive=True)
-    transform = NormalizeCoords() # AutoEncoder needs coords_nm
+    transform = CoordsToNanometers() # AutoEncoder needs coords_nm
     
     with torch.no_grad():
         for f in tqdm(files, desc="Precomputing"):
