@@ -87,6 +87,7 @@ def main(cfg):
                 pdb_id = batch["id"][i]
                 
                 latent_dict = {
+                    "id" : pdb_id,
                     "ca_coords": ca_coors_nm[i, :int(seq_len)].cpu(),
                     "mean": mean[i, :int(seq_len)].cpu(),
                     "log_scale": log_scale[i, :int(seq_len)].cpu(),

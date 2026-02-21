@@ -338,6 +338,7 @@ class PDBDataset(Dataset):
             if self.use_precomputed_latents:
                 if isinstance(graph_or_dict, dict):
                     graph_or_dict = Data(
+                        id=graph_or_dict.get("id", "unknown"),
                         coords_nm=graph_or_dict["ca_coords"], 
                         mean=graph_or_dict["mean"],
                         log_scale=graph_or_dict["log_scale"],
