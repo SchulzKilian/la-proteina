@@ -40,10 +40,10 @@ def main():
                 "mask": seq_mask,
                 "mask_dict": {
                     "residue_type": seq_mask,
-                    "coords": coord_mask.unsqueeze(-1).unsqueeze(-1)
+                    # USE seq_mask HERE so [..., 0, 0] resolves perfectly to [1, n]!
+                    "coords": seq_mask.unsqueeze(-1).unsqueeze(-1) 
                 }
             }
-            batch["mask"] = batch["mask_dict"]["coords"][..., 0, 0]
             
             # Encode
             out = ae.encoder(batch)
