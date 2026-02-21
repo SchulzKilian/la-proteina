@@ -287,6 +287,7 @@ class PDBDataset(Dataset):
         in_memory: bool = False,
         file_names: Optional[List[str]] = None,
         num_workers: int = 64,
+        use_precomputed_latents: bool = False,
     ):
         self.database = "pdb"
         self.pdb_codes = [pdb.lower() for pdb in pdb_codes]
@@ -300,6 +301,11 @@ class PDBDataset(Dataset):
         self.transform = transform
         self.sequence_id_to_idx = None
 
+        if self.use_precomputed_latents:
+            self.processed_dir = self.data_dir / "processed_latents"
+        else:
+            self.processed_dir = self.data_dir / "processed"
+
         if self.in_memory:
             logger.info("Reading data into memory (sharded)...")
             self.data = []
@@ -311,43 +317,45 @@ class PDBDataset(Dataset):
                 if not path.exists():
                     path = self.processed_dir / fname
                 self.data.append(torch.load(path, weights_only=False))
+
     def __len__(self):
         return len(self.file_names)
 
-    def __getitem__(self, idx: int) -> Data:
-        if self.in_memory:
-            graph = self.data[idx]
-        else:
-            if self.file_names is not None:
-                fname = self.file_names[idx]
-                if not fname.endswith(".pt"):
-                    fname = f"{fname}.pt"
-            elif self.chains is not None:
-                fname = f"{self.pdb_codes[idx]}_{self.chains[idx]}.pt"
+    def __getitem__(self, idx: int) -> Union[Data, Dict]:
+            if self.in_memory:
+                graph_or_dict = self.data[idx]
             else:
-                fname = f"{self.pdb_codes[idx]}.pt"
+                fname = self.file_names[idx] if self.file_names is not None else f"{self.pdb_codes[idx]}.pt"
+                if not fname.endswith(".pt"): fname += ".pt"
+                
+                shard = fname[0:2].lower()
+                file_path = self.processed_dir / shard / fname
+                if not file_path.exists():
+                    file_path = self.processed_dir / fname
 
-            # 1. First, try the sharded path (e.g., processed/4c/4ct3_E.pt)
-            shard = fname[0:2].lower()
-            file_path = self.processed_dir / shard / fname
+                graph_or_dict = torch.load(file_path, map_location='cpu', weights_only=False)
 
-            # 2. Fallback: Check the root processed directory (e.g., processed/4ct3_E.pt)
-            if not file_path.exists():
-                file_path = self.processed_dir / fname
+            if self.use_precomputed_latents:
+                if isinstance(graph_or_dict, dict):
+                    graph_or_dict = Data(
+                        coords_nm=graph_or_dict["ca_coords"], 
+                        mean=graph_or_dict["mean"],
+                        log_scale=graph_or_dict["log_scale"],
+                        residue_type=graph_or_dict["residue_type"]
+                    )
+                
+            if self.transform:
+                graph_or_dict = self.transform(graph_or_dict)
+            return graph_or_dict
+            
 
-            # 3. Final check: ensure we found it before loading
-            if not file_path.exists():
-                raise FileNotFoundError(f"Could not find processed file {fname} in {self.processed_dir} (checked shards and root).")
+            graph_or_dict.coords = graph_or_dict.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
+            graph_or_dict.coord_mask = graph_or_dict.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
 
-            graph = torch.load(file_path, weights_only=False)
+            if self.transform:
+                graph_or_dict = self.transform(graph_or_dict)
 
-        graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
-        graph.coord_mask = graph.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
-
-        if self.transform:
-            graph = self.transform(graph)
-
-        return graph
+            return graph_or_dict
 
 
 class PDBLightningDataModule(BaseLightningDataModule):
@@ -369,8 +377,10 @@ class PDBLightningDataModule(BaseLightningDataModule):
         batch_size: int = 32,
         num_workers: int = 32,
         pin_memory: bool = False,
+        use_precomputed_latents: bool = False,
         **kwargs,
     ):
+        self.use_precomputed_latents = use_precomputed_latents
         super().__init__(
             batch_padding=batch_padding,
             sampling_mode=sampling_mode,
@@ -625,6 +635,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
             in_memory=self.in_memory,
             file_names=file_names,
             num_workers=self.num_workers,
+            use_precomputed_latents=self.use_precomputed_latents,
         )
 
     def _download_structure_data(self, pdb_codes) -> None:

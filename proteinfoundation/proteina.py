@@ -32,7 +32,7 @@ def create_dir(dir):
 
 
 class Proteina(L.LightningModule):
-    def __init__(self, cfg_exp, store_dir=None, autoencoder_ckpt_path=None):
+    def __init__(self, cfg_exp, store_dir=None, autoencoder_ckpt_path=None, use_precomputed_latents=False):
         super().__init__()
         self.save_hyperparameters()
         self.cfg_exp = cfg_exp
@@ -44,6 +44,7 @@ class Proteina(L.LightningModule):
         create_dir(self.val_path_tmp)
 
         self.metric_factory = None
+        self.use_precomputed_latents = cfg_exp.training.get("use_precomputed_latents", False)
 
         if autoencoder_ckpt_path is not None:
             # Allow adding new keys
@@ -54,7 +55,13 @@ class Proteina(L.LightningModule):
             # Re-enable struct mode if needed
             OmegaConf.set_struct(cfg_exp, True)
 
-        self.autoencoder, latent_dim = self.load_autoencoder(cfg_exp, freeze_params=True)
+        if self.use_precomputed_latents:
+            logger.info("Skipping AutoEncoder load -> using precomputed latents.")
+            self.autoencoder = None
+            latent_dim = cfg_exp.product_flowmatcher.local_latents.get("dim", 8)
+        else:
+            # Original AutoEncoder loading
+            self.autoencoder, latent_dim = self.load_autoencoder(cfg_exp, freeze_params=True)
         
         # Add right latent dimensionality in the config file, needed to instantiate the flow matcher below
         if latent_dim is not None:
@@ -104,6 +111,7 @@ class Proteina(L.LightningModule):
         if ae_ckp_path is None:
             return None, None
         
+
         logger.info(f"Loading autoencoder from {ae_ckp_path}")
         autoencoder = AutoEncoder.load_from_checkpoint(ae_ckp_path, strict=False)
         if freeze_params:
@@ -316,19 +324,24 @@ class Proteina(L.LightningModule):
         if dm == "bb_ca":
             return batch["coords_nm"][:, :, 1, :]  # [b, n, 3]
         elif dm == "local_latents":
-            encoded_batch = self.autoencoder.encode(batch)
-            # {
-            #   "z_latent": latent_sample, shape [b, n, d]
-            #   "mean": mean of latent (diag) Gaussian dist, shape [b, n, d]
-            #   "log_scale": log standard deviation of latent (diag) Gaussian dist, shape [b, n, d]
-            # }
-            return encoded_batch["z_latent"]
+            if self.use_precomputed_latents:
+                # 1. Fetch the precomputed statistics directly from the lightweight batch
+                mean = batch["mean"]
+                log_scale = batch["log_scale"]
+                
+                # 2. Sample z_latent using the reparameterization trick
+                std = torch.exp(log_scale)
+                z_latent = mean + std * torch.randn_like(std)
+                return z_latent
+            else:
+                # Original dynamic encoding
+                encoded_batch = self.autoencoder.encode(batch)
+                return encoded_batch["z_latent"]
         else:
             raise ValueError(
                 f"Loading clean samples from data mode {dm} not supported."
             )
-
-
+        
     def handle_self_cond(self, batch: Dict) -> Dict:
         n_recycle = self.cfg_exp.training.get(
             "n_recycle", 0
