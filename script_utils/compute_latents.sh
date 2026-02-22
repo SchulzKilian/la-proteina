@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -J precompute_latents
-#SBATCH -A COMPUTERLAB-S3-GPU         # <--- CHANGE THIS to your project account
+#SBATCH -A COMPUTERLAB-SL3-GPU       
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1            # Request 1 GPU for the AutoEncoder forward pass
-#SBATCH --cpus-per-task=8      # Multiple cores help with globbing and file I/O
+#SBATCH --cpus-per-task=16      # Multiple cores help with globbing and file I/O
 #SBATCH --mem=64G               # Latent precomputation can be memory intensive
 #SBATCH --time=04:00:00         # Adjust based on dataset size
 #SBATCH -p ampere               # Use the GPU partition
