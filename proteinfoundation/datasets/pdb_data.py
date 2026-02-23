@@ -349,16 +349,23 @@ class PDBDataset(Dataset):
                     graph_or_dict.coord_mask = graph_or_dict.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
 
             else:
+                # Precomputed latents training
                 assert hasattr(graph_or_dict, "mean") and hasattr(graph_or_dict, "log_scale"), \
                 f"File {fname} is missing precomputed latents ('mean' or 'log_scale'). " \
                 "Did you run precompute_latents.py?"
+                
+                # Fix padding mismatch: Transpose from (Channels, Length) to (Length, Channels)
+                if graph_or_dict.mean.ndim == 2 and graph_or_dict.mean.shape[0] < graph_or_dict.mean.shape[1]:
+                    graph_or_dict.mean = graph_or_dict.mean.transpose(0, 1)
+                    graph_or_dict.log_scale = graph_or_dict.log_scale.transpose(0, 1)
             
             # 4. Apply transforms (e.g., CoordsToNanometers)
             if self.transform:
                 graph_or_dict = self.transform(graph_or_dict)
 
             return graph_or_dict
-
+    
+    
 class PDBLightningDataModule(BaseLightningDataModule):
     def __init__(
         self,
