@@ -355,7 +355,8 @@ class PDBDataset(Dataset):
                 "Did you run precompute_latents.py?"
                 
                 # Fix padding mismatch: Transpose from (Channels, Length) to (Length, Channels)
-                if graph_or_dict.mean.ndim == 2 and graph_or_dict.mean.shape[0] < graph_or_dict.mean.shape[1]:
+                # We do this unconditionally because Channels (e.g. 512) can be > Length (e.g. 102).
+                if graph_or_dict.mean.ndim == 2:
                     graph_or_dict.mean = graph_or_dict.mean.transpose(0, 1)
                     graph_or_dict.log_scale = graph_or_dict.log_scale.transpose(0, 1)
             
@@ -365,7 +366,7 @@ class PDBDataset(Dataset):
 
             return graph_or_dict
     
-    
+
 class PDBLightningDataModule(BaseLightningDataModule):
     def __init__(
         self,
