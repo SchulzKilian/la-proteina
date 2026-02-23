@@ -9,7 +9,7 @@ cd "$PROJECT_DIR"
 # 2. Set the Hardcoded Defaults
 DATA_PATH="$PROJECT_DIR/data"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
-
+REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 # 3. Parse Overwrites
 while getopts "d:c:" opt; do
   case $opt in
