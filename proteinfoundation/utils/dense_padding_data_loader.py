@@ -141,12 +141,22 @@ def _dense_pad_tensor(
                     padded_values.append(val_padded.unsqueeze(0))
                 values = padded_values
             else:
-                values = [
-                    value.unsqueeze(0)
-                    for value in torch.nn.utils.rnn.pad_sequence(
-                        values, batch_first=True, padding_value=padding_value
-                    )
-                ]
+                try:
+                    values = [
+                        value.unsqueeze(0)
+                        for value in torch.nn.utils.rnn.pad_sequence(
+                            values, batch_first=True, padding_value=padding_value
+                        )
+                    ]
+                except RuntimeError as e:
+                    # Print out exactly which attribute is failing and what its shapes are
+                    print(f"\n{'='*60}")
+                    print(f"[COLLATOR CRASH] Failed to pad the attribute: '{key}'")
+                    print(f"[COLLATOR CRASH] The shapes of the first 5 tensors in this batch are:")
+                    for i, v in enumerate(values[:5]):
+                        print(f"  Tensor {i}: {v.shape}")
+                    print(f"{'='*60}\n")
+                    raise e
 
     return values, mask
 
