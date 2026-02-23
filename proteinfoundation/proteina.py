@@ -56,10 +56,6 @@ class Proteina(L.LightningModule):
             # Re-enable struct mode if needed
             OmegaConf.set_struct(cfg_exp, True)
 
-        assert self.use_precomputed_latents or self.autoencoder is not None, \
-    "Model must either use precomputed latents or load a dynamic AutoEncoder."
-        
-        
         
         if self.use_precomputed_latents:
             assert "motif" not in cfg_exp.nn.name.lower(), \
