@@ -1,101 +1,33 @@
 #!/bin/bash
-
-# Stop execution immediately if any command fails
 set -e 
 
-# ==============================================================================
-# 0. ROBUST PATH SETUP (Run from anywhere)
-# ==============================================================================
+# 1. Establish the "Anchor" (Project Root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-
-# Navigate to Project Root
 cd "$PROJECT_DIR"
 
-if [ -f .env ]; then
-    set -o allexport
-    source .env
-    set +o allexport
-fi
-
-export SLURM_NTASKS=4
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-export TORCH_COMPILE_DISABLE=1
-
-# ==============================================================================
-# 1. Configuration & Defaults
-# ==============================================================================
-# DEFAULT VALUES
+# 2. Set the Hardcoded Defaults
 DATA_PATH="$PROJECT_DIR/data"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
-ENV_NAME="laproteina_env"
-REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 
-# PARSE COMMAND LINE OVERRIDES
-# Usage: ./script.sh -d /new/data -c /new/ckpt -e new_env -- hydra_args=value
-while getopts "d:c:e:" opt; do
+# 3. Parse Overwrites
+while getopts "d:c:" opt; do
   case $opt in
     d) DATA_PATH="$OPTARG" ;;
     c) CHECKPOINT_DIR="$OPTARG" ;;
-    e) ENV_NAME="$OPTARG" ;;
-    \?) echo "Invalid option -$OPTARG" >&2; exit 1 ;;
   esac
 done
-
-# Shift off the options consumed by getopts so that $@ only contains 
-# the remaining training/hydra arguments.
 shift $((OPTIND-1))
 
-# ==============================================================================
-# 2. W&B & Environment Checks
-# ==============================================================================
-echo "[+] Checking Environment..."
+# 4. ALIGNMENT STEP: Convert relative inputs to absolute
+# If the user input doesn't start with / (absolute), prefix it with Project Root
+[[ "$DATA_PATH" != /* ]] && DATA_PATH="$PROJECT_DIR/$DATA_PATH"
+[[ "$CHECKPOINT_DIR" != /* ]] && CHECKPOINT_DIR="$PROJECT_DIR/$CHECKPOINT_DIR"
 
-if [ -z "$WANDB_API_KEY" ]; then
-    echo "⚠️  WARNING: WANDB_API_KEY is not set. Run might log as 'offline'."
-    echo "    Continuing in 3 seconds..."
-    sleep 3
-fi
-
-# ==============================================================================
-# 3. Setup Conda Environment
-# ==============================================================================
-if [[ "$CONDA_DEFAULT_ENV" == "$ENV_NAME" ]]; then
-    echo "[+] Environment '$ENV_NAME' is already active. Skipping internal setup."
-else
-    CONDA_CMD="conda"
-    if command -v mamba &> /dev/null; then CONDA_CMD="mamba"; fi
-    
-    # Ensure conda functions are available in subshell
-    CONDA_BASE=$(conda info --base)
-    source "$CONDA_BASE/etc/profile.d/conda.sh"
-
-    if $CONDA_CMD env list | grep -q "$ENV_NAME"; then
-        echo "[+] Activating environment '$ENV_NAME'..."
-        conda activate "$ENV_NAME"
-    else
-        echo "[+] Creating environment '$ENV_NAME'..."
-        $CONDA_CMD env create -f environment.yaml
-        conda activate "$ENV_NAME"
-        
-        echo "[+] Installing pip dependencies..."
-        pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu118
-        pip install graphein==1.7.7 --no-deps
-        pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
-    fi
-fi
-
-# ==============================================================================
-# 4. Data & Directory Setup
-# ==============================================================================
-
-echo "[+] Setting up Data Paths..."
-
+# --- Now the rest of your script works perfectly ---
 echo "DEBUG INFO:"
-echo "  PROJECT_DIR:    '$PROJECT_DIR'"
-echo "  DATA_PATH:      '$DATA_PATH'"
-echo "  CHECKPOINT_DIR: '$CHECKPOINT_DIR'"
-echo "  ENV_NAME:       '$ENV_NAME'"
+echo "  DATA_PATH:      $DATA_PATH"
+echo "  CHECKPOINT_DIR: $CHECKPOINT_DIR"
 
 mkdir -p "$DATA_PATH"
 mkdir -p "$CHECKPOINT_DIR"
