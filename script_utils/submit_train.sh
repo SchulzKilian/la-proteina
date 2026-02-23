@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J train_test
-#SBATCH -A COMPUTERLAB-SL2-GPU
+#SBATCH -A COMPUTERLAB-SL3-GPU
 #SBATCH -p ampere
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
