@@ -436,69 +436,78 @@ class PDBLightningDataModule(BaseLightningDataModule):
         self.file_names = None
 
     def prepare_data(self):
-        
-        if self.use_precomputed_latents:
-            logger.info("Using precomputed latents: Skipping raw PDB download and processing.")
-
-            return
+        """
+        Prepares metadata and handles structure downloads/processing.
+        Skips heavy structural work if using precomputed latents.
+        """
         if self.dataselector:
             file_identifier = self._get_file_identifier(self.dataselector)
             df_data_name = f"{file_identifier}.csv"
+            
+            # 1. Skip if CSV already exists and we are not overwriting
             if not self.overwrite and (self.data_dir / df_data_name).exists():
                 logger.info(f"{df_data_name} exists, skipping selection.")
-            else:
-                logger.info(f"{df_data_name} not found, creating dataset.")
-                df_data = self.dataselector.create_dataset()
+                return
 
-                # --- STEP 1: DOWNLOAD MISSING FILES ---
-                logger.info(f"Dataset created with {len(df_data)} entries. Downloading structures...")
-                self._download_structure_data(df_data["pdb"].tolist())
+            # 2. Create the dataset metadata (needed for splitting in setup)
+            logger.info(f"{df_data_name} not found, creating metadata.")
+            df_data = self.dataselector.create_dataset()
 
-                # --- STEP 2: CHECK FILE AVAILABILITY (Robustness) ---
-                logger.info("Verifying file availability...")
-                existing_pdbs = []
-                unique_pdbs = df_data["pdb"].unique()
-                try:
-                    # Get all filenames currently on disk
-                    raw_files_on_disk = set(os.listdir(self.raw_dir))
-                except FileNotFoundError:
-                    raw_files_on_disk = set()
-
-                for pdb in tqdm(unique_pdbs, desc="Verifying files"):
-                    # Check if .cif OR .cif.gz exists in our set
-                    fname = f"{pdb}.{self.format}"
-                    fname_gz = f"{pdb}.{self.format}.gz"
-                    
-                    if fname in raw_files_on_disk or fname_gz in raw_files_on_disk:
-                        existing_pdbs.append(pdb)
-                
-                existing_pdbs_set = set(existing_pdbs)
-                missing_count = len(unique_pdbs) - len(existing_pdbs)
-                
-                if missing_count > 0:
-                    logger.warning(f"⚠️  Skipping {missing_count} PDBs that failed to download or are missing.")
-                    df_data = df_data[df_data["pdb"].isin(existing_pdbs_set)]
-
-                logger.info(f"Dataset filtered to {len(df_data)} available entries.")
-                
-                self._process_structure_data(
-                    df_data["pdb"].tolist(), df_data["chain"].tolist()
-                )
-
-                logger.info(f"Saving dataset csv to {df_data_name}")
+            # --- CRITICAL FIX FOR LOCAL LATENT RUNS ---
+            if self.use_precomputed_latents:
+                logger.info(f"Using precomputed latents. Saving metadata to {df_data_name} and skipping downloads.")
                 df_data.to_csv(self.data_dir / df_data_name, index=False)
+                return
+            # ------------------------------------------
+
+            # 3. Standard mode: Download missing structure files
+            logger.info(f"Dataset created with {len(df_data)} entries. Downloading structures...")
+            self._download_structure_data(df_data["pdb"].tolist())
+
+            # 4. Standard mode: Verify file availability on disk
+            logger.info("Verifying file availability...")
+            unique_pdbs = df_data["pdb"].unique()
+            try:
+                raw_files_on_disk = set(os.listdir(self.raw_dir))
+            except FileNotFoundError:
+                raw_files_on_disk = set()
+
+            existing_pdbs = []
+            for pdb in tqdm(unique_pdbs, desc="Verifying files"):
+                # Check for standard or compressed formats
+                fname = f"{pdb}.{self.format}"
+                fname_gz = f"{pdb}.{self.format}.gz"
+                if fname in raw_files_on_disk or fname_gz in raw_files_on_disk:
+                    existing_pdbs.append(pdb)
+            
+            # Filter metadata to only include what was actually downloaded
+            if len(unique_pdbs) - len(existing_pdbs) > 0:
+                logger.warning(f"⚠️ Skipping {len(unique_pdbs) - len(existing_pdbs)} PDBs that failed to download.")
+                df_data = df_data[df_data["pdb"].isin(set(existing_pdbs))]
+
+            # 5. Standard mode: Process structures into .pt files
+            self._process_structure_data(
+                df_data["pdb"].tolist(), df_data["chain"].tolist()
+            )
+
+            logger.info(f"Saving dataset csv to {df_data_name}")
+            df_data.to_csv(self.data_dir / df_data_name, index=False)
 
         else:
+            # Logic for loading directly from a folder without a dataselector
             df_data_name = f"{self.data_dir.name}.csv"
             if not self.overwrite and (self.data_dir / df_data_name).exists():
                 logger.info(f"{df_data_name} exists.")
             else:
                 logger.info(f"{df_data_name} not found.")
                 df_data = self._load_pdb_folder_data(self.raw_dir)
-                self._process_structure_data(
-                    pdb_codes=df_data["pdb"].tolist(),
-                    chains=None,
-                )
+                
+                if not self.use_precomputed_latents:
+                    self._process_structure_data(
+                        pdb_codes=df_data["pdb"].tolist(),
+                        chains=None,
+                    )
+                
                 logger.info(f"Saving dataset csv to {df_data_name}")
                 df_data.to_csv(self.data_dir / df_data_name, index=False)
 
