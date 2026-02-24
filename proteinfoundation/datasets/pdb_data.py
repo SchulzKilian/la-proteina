@@ -436,6 +436,11 @@ class PDBLightningDataModule(BaseLightningDataModule):
         self.file_names = None
 
     def prepare_data(self):
+        
+        if self.use_precomputed_latents:
+            logger.info("Using precomputed latents: Skipping raw PDB download and processing.")
+
+            return
         if self.dataselector:
             file_identifier = self._get_file_identifier(self.dataselector)
             df_data_name = f"{file_identifier}.csv"
