@@ -438,48 +438,57 @@ class PDBLightningDataModule(BaseLightningDataModule):
     def prepare_data(self):
         """
         Prepares metadata and handles structure downloads/processing.
-        When using latents, it filters the metadata to only include files that exist on disk.
+        When using latents, it strictly filters the metadata to only include 
+        files found in the 'processed_latents' directory.
         """
         if self.dataselector:
             file_identifier = self._get_file_identifier(self.dataselector)
             df_data_name = f"{file_identifier}.csv"
             
-            # 1. Skip if the CSV already exists
+            # 1. Check if the CSV already exists. 
+            # If it does, we assume it's already filtered or the user wants to keep it.
             if not self.overwrite and (self.data_dir / df_data_name).exists():
                 logger.info(f"{df_data_name} exists, skipping selection.")
                 return
 
-            # 2. Create the initial selection from the PDB database
+            # 2. Create the initial selection from the PDB database metadata
             logger.info(f"{df_data_name} not found, creating metadata.")
             df_data = self.dataselector.create_dataset()
 
             # --- CRITICAL FIX: FILTER FOR EXISTING LATENTS ---
             if self.use_precomputed_latents:
-                logger.info("Filtering metadata to only include existing precomputed latents...")
+                logger.info("Filtering metadata to only include existing precomputed latents on disk...")
                 import glob
+                
                 # Scan for all .pt files in processed_latents (including shards)
                 latent_dir = self.data_dir / "processed_latents"
+                # This finds files in both processed_latents/1abc.pt and processed_latents/1a/1abc.pt
                 existing_paths = glob.glob(str(latent_dir / "**" / "*.pt"), recursive=True)
+                
+                # Extract IDs from filenames (e.g., '5wtu_D.pt' -> '5wtu_D')
                 existing_ids = {os.path.basename(p).replace(".pt", "") for p in existing_paths}
                 
-                # Identify if a row matches an existing file (PDB_CHAIN.pt or PDB.pt)
-                def check_id(row):
+                def check_id_exists(row):
                     pdb = row['pdb'].lower()
                     chain = row.get('chain')
+                    # Construct ID format used in filenames: PDB_CHAIN or just PDB
                     target_id = f"{pdb}_{chain}" if pd.notna(chain) and chain != "all" else pdb
                     return target_id in existing_ids
 
                 initial_count = len(df_data)
-                df_data = df_data[df_data.apply(check_id, axis=1)]
+                # Keep only rows where the file actually exists
+                df_data = df_data[df_data.apply(check_id_exists, axis=1)]
                 
-                logger.info(f"Filtered from {initial_count} to {len(df_data)} available latents.")
+                logger.info(f"Filtered dataset from {initial_count} to {len(df_data)} available latents.")
+                
+                # Save the "clean" CSV. Setup() will now only see existing files.
                 logger.info(f"Saving filtered metadata csv to {df_data_name}")
                 df_data.to_csv(self.data_dir / df_data_name, index=False)
                 return
             # --------------------------------------------------
 
             # 3. Standard Mode (Non-Latent): Download and Process
-            logger.info(f"Downloading {len(df_data)} structures...")
+            logger.info(f"Dataset created. Downloading {len(df_data)} structures...")
             self._download_structure_data(df_data["pdb"].tolist())
 
             logger.info("Verifying file availability...")
@@ -492,6 +501,19 @@ class PDBLightningDataModule(BaseLightningDataModule):
 
             logger.info(f"Saving dataset csv to {df_data_name}")
             df_data.to_csv(self.data_dir / df_data_name, index=False)
+
+        else:
+            # Logic for when no dataselector is provided (loading everything in a folder)
+            df_data_name = f"{self.data_dir.name}.csv"
+            if not self.overwrite and (self.data_dir / df_data_name).exists():
+                logger.info(f"{df_data_name} exists.")
+            else:
+                logger.info(f"{df_data_name} not found.")
+                df_data = self._load_pdb_folder_data(self.raw_dir)
+                if not self.use_precomputed_latents:
+                    self._process_structure_data(pdb_codes=df_data["pdb"].tolist(), chains=None)
+                df_data.to_csv(self.data_dir / df_data_name, index=False)
+
 
     def _process_structure_data(self, pdb_codes, chains):
         """Process raw data. Supports serial execution if num_workers=0."""
