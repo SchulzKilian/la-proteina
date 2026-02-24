@@ -223,7 +223,11 @@ class CenterStructureTransform(T.BaseTransform):
         ca_coords = graph.coords_nm if graph.coords_nm.ndim == 2 else graph.coords_nm[:, 1, :]
         mask = torch.ones(ca_coords.shape[0], dtype=torch.bool, device=ca_coords.device)
         com = mean_w_mask(ca_coords, mask, keepdim=True)  # [1, 3]
-        graph.coords_nm = graph.coords_nm - com[None, ...]  # [n, 37, 3] - [1, 3]
+
+        if graph.coords_nm.ndim == 2:
+            graph.coords_nm = graph.coords_nm - com
+        else:
+            graph.coords_nm = graph.coords_nm - com[None, ...]
         return graph
     
     def forward(self, x):

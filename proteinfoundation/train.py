@@ -309,16 +309,19 @@ def store_n_log_configs(cfg_exp, cfg_data, run_name, ckpt_path_store, wandb_logg
 def main(cfg_exp) -> None:
     load_dotenv()
 
-    is_cluster_run = True
+    is_cluster_run = "SLURM_JOB_ID" in os.environ
     nolog = cfg_exp.get(
         "nolog", False
     )  # To use do `python proteinfoundation/train.py +nolog=true`
     single = cfg_exp.get("single", False)
     show_prog_bar = True
-    if single:
-        # Rewrite number of GPUs and nodes for local runs or if single flag is used
+    
+    if not is_cluster_run or single:
         cfg_exp.hardware.ngpus_per_node_ = 1
         cfg_exp.hardware.nnodes_ = 1
+        is_cluster_run = False # Treat as local for plugin purposes
+        log_info("Mode: LOCAL/SINGLE-GPU")
+
     log_info(f"Exp config {cfg_exp}")
 
     run_name, root_run, ckpt_path_store = get_run_dirs(cfg_exp)

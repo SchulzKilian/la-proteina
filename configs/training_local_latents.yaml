@@ -99,3 +99,6 @@ ema:
   cpu_offload: False  # Whether to offload EMA weights to cpu
 
 
+
+single: False
+nolog: False
