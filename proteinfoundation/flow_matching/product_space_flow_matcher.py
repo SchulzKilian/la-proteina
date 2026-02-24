@@ -117,26 +117,25 @@ class ProductSpaceFlowMatcher(L.LightningModule):
     def process_batch(
         self, batch: Dict
     ) -> Tuple[Tensor, Tensor, Tuple, int, torch.dtype]:
-        """
-        Extracts clean sample, mask, batch size, protein length n, dtype and device
-        from the batch coming from the dataloader. (Do we want dtype? Should default
-        work?)
-
-        Args:
-            batch: batch from dataloader.
-
-        Returns:
-            Tuple (x_1, mask, batch_shape, n, dtype, device)
-
-        WARNING: For dtype, it might become a dictionary as well, depending on
-        type for sequence (discrete)
-        """
-        coors_tensor = batch["coords"]  # [b, n, 37, 3]
+        
+        coors_tensor = batch["coords"]  # [b, n, 37, 3] OR [b, n, 3]
         device = coors_tensor.device
         dtype = coors_tensor.dtype
-        batch_shape = coors_tensor.shape[:-3]
-        n = coors_tensor.shape[-3]
-        mask = batch["mask_dict"]["coords"][..., 0, 0]  # [b, n] boolean
+        
+        # Check if coordinates are CA-only (3D) or full atom (4D)
+        if coors_tensor.ndim == 4:
+            batch_shape = coors_tensor.shape[:-3]
+            n = coors_tensor.shape[-3]
+            mask = batch["mask_dict"]["coords"][..., 0, 0]  # [b, n]
+        else:
+            # For CA-only precomputed data [B, N, 3]
+            batch_shape = coors_tensor.shape[:-2]
+            n = coors_tensor.shape[-2]
+            # Use the coords mask directly from the dict
+            mask = batch["mask_dict"]["coords"]  # [b, n]
+            if mask.ndim == 3: # Handle [b, n, 1] if present
+                mask = mask[..., 0]
+
         x_1 = self._apply_mask(x=batch["x_1"], mask=mask)
         return (x_1, mask, batch_shape, n, dtype, device)
 
