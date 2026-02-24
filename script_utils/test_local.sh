@@ -9,7 +9,7 @@ conda activate laproteina_env
 # Using 'single=true' to trigger your existing local logic
 python proteinfoundation/train.py \
     single=true \
-    +nolog=true \
+    ++nolog=true \
     opt.max_epochs=1 \
     hardware.ncpus_per_task_train_=4 \
     "$@"
