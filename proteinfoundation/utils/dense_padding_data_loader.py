@@ -149,14 +149,8 @@ def _dense_pad_tensor(
                         )
                     ]
                 except RuntimeError as e:
-                    # Print out exactly which attribute is failing and what its shapes are
-                    print(f"\n{'='*60}")
-                    print(f"[COLLATOR CRASH] Failed to pad the attribute: '{key}'")
-                    print(f"[COLLATOR CRASH] The shapes of the first 5 tensors in this batch are:")
-                    for i, v in enumerate(values[:5]):
-                        print(f"  Tensor {i}: {v.shape}")
-                    print(f"{'='*60}\n")
-                    raise e
+                    # Inject the key directly into the PyTorch traceback!
+                    raise RuntimeError(f"\n\n[COLLATOR CRASH] -> Failed to pad attribute: '{key}'\nOriginal Error: {e}\n") from e
 
     return values, mask
 
