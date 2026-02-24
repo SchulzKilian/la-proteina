@@ -221,17 +221,18 @@ def store_n_log_configs(cfg_exp, cfg_data, run_name, ckpt_path_store, wandb_logg
 def main(cfg_exp) -> None:
     load_dotenv()
 
-    is_cluster_run = False
-    nolog = cfg_exp.get(
-        "nolog", False
-    )  # To use do `python proteinfoundation/train.py +nolog=true`
+    # Detect if running under SLURM
+    is_cluster_run = "SLURM_JOB_ID" in os.environ 
+    
+    # Use your existing flags to force local-like behavior even on a cluster
+    nolog = cfg_exp.get("nolog", False)
     single = cfg_exp.get("single", False)
-    show_prog_bar = True
-    if single:
-        # Rewrite number of GPUs and nodes for local runs or if single flag is used
+    
+    # If not on cluster or 'single' is requested, override hardware
+    if not is_cluster_run or single:
         cfg_exp.hardware.ngpus_per_node_ = 1
         cfg_exp.hardware.nnodes_ = 1
-    log_info(f"Exp config {cfg_exp}")
+        log_info("Running in LOCAL mode: overriding GPUs/Nodes to 1")
 
     run_name, root_run, ckpt_path_store = get_run_dirs(cfg_exp)
     callbacks = initialize_callbacks(cfg_exp)
@@ -256,6 +257,16 @@ def main(cfg_exp) -> None:
     # Train
     plugins = [SLURMEnvironment(auto_requeue=True)] if is_cluster_run else []
     show_prog_bar = show_prog_bar or not is_cluster_run
+
+    plugins = [SLURMEnvironment(auto_requeue=True)] if is_cluster_run else []
+    
+    
+    devices = cfg_exp.hardware.ngpus_per_node_
+
+    if not is_cluster_run and not torch.cuda.is_available():
+        devices = "cpu" # Fallback if no GPU is found locally
+        log_info("No GPU found, falling back to CPU")
+
     trainer = L.Trainer(
         max_epochs=cfg_exp.opt.max_epochs,
         accelerator=cfg_exp.hardware.accelerator,
@@ -272,6 +283,7 @@ def main(cfg_exp) -> None:
         plugins=plugins,
         accumulate_grad_batches=cfg_exp.opt.accumulate_grad_batches,
         num_sanity_val_steps=1,
+        devices=devices,
         precision=get_training_precision(cfg_exp, is_cluster_run),
         gradient_clip_algorithm="norm",
         gradient_clip_val=1.0,
