@@ -354,12 +354,21 @@ class PDBDataset(Dataset):
                 f"File {fname} is missing precomputed latents ('mean' or 'log_scale'). " \
                 "Did you run precompute_latents.py?"
                 
-                # Fix padding mismatch: Transpose from (Channels, Length) to (Length, Channels)
-                # We do this unconditionally because Channels (e.g. 512) can be > Length (e.g. 102).
-                if graph_or_dict.mean.ndim == 2:
+                # Get the true sequence length (L) from the coordinate mask
+                L = graph_or_dict.coord_mask.shape[0]
+
+                # EXPLICIT SHAPE FIX: We ONLY transpose if the sequence length is trapped in dimension 1
+                # (e.g., shape is (512, L))
+                if graph_or_dict.mean.shape[1] == L:
                     graph_or_dict.mean = graph_or_dict.mean.transpose(0, 1)
                     graph_or_dict.log_scale = graph_or_dict.log_scale.transpose(0, 1)
-            
+                
+                # STRICT ASSERTS: Enforce that Dimension 0 is always the sequence length (L)
+                # and Dimension 1 is the channel dimension (512)
+                assert graph_or_dict.mean.shape[0] == L, \
+                    f"[{fname}] CRITICAL: 'mean' dim 0 is {graph_or_dict.mean.shape[0]}, but true sequence length is {L}. Shape is {graph_or_dict.mean.shape}"
+                assert graph_or_dict.mean.shape[1] == 512, \
+                    f"[{fname}] CRITICAL: 'mean' dim 1 must be exactly 512 (channels). Shape is {graph_or_dict.mean.shape}"
             # 4. Apply transforms (e.g., CoordsToNanometers)
             if self.transform:
                 graph_or_dict = self.transform(graph_or_dict)
