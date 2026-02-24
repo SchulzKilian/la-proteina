@@ -309,7 +309,7 @@ def store_n_log_configs(cfg_exp, cfg_data, run_name, ckpt_path_store, wandb_logg
 def main(cfg_exp) -> None:
     load_dotenv()
 
-    is_cluster_run = False
+    is_cluster_run = True
     nolog = cfg_exp.get(
         "nolog", False
     )  # To use do `python proteinfoundation/train.py +nolog=true`
