@@ -604,8 +604,12 @@ class CaCoorsNanometersSeqFeat(Feature):
         if "ca_coors_nm" in batch:
             return batch["ca_coors_nm"]  # [b, n, 3]
         else:
-            return batch["coords_nm"][:, :, 1, :]  # [b, n, 3]
-
+            # If coordinates are already CA-only (from precomputed latents)
+            if batch["coords_nm"].ndim == 3:
+                return batch["coords_nm"]
+            # If coordinates are full-atom 
+            else:
+                return batch["coords_nm"][:, :, 1, :]  # [b, n, 3]
 
 class TryCaCoorsNanometersSeqFeat(CaCoorsNanometersSeqFeat):
     """
@@ -1406,14 +1410,18 @@ class CaCoorsNanometersPairwiseDistancesPairFeat(Feature):
         if "ca_coors_nm" in batch:
             ca_coors = batch["ca_coors_nm"]
         else:
-            ca_coors = batch["coords_nm"][:, :, 1, :]
+            ca_coors = batch["coords_nm"]
+            # Only index if it has 37 atoms (4D), otherwise use as-is
+            if ca_coors.ndim == 4:
+                ca_coors = ca_coors[:, :, 1, :]
+                
         return bin_pairwise_distances(
             x=ca_coors,
             min_dist=self.min_dist,
             max_dist=self.max_dist,
             dim=self.dim,
         )  # [b, n, n, pair_dist_dim]
-
+    
 
 class OptionalCaCoorsNanometersPairwiseDistancesPairFeat(
     CaCoorsNanometersPairwiseDistancesPairFeat
