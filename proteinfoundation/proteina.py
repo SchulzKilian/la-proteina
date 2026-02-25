@@ -250,13 +250,13 @@ class Proteina(L.LightningModule):
                 nn_out=nn_out,
             )  # Dict[str, Tensor w.batch shape [*]]
 
-            self.log_losses(bs=bs, losses=losses, log_prefix=log_prefix, batch=batch)
+            self.log_losses(bs=bs, losses=losses, log_prefix=log_prefix, batch=batch, val_step=val_step)
             train_loss = sum([torch.mean(losses[k]) for k in losses if "_justlog" not in k])
 
             self.log(
                 f"{log_prefix}/loss",
                 train_loss,
-                on_step=True,
+                on_step=not val_step,
                 on_epoch=True,
                 prog_bar=False,
                 logger=True,
@@ -401,6 +401,7 @@ class Proteina(L.LightningModule):
         losses: Dict[str, Float[torch.Tensor, "b"]],
         log_prefix: str,
         batch: Dict,
+        val_step: bool = False
     ):
         for k in losses:
             log_name = k[: -len("_justlog")] if k.endswith("_justlog") else k
@@ -408,7 +409,7 @@ class Proteina(L.LightningModule):
             self.log(
                 f"{log_prefix}/loss_{log_name}",
                 torch.mean(losses[k]),
-                on_step=True,
+                on_step=not val_step,
                 on_epoch=True,
                 prog_bar=False,
                 logger=True,
