@@ -16,7 +16,7 @@ dataset:
   # Lengths to sample. If not None, then use length-centric sampling
   # Uses `nres_lens` if specified, otherwise arange(min_len, max_len+1, step)
   nlens_cfg:
-    nres_lens: [50] # , 100, 150, 200, 250]
+    nres_lens: [25] # , 100, 150, 200, 250]
     min_len:
     max_len:
     step_len:
