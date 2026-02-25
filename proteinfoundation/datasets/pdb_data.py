@@ -309,17 +309,29 @@ class PDBDataset(Dataset):
         else:
             self.processed_dir = self.data_dir / "processed"
 
+        
+
         if self.in_memory:
-            logger.info("Reading data into memory (sharded)...")
-            self.data = []
-            for f in tqdm(file_names):
+
+            logger.info(f"Reading {len(file_names)} files into memory using {self.num_workers} workers...")
+            
+            # Create tasks for the pool
+            tasks = []
+            for f in file_names:
                 fname = f if f.endswith(".pt") else f"{f}.pt"
                 shard = fname[0:2].lower()
                 path = self.processed_dir / shard / fname
-
                 if not path.exists():
                     path = self.processed_dir / fname
-                self.data.append(torch.load(path, weights_only=False))
+                tasks.append(path)
+
+            # Use a Pool to load files in parallel
+            with Pool(processes=self.num_workers) as pool:
+                self.data = list(tqdm(
+                    pool.imap(torch.load, tasks), # You can add weights_only=True here
+                    total=len(tasks),
+                    desc="Loading Latents"
+                ))
 
     def __len__(self):
         return len(self.file_names)
