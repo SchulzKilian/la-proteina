@@ -103,13 +103,13 @@ class Proteina(L.LightningModule):
 
     # Inside Proteina or AutoEncoder class
     def verify_latent_consistency(self, batch, on_the_fly_mean):
-        print("called")
+        # print("called")
         """
         Called during training_step when use_precomputed_latents=False.
         Compares the current on-the-fly calculation with the file on disk.
         """
         # Only run on Rank 0 and occasionally to save logs
-        if self.global_step % 100 != 0 or True:
+        if self.global_step % 100 != 0 and False:
             return
 
         import os
