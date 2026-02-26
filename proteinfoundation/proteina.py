@@ -135,7 +135,7 @@ class Proteina(L.LightningModule):
         
         # 3. Get the on-the-fly mean for the same sample
         # on_the_fly_mean has shape [B, L, 8]
-        otf_sample_mean = on_the_fly_mean[0] 
+        otf_sample_mean = on_the_fly_mean
         
         # 4. Mask both to the real sequence length for comparison
         mask = batch["mask"][0] # [L]
