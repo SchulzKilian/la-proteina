@@ -101,6 +101,52 @@ class Proteina(L.LightningModule):
 
         self.nn_ag = None
 
+    # Inside Proteina or AutoEncoder class
+    def verify_latent_consistency(self, batch, on_the_fly_mean):
+        """
+        Called during training_step when use_precomputed_latents=False.
+        Compares the current on-the-fly calculation with the file on disk.
+        """
+        # Only run on Rank 0 and occasionally to save logs
+        if self.global_step % 100 != 0:
+            return
+
+        import os
+        import torch
+
+        # 1. Identify the protein in the current batch (first sample)
+        # Note: Ensure your dataloader includes the 'id' or 'pdb' in the batch
+        protein_id = batch.id[0] 
+        shard = protein_id[0:2].lower()
+        latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
+
+        if not os.path.exists(latent_path):
+            return
+
+        # 2. Load the precomputed latent from disk
+        precomputed_data = torch.load(latent_path, map_location=self.device)
+        disk_mean = precomputed_data.mean.to(self.device) # Shape [L, 8]
+        
+        # 3. Get the on-the-fly mean for the same sample
+        # on_the_fly_mean has shape [B, L, 8]
+        otf_sample_mean = on_the_fly_mean[0] 
+        
+        # 4. Mask both to the real sequence length for comparison
+        mask = batch["mask"][0] # [L]
+        otf_masked = otf_sample_mean[mask]
+        disk_masked = disk_mean[mask]
+
+        # 5. Assert and Log
+        diff = torch.abs(otf_masked - disk_masked).max().item()
+        
+        if diff > 1e-4:
+            print(f"⚠️  LATENT MISMATCH at step {self.global_step} for {protein_id}!")
+            print(f"Max Difference: {diff:.6f}")
+            # This will help you see if it's a small precision issue or a total failure
+        else:
+            print(f"✅ Latent Match for {protein_id} (Diff: {diff:.6e})")
+            
+
     def load_autoencoder(self, cfg_exp, freeze_params=True):
         """Loads autoencoder, if required."""
         if ("autoencoder_ckpt_path" in cfg_exp):
