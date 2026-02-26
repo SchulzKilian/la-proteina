@@ -108,7 +108,8 @@ class Proteina(L.LightningModule):
         and Disk-saved precomputed latents (usually [L, 8]).
         """
         if self.global_step % 1 != 0:
-            return
+            pass
+            # return
 
         # 1. Correct Access to Batch Info
         # Use dictionary syntax [] instead of . notation to avoid AttributeErrors
