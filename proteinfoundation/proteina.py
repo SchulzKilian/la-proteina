@@ -121,7 +121,9 @@ class Proteina(L.LightningModule):
         shard = protein_id[0:2].lower()
         latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
 
+
         if not os.path.exists(latent_path):
+            print(os.getcwd())
             print("latent path does not exist, cannot verify consistency for", latent_path)
 
             return
