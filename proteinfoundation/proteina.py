@@ -108,7 +108,7 @@ class Proteina(L.LightningModule):
         Compares the current on-the-fly calculation with the file on disk.
         """
         # Only run on Rank 0 and occasionally to save logs
-        if self.global_step % 100 != 0:
+        if self.global_step % 100 != 0 or True:
             return
 
         import os
