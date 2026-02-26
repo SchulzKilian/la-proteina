@@ -145,7 +145,7 @@ class Proteina(L.LightningModule):
             # This will help you see if it's a small precision issue or a total failure
         else:
             print(f"✅ Latent Match for {protein_id} (Diff: {diff:.6e})")
-            
+
 
     def load_autoencoder(self, cfg_exp, freeze_params=True):
         """Loads autoencoder, if required."""
@@ -256,6 +256,8 @@ class Proteina(L.LightningModule):
         return nn_out
 
     def training_step(self, batch: Dict, batch_idx: int):
+
+        self.verify_latent_consistency(batch, batch_idx)
 
         """
         Computes training loss for batch of samples.
