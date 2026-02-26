@@ -132,6 +132,7 @@ class Proteina(L.LightningModule):
         
         # 3. Resolve OTF Shape
         # on_the_fly_mean is passed as batch["x_1"]["local_latents"], typically [B, L, 8]
+        print(on_the_fly_mean.shape)
         otf_sample_mean = on_the_fly_mean[0] # Take first sample in batch -> [L, 8]
 
         # 4. Critical Shape Alignment (The "Shape Error" Fix)
