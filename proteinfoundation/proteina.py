@@ -122,7 +122,8 @@ class Proteina(L.LightningModule):
         latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
 
         if not os.path.exists(latent_path):
-            print("latent path does not exist, cannot verify consistency for", protein_id)
+            print("latent path does not exist, cannot verify consistency for", latent_path)
+
             return
 
         # 2. Load the precomputed latent from disk
