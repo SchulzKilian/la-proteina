@@ -101,56 +101,61 @@ class Proteina(L.LightningModule):
 
         self.nn_ag = None
 
-    # Inside Proteina or AutoEncoder class
+        # Inside Proteina or AutoEncoder class
     def verify_latent_consistency(self, batch, on_the_fly_mean):
-        # print("called")
         """
-        Called during training_step when use_precomputed_latents=False.
-        Compares the current on-the-fly calculation with the file on disk.
+        Handles shape mismatches between OTF calculations (usually [B, L, 8])
+        and Disk-saved precomputed latents (usually [L, 8]).
         """
-        # Only run on Rank 0 and occasionally to save logs
-        if self.global_step % 100 != 0 and False:
+        if self.global_step % 1 != 0:
             return
 
-        import os
-        import torch
+        # 1. Correct Access to Batch Info
+        # Use dictionary syntax [] instead of . notation to avoid AttributeErrors
+        try:
+            protein_id = batch["id"][0] if "id" in batch else batch["pdb"][0]
+        except (KeyError, TypeError):
+            return
 
-        # 1. Identify the protein in the current batch (first sample)
-        # Note: Ensure your dataloader includes the 'id' or 'pdb' in the batch
-        protein_id = batch.id[0] 
         shard = protein_id[0:2].lower()
-        # latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
-        latent_path = os.path.join("data/pdb_train/processed_latents", f"{protein_id}.pt")
-
+        # Note: Use the actual data directory from your config
+        latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
 
         if not os.path.exists(latent_path):
-            print(os.getcwd())
-            print("latent path does not exist, cannot verify consistency for", latent_path)
-
             return
 
-        # 2. Load the precomputed latent from disk
-        precomputed_data = torch.load(latent_path, map_location=self.device)
-        disk_mean = precomputed_data.mean.to(self.device) # Shape [L, 8]
+        # 2. Load and Resolve Disk Shape
+        precomputed_data = torch.load(latent_path, map_location=self.device, weights_only=False)
+        disk_mean = precomputed_data.mean.to(self.device) # Expected [L, 8]
         
-        # 3. Get the on-the-fly mean for the same sample
-        # on_the_fly_mean has shape [B, L, 8]
-        otf_sample_mean = on_the_fly_mean
-        
-        # 4. Mask both to the real sequence length for comparison
-        mask = batch["mask"][0] # [L]
-        otf_masked = otf_sample_mean[mask]
-        disk_masked = disk_mean[mask]
+        # 3. Resolve OTF Shape
+        # on_the_fly_mean is passed as batch["x_1"]["local_latents"], typically [B, L, 8]
+        otf_sample_mean = on_the_fly_mean[0] # Take first sample in batch -> [L, 8]
 
-        # 5. Assert and Log
-        diff = torch.abs(otf_masked - disk_masked).max().item()
+        # 4. Critical Shape Alignment (The "Shape Error" Fix)
+        # Ensure both are [L, 8]. Sometimes precompute scripts save [8, L] by mistake.
+        if disk_mean.shape[1] != 8 and disk_mean.shape[0] == 8:
+            disk_mean = disk_mean.transpose(0, 1)
+            
+        # 5. Length Alignment
+        # The batch might have padding. Use the mask to get the real sequence length.
+        mask = batch["mask"][0] # [L] boolean mask
+        
+        # Mask both tensors to compare only the valid protein residues
+        otf_valid = otf_sample_mean[mask]
+        disk_valid = disk_mean[mask]
+
+        # Final check before subtraction
+        if otf_valid.shape != disk_valid.shape:
+            print(f"❌ Shape Mismatch for {protein_id}: OTF {otf_valid.shape} vs Disk {disk_valid.shape}")
+            return
+
+        diff = torch.abs(otf_valid - disk_valid).max().item()
         
         if diff > 1e-4:
-            print(f"⚠️  LATENT MISMATCH at step {self.global_step} for {protein_id}!")
-            print(f"Max Difference: {diff:.6f}")
-            # This will help you see if it's a small precision issue or a total failure
+            print(f"⚠️  LATENT MISMATCH at step {self.global_step} for {protein_id}! Max Diff: {diff:.6f}")
         else:
-            print(f"✅ Latent Match for {protein_id} (Diff: {diff:.6e})")
+            print(f"✅ Latent Match for {protein_id} (Diff: {diff:.2e})")
 
 
     def load_autoencoder(self, cfg_exp, freeze_params=True):
