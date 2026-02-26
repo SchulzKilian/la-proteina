@@ -119,7 +119,8 @@ class Proteina(L.LightningModule):
         # Note: Ensure your dataloader includes the 'id' or 'pdb' in the batch
         protein_id = batch.id[0] 
         shard = protein_id[0:2].lower()
-        latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
+        # latent_path = os.path.join("data/pdb_train/processed_latents", shard, f"{protein_id}.pt")
+        latent_path = os.path.join("data/pdb_train/processed_latents", f"{protein_id}.pt")
 
 
         if not os.path.exists(latent_path):
