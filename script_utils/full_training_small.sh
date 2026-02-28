@@ -12,7 +12,7 @@ REQUIRED_AE_CKPT="AE3_motif.ckpt"
 # API URL for the AE3 checkpoint (motif scaffolding optimized)
 AE_URL="https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae3_motif.ckpt/1.0/files?redirect=true&path=AE3_motif.ckpt"
 
-export SLURM_NTASKS=4
+export SLURM_NTASKS_PER_NODE=4
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export TORCH_COMPILE_DISABLE=1
 
