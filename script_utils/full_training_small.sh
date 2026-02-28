@@ -29,7 +29,8 @@ fi
 # Checkpoint Guard for AE3
 if [ ! -f "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" ]; then
     echo "⚠️  AE3 missing. Attempting download..."
-    wget --content-disposition "$AE_URL" \
+    wget --no-check-certificate \
+         --content-disposition "$AE_URL" \
          --output-document "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" \
          --progress=bar:force:noscroll || exit 1
     echo "✅ AE3 Download successful."
