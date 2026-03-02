@@ -10,21 +10,8 @@
 #SBATCH --partition=ampere
 #SBATCH --output=logs/slurm/%j.out
 
-# 1. Establish the "Anchor" (Project Root)
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
-
-# 2. Environment Activation
-# Using the ENV_NAME defined in your snippet
-source /usr/local/software/anaconda/3/etc/profile.d/conda.sh
+source $HOME/.bashrc
 conda activate laproteina_env
-
-# 3. HPC Module Loading (Required for CSD3 Ampere nodes)
-module purge
-module load rhel8/default-amp
-module load cuda/11.8
-
 # 4. Performance & Memory Tuning
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export TORCH_COMPILE_DISABLE=1
