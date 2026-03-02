@@ -6,7 +6,7 @@
 #SBATCH -A COMPUTERLAB-SL2-GPU
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=256G
-#SBATCH --time=12:00:00
+#SBATCH --time=5:00:00
 #SBATCH --partition=ampere
 #SBATCH --output=logs/slurm/%j.out
 
