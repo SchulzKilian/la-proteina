@@ -22,5 +22,4 @@ export TORCH_COMPILE_DISABLE=1
 bash script_utils/full_training_adaptive.sh \
     dataset.datamodule.dataselector.min_length=100 \
     dataset.datamodule.dataselector.max_length=200 \
-    dataset.datamodule.max_size=200 \
     dataset.datamodule.batch_size=12 \
