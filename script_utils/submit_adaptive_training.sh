@@ -21,5 +21,5 @@ export TORCH_COMPILE_DISABLE=1
 # based on the 200-residue limit.
 bash script_utils/full_training_adaptive.sh \
     dataset.datamodule.dataselector.min_length=100 \
-    dataset.datamodule.dataselector.max_length=200 \
+    dataset.datamodule.dataselector.max_length=300 \
     dataset.datamodule.batch_size=12 \
