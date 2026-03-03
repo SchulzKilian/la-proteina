@@ -53,7 +53,7 @@ fi
 
 # 5. Execution
 # Pass all original arguments "$@" so your length overrides reach python
-srun python proteinfoundation/train.py \
+python proteinfoundation/train.py \
     autoencoder_ckpt_path="$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" \
     hydra.run.dir="logs/training/adaptive_$(date +%Y%m%d_%H%M%S)" \
     "$@"
