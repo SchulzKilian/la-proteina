@@ -19,6 +19,7 @@ export TORCH_COMPILE_DISABLE=1
 # 5. Execution
 # We use the adaptive script to ensure the correct AE checkpoint is selected
 # based on the 200-residue limit.
+echo "[+] Submitting Adaptive Training Job with max_length=300 (to trigger AE2 selection)"
 bash script_utils/full_training_adaptive.sh \
     dataset.datamodule.dataselector.min_length=100 \
     dataset.datamodule.dataselector.max_length=300 \

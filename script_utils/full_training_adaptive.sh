@@ -16,7 +16,7 @@ for arg in "$@"; do
         MAX_LEN="${arg#*=}"
     fi
 done
-
+echo "[+] Detected max_length: $MAX_LEN"
 # 3. Selection Logic based on La-Proteina Model Card
 if [ "$MAX_LEN" -le 256 ]; then
     REQUIRED_AE_CKPT="AE3_motif.ckpt"
@@ -31,7 +31,7 @@ else
     AE_URL="https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae2_ucond_800.ckpt/1.0/files?redirect=true&path=AE2_ucond_800.ckpt"
     echo "[+] Target Length > 512: Selecting AE2 (Long-chain optimized)"
 fi
-
+echo "[+] Required AE Checkpoint: $REQUIRED_AE_CKPT"
 mkdir -p "$CHECKPOINT_DIR"
 
 # 4. Robust Checkpoint Guard
@@ -50,7 +50,7 @@ if [ ! -f "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" ] || [ ! -s "$CHECKPOINT_DIR/$REQU
         exit 1
     fi
 fi
-
+echo "[+] Checkpoint ready: $CHECKPOINT_DIR/$REQUIRED_AE_CKPT (Size: $(stat -c%s "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT") bytes)"
 # 5. Execution
 # Pass all original arguments "$@" so your length overrides reach python
 python proteinfoundation/train.py \
