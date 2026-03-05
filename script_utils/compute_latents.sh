@@ -14,9 +14,6 @@
 source $HOME/.bashrc
 conda activate laproteina_env
 
-# 2. Activate Environment
-source $(conda info --base)/etc/profile.d/conda.sh
-conda activate laproteina_env
 
 # 3. Set Up Paths
 export PROJECT_DIR="$SLURM_SUBMIT_DIR"
