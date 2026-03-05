@@ -28,8 +28,8 @@ def main():
         CenterStructureTransform(center_mode="full") 
     ])
     
-    files = glob.glob(os.path.join(data_dir, "**", "*.pt"), recursive=True)
-    existing_outputs = set(glob.glob(os.path.join(out_dir, "**", "*.pt"), recursive=True))
+    files = glob.glob(os.path.join(data_dir, "**", "*.pt"))
+    existing_outputs = set(glob.glob(os.path.join(out_dir, "**", "*.pt")))
     
     print(f"Found {len(files)} source files. Starting computation...")
 
