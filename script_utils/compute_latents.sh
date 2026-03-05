@@ -25,4 +25,4 @@ nvidia-smi
 
 # 5. Run the Script
 # This assumes your python code is saved as precompute_latents.py in the root folder
-python ../precompute_latents.py
+python la_proteina/precompute_latents.py
