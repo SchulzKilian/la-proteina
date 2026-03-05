@@ -14,9 +14,9 @@ FORCE_RECOMPUTE = False
 
 def main():
     # 1. Setup paths
-    data_dir = "data/pdb_train/processed"
-    out_dir = "data/pdb_train/processed_latents"
-    ae_path = "./checkpoints_laproteina/AE1_ucond_512.ckpt"
+    data_dir = "~/la-proteina/data/pdb_train/processed"
+    out_dir = "~/la-proteina/data/pdb_train/processed_latents"
+    ae_path = "/rds/user/ks2218/hpc-work/checkpoints_laproteina"
     
     # 2. Load AutoEncoder and set to eval mode
     print(f"Loading AutoEncoder from {ae_path}...")
