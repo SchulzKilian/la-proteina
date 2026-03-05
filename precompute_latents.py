@@ -14,8 +14,8 @@ FORCE_RECOMPUTE = True
 
 def main():
     # 1. Setup paths
-    data_dir = "~/la-proteina/data/pdb_train/processed"
-    out_dir = "~/la-proteina/data/pdb_train/processed_latents"
+    data_dir = "/home/ks2218/la-proteina/data/pdb_train/processed"
+    out_dir = "/home/ks2218/la-proteina/data/pdb_train/processed_latents"
     ae_path = "/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
     
     # 2. Load AutoEncoder and set to eval mode
