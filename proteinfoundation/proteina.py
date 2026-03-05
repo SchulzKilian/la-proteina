@@ -120,8 +120,11 @@ class Proteina(L.LightningModule):
             return
 
         shard = protein_id[0:2].lower()
+
+        base_dir = "/rds/user/ks2218/hpc-work/processed_latents"
+        latent_path = os.path.join(base_dir, shard, f"{protein_id}.pt")
         # Note: Use the actual data directory from your config
-        latent_path = os.path.join("data/pdb_train/processed_latents", f"{protein_id}.pt")
+        # latent_path = os.path.join("data/pdb_train/processed_latents", f"{protein_id}.pt")
 
         if not os.path.exists(latent_path):
 
