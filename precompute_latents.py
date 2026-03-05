@@ -80,7 +80,7 @@ def main():
 
                 # Construct mask_dict required by EncoderTransformer
                 seq_mask = batch.coord_mask[:, :, 1].bool() 
-                batch["mask_dict"] = {"coords": seq_mask.unsqueeze(-1).unsqueeze(-1)}
+                batch["mask_dict"] = {"coords": seq_mask.unsqueeze(-1).unsqueeze(-1), "residue_type":seq_mask}
                 batch["mask"] = seq_mask
 
                 # E. Run the Encoder
