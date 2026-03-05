@@ -34,6 +34,7 @@ def main():
     print(f"Found {len(files)} source files. Starting computation...")
 
     with torch.no_grad():
+        print(files)
         for f in tqdm(files, desc="Precomputing"):
             out_path = f.replace(data_dir, out_dir)
             # In precompute_latents.py inside the for loop:
