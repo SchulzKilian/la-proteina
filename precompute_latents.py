@@ -10,7 +10,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-FORCE_RECOMPUTE = False 
+FORCE_RECOMPUTE = True 
 
 def main():
     # 1. Setup paths
@@ -36,6 +36,9 @@ def main():
     with torch.no_grad():
         for f in tqdm(files, desc="Precomputing"):
             out_path = f.replace(data_dir, out_dir)
+            # In precompute_latents.py inside the for loop:
+            out_path = f.replace(data_dir, out_dir)
+            print(f"DEBUG: Input {f} -> Output {out_path}", flush=True) # Check this in your log!
             if out_path in existing_outputs and not FORCE_RECOMPUTE:
                 continue
 
