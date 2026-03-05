@@ -1,83 +1,116 @@
 import os
 import torch
-from glob import glob
+import glob
 from tqdm import tqdm
+from torch_geometric.transforms import Compose
 from proteinfoundation.partial_autoencoder.autoencoder import AutoEncoder
-from proteinfoundation.datasets.transforms import CoordsToNanometers
+from proteinfoundation.datasets.transforms import CoordsToNanometers, CenterStructureTransform
+from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+FORCE_RECOMPUTE = False 
 
 def main():
-    # 1. Setup paths and load AE
+    # 1. Setup paths
     data_dir = "data/pdb_train/processed"
     out_dir = "data/pdb_train/processed_latents"
-    
     ae_path = "./checkpoints_laproteina/AE1_ucond_512.ckpt"
+    
+    # 2. Load AutoEncoder and set to eval mode
+    print(f"Loading AutoEncoder from {ae_path}...")
     ae = AutoEncoder.load_from_checkpoint(ae_path).cuda().eval()
     
-    files = glob(os.path.join(data_dir, "**", "*.pt"), recursive=True)
-    transform = CoordsToNanometers()
+    # Define the exact transform pipeline used in standard training
+    transform = Compose([
+        CoordsToNanometers(),
+        CenterStructureTransform(center_mode="full") 
+    ])
     
-    # --- MODIFICATION 2: Existing File Checker ---
-    # We load all existing output paths into a set for near-instant lookup
-    existing_outputs = set(glob(os.path.join(out_dir, "**", "*.pt"), recursive=True))
+    files = glob.glob(os.path.join(data_dir, "**", "*.pt"), recursive=True)
+    existing_outputs = set(glob.glob(os.path.join(out_dir, "**", "*.pt"), recursive=True))
     
-    failed_count = 0
-    skipped_count = 0
+    print(f"Found {len(files)} source files. Starting computation...")
 
     with torch.no_grad():
         for f in tqdm(files, desc="Precomputing"):
-            # Determine the target output path before processing
             out_path = f.replace(data_dir, out_dir)
-            
-            if out_path in existing_outputs:
-                skipped_count += 1
+            if out_path in existing_outputs and not FORCE_RECOMPUTE:
                 continue
 
-            # --- MODIFICATION 1: Try/Except Loop ---
             try:
+                # A. Load raw Data object
                 data = torch.load(f, map_location='cpu', weights_only=False)
-                
-                d_norm = transform(data.clone())
-                
-                coords = data.coords.unsqueeze(0).cuda()
-                coords_nm = d_norm.coords_nm.unsqueeze(0).cuda()
-                coord_mask = d_norm.coord_mask.unsqueeze(0).cuda()
-                residue_type = d_norm.residue_type.unsqueeze(0).cuda()
-                
-                seq_mask = coord_mask[:, :, 1].bool() 
+                L = data.coords.shape[0]
 
-                batch = {
-                    "coords": coords,
-                    "coords_nm": coords_nm,
-                    "coord_mask": coord_mask,
-                    "residue_type": residue_type,
-                    "mask": seq_mask,
-                    "mask_dict": {
-                        "residue_type": seq_mask,
-                        "coords": seq_mask.unsqueeze(-1).unsqueeze(-1) 
-                    }
-                }
+                # ASSERT 1: Verify raw PDB structure shape [L, 37 atoms, 3 coords]
+                assert data.coords.ndim == 3 and data.coords.shape[1] == 37, \
+                    f"[{f}] Unexpected raw shape: {data.coords.shape}. Expected [L, 37, 3]."
+
+                # B. CRITICAL: Reorder atoms to OpenFold standard
+                data.coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
+                data.coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
+
+                # ASSERT 2: Verify atom slicing didn't change sequence length or dimensionality
+                assert data.coords.shape == (L, 37, 3), \
+                    f"[{f}] Reordering corrupted shape: {data.coords.shape}."
+
+                # C. Apply centering and unit conversion (Angstrom -> nm)
+                data = transform(data)
                 
-                out = ae.encoder(batch)
+                # ASSERT 3: Verify transform created nm coordinates
+                assert hasattr(data, 'coords_nm'), f"[{f}] Transform failed to create 'coords_nm'."
+                # Basic sanity check: nm values for proteins are rarely > 100
+                assert data.coords_nm.abs().max() < 500, f"[{f}] Coordinates look unscaled: {data.coords_nm.max()} nm."
+
+                # D. Prepare the batch for the Encoder
+                batch = data.clone().to('cuda')
+                for k in batch.keys():
+                    if isinstance(batch[k], torch.Tensor):
+                        batch[k] = batch[k].unsqueeze(0)
+
+                # ASSERT 4: Verify batch dimensions [Batch=1, L, ...]
+                assert batch.coords.ndim == 4 and batch.coords.shape[0] == 1, \
+                    f"[{f}] Batching failed: {batch.coords.shape}."
+
+                # Construct mask_dict required by EncoderTransformer
+                seq_mask = batch.coord_mask[:, :, 1].bool() 
+                batch["mask_dict"] = {"coords": seq_mask.unsqueeze(-1).unsqueeze(-1)}
+                batch["mask"] = seq_mask
+
+                # E. Run the Encoder
+                output_enc = ae.encoder(batch)
                 
-                data.mean = out["mean"][0].cpu()
-                data.log_scale = out["log_scale"][0].cpu()
+                # ASSERT 5: Verify Latent Dimensions
+                # Check that we got mean/log_scale and they match the AE's latent dim (e.g. 512 or 8)
+                assert "mean" in output_enc and "log_scale" in output_enc, f"[{f}] Encoder returned no stats."
+                assert output_enc["mean"].shape[-1] == ae.latent_dim, \
+                    f"[{f}] Latent dim mismatch: {output_enc['mean'].shape[-1]} != {ae.latent_dim}."
+                assert output_enc["mean"].shape[1] == L, \
+                    f"[{f}] Sequence length mismatch in latent: {output_enc['mean'].shape[1]} != {L}."
+
+                # F. Save Statistics (Mean and Log-Scale)
+                data.mean = output_enc["mean"][0].cpu()
+                data.log_scale = output_enc["log_scale"][0].cpu()
                 
-                # Keep only C-alpha (index 1) to save RAM
+                # G. Optimization: Drop 37-atom coords to save disk space
+                # Proteina flow matching only requires C-alpha (index 1)
                 data.coords = data.coords[:, 1, :] 
                 data.coord_mask = data.coord_mask[:, 1]
+                
+                # ASSERT 6: Final structural check before saving
+                assert data.coords.shape == (L, 3), f"[{f}] Final CA-only shape corrupted: {data.coords.shape}."
                 
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 torch.save(data, out_path)
 
             except Exception as e:
-                # Catching specific errors like EOFError (corrupt files) or CUDA OOM
-                print(f"\n[Error] Failed to process {f}: {e}")
-                failed_count += 1
+                print(f"\n[CRITICAL FAILURE] {f}: {e}")
+                # We raise here to "fail hard" as requested
+                raise e
 
-    print(f"\n--- Processing Complete ---")
-    print(f"Successfully processed: {len(files) - failed_count - skipped_count}")
-    print(f"Skipped (already exist): {skipped_count}")
-    print(f"Failed to process:      {failed_count}")
+    print(f"\n--- Precomputation Complete ---")
 
 if __name__ == "__main__":
     main()

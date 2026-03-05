@@ -56,8 +56,9 @@ class Proteina(L.LightningModule):
             # Re-enable struct mode if needed
             OmegaConf.set_struct(cfg_exp, True)
 
-        
-        if self.use_precomputed_latents:
+        DEBUG_AE = True
+
+        if self.use_precomputed_latents and not DEBUG_AE:
             assert "motif" not in cfg_exp.nn.name.lower(), \
                 f"FATAL: Motif scaffolding (NN: {cfg_exp.nn.name}) requires full 37-atom coordinates, but precomputed latents discard them. Disable precomputed latents."
             logger.info("Skipping AutoEncoder load -> using precomputed latents.")
@@ -291,6 +292,12 @@ class Proteina(L.LightningModule):
             # Add clean samples for all data modes / spaces we are working on
             batch = self.add_clean_samples(batch)
 
+
+            if self.use_precomputed_latents and self.autoencoder is not None:
+                if "local_latents" in batch["x_1"]:
+                    # Pass the latent tensor derived from disk to compare with OTF stats.
+                    self.verify_latent_consistency(batch, batch["x_1"]["local_latents"])
+                    
             # Corrupt the batch
             batch = self.fm.corrupt_batch(batch)  # adds x_1, t, x_0, x_t, mask
             bs, n = batch["mask"].shape
