@@ -25,7 +25,7 @@ def main():
     # Define the exact transform pipeline used in standard training
     transform = Compose([
         CoordsToNanometers(),
-        CenterStructureTransform(center_mode="full") 
+        CenterStructureTransform() 
     ])
     
     files = glob.glob(os.path.join(data_dir, "**", "*.pt"))
