@@ -465,9 +465,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
         if self.dataselector:
             file_identifier = self._get_file_identifier(self.dataselector)
 
-            if self.use_precomputed_latents:
-                file_identifier += "_latents"
-                
+
             df_data_name = f"{file_identifier}.csv"
             
             # 1. Check if the CSV already exists. 
@@ -631,6 +629,9 @@ class PDBLightningDataModule(BaseLightningDataModule):
             f"_l{''.join(ds.labels) if ds.labels else ''}"
             f"_rcu{ds.remove_cath_unavailable}"
         )
+        if self.use_precomputed_latents:
+            file_identifier += "_latents"
+            
         return file_identifier
 
     def setup(self, stage: Optional[str] = None):
