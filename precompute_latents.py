@@ -16,7 +16,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-FORCE_RECOMPUTE = False 
+FORCE_RECOMPUTE = True 
 
 def main():
     # 1. Setup paths
