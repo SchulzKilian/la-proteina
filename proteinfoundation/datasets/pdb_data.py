@@ -353,15 +353,6 @@ class PDBDataset(Dataset):
             if isinstance(graph_or_dict, dict):
                 graph_or_dict = Data(**graph_or_dict)
 
-            if hasattr(graph_or_dict, 'coords') and graph_or_dict.coords.ndim == 3:
-                # Check if the 2nd dimension is 37 (Atom37 format)
-                if graph_or_dict.coords.shape[1] == 37:
-                    from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
-                    graph_or_dict.coords = graph_or_dict.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
-                    graph_or_dict.coord_mask = graph_or_dict.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
-
-            # Now, even if you run precompute_latents.py aga
-
 
             if not self.use_precomputed_latents:
                 # Standard training: Slice 37 atoms using the PDB_TO_OPENFOLD index
@@ -391,7 +382,7 @@ class PDBDataset(Dataset):
                 assert graph_or_dict.mean.shape[1] == 8, \
                     f"[{fname}] CRITICAL: 'mean' dim 1 must be exactly 8 (channels). Shape is {graph_or_dict.mean.shape}"
             # 4. Apply transforms (e.g., CoordsToNanometers)
-            if self.transform and not self.use_precomputed_latents:
+            if self.transform:
                 graph_or_dict = self.transform(graph_or_dict)
 
             return graph_or_dict
