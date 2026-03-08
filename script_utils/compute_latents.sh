@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1            # Request 1 GPU for the AutoEncoder forward pass
 #SBATCH --cpus-per-task=16      # Multiple cores help with globbing and file I/O
 #SBATCH --mem=64G               # Latent precomputation can be memory intensive
-#SBATCH --time=0:30:00         # Adjust based on dataset size
+#SBATCH --time=5:00:00         # Adjust based on dataset size
 #SBATCH -p ampere               # Use the GPU partition
 #SBATCH --output=slurm_precompute_%j.out
 
