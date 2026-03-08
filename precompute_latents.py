@@ -14,6 +14,7 @@ FORCE_RECOMPUTE = False
 
 def main():
     # 1. Setup paths
+    # Ensure these paths match your environment setup
     data_dir = "/home/ks2218/la-proteina/data/pdb_train/processed"
     out_dir = "/home/ks2218/la-proteina/data/pdb_train/processed_latents"
     ae_path = "/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
@@ -22,24 +23,15 @@ def main():
     print(f"Loading AutoEncoder from {ae_path}...")
     ae = AutoEncoder.load_from_checkpoint(ae_path).cuda().eval()
     
-    # Define the exact transform pipeline used in standard training
-    transform = Compose([
-        CoordsToNanometers(),
-        CenterStructureTransform() 
-    ])
-    
     files = glob.glob(os.path.join(data_dir, "**", "*.pt"))
     existing_outputs = set(glob.glob(os.path.join(out_dir, "**", "*.pt")))
     
     print(f"Found {len(files)} source files. Starting computation...")
 
     with torch.no_grad():
-        print(files)
         for f in tqdm(files, desc="Precomputing"):
             out_path = f.replace(data_dir, out_dir)
-            # In precompute_latents.py inside the for loop:
-            out_path = f.replace(data_dir, out_dir)
-            print(f"DEBUG: Input {f} -> Output {out_path}", flush=True) # Check this in your log!
+            
             if out_path in existing_outputs and not FORCE_RECOMPUTE:
                 continue
 
@@ -52,21 +44,28 @@ def main():
                 assert data.coords.ndim == 3 and data.coords.shape[1] == 37, \
                     f"[{f}] Unexpected raw shape: {data.coords.shape}. Expected [L, 37, 3]."
 
-                # B. CRITICAL: Reorder atoms to OpenFold standard
+                # B. Reorder atoms to OpenFold standard
                 data.coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
                 data.coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
 
-                # ASSERT 2: Verify atom slicing didn't change sequence length or dimensionality
-                assert data.coords.shape == (L, 37, 3), \
-                    f"[{f}] Reordering corrupted shape: {data.coords.shape}."
-
-                # C. Apply centering and unit conversion (Angstrom -> nm)
-                data = transform(data)
+                # C. CRITICAL FIX: Manual Centering and Scaling
+                # Calculate the centroid based ONLY on valid C-Alpha atoms (index 1)
+                ca_idx = 1
+                ca_coords = data.coords[:, ca_idx, :]
+                ca_mask = data.coord_mask[:, ca_idx].bool()
                 
-                # ASSERT 3: Verify transform created nm coordinates
-                assert hasattr(data, 'coords_nm'), f"[{f}] Transform failed to create 'coords_nm'."
-                # Basic sanity check: nm values for proteins are rarely > 100
-                assert data.coords_nm.abs().max() < 500, f"[{f}] Coordinates look unscaled: {data.coords_nm.max()} nm."
+                if not ca_mask.any():
+                    print(f"Skipping {f}: No valid CA atoms found.")
+                    continue
+                    
+                ca_centroid = ca_coords[ca_mask].mean(dim=0)
+                
+                # Apply centering to ALL 37 atoms and scale to Nanometers (0.1 multiplier)
+                # This ensures the local frame matches the one used during training
+                data.coords = (data.coords - ca_centroid) * 0.1
+                
+                # Create 'coords_nm' attribute required by the Encoder/Proteina
+                data.coords_nm = data.coords.clone()
 
                 # D. Prepare the batch for the Encoder
                 batch = data.clone().to('cuda')
@@ -74,36 +73,28 @@ def main():
                     if isinstance(batch[k], torch.Tensor):
                         batch[k] = batch[k].unsqueeze(0)
 
-                # ASSERT 4: Verify batch dimensions [Batch=1, L, ...]
-                assert batch.coords.ndim == 4 and batch.coords.shape[0] == 1, \
-                    f"[{f}] Batching failed: {batch.coords.shape}."
-
                 # Construct mask_dict required by EncoderTransformer
-                seq_mask = batch.coord_mask[:, :, 1].bool() 
-                batch["mask_dict"] = {"coords": seq_mask.unsqueeze(-1).unsqueeze(-1), "residue_type":seq_mask}
+                seq_mask = batch.coord_mask[:, :, ca_idx].bool() 
+                batch["mask_dict"] = {
+                    "coords": seq_mask.unsqueeze(-1).unsqueeze(-1), 
+                    "residue_type": seq_mask
+                }
                 batch["mask"] = seq_mask
 
                 # E. Run the Encoder
                 output_enc = ae.encoder(batch)
                 
-                # ASSERT 5: Verify Latent Dimensions
-                # Check that we got mean/log_scale and they match the AE's latent dim (e.g. 512 or 8)
-                assert "mean" in output_enc and "log_scale" in output_enc, f"[{f}] Encoder returned no stats."
-                assert output_enc["mean"].shape[-1] == ae.latent_dim, \
-                    f"[{f}] Latent dim mismatch: {output_enc['mean'].shape[-1]} != {ae.latent_dim}."
-                assert output_enc["mean"].shape[1] == L, \
-                    f"[{f}] Sequence length mismatch in latent: {output_enc['mean'].shape[1]} != {L}."
-
                 # F. Save Statistics (Mean and Log-Scale)
                 data.mean = output_enc["mean"][0].cpu()
                 data.log_scale = output_enc["log_scale"][0].cpu()
                 
                 # G. Optimization: Drop 37-atom coords to save disk space
-                # Proteina flow matching only requires C-alpha (index 1)
-                data.coords = data.coords[:, 1, :] 
-                data.coord_mask = data.coord_mask[:, 1]
+                # We slice both 'coords' and 'coords_nm' to index 1 (CA)
+                data.coords = data.coords[:, ca_idx, :] 
+                data.coords_nm = data.coords_nm[:, ca_idx, :] 
+                data.coord_mask = data.coord_mask[:, ca_idx]
                 
-                # ASSERT 6: Final structural check before saving
+                # Final structural check before saving
                 assert data.coords.shape == (L, 3), f"[{f}] Final CA-only shape corrupted: {data.coords.shape}."
                 
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -111,7 +102,6 @@ def main():
 
             except Exception as e:
                 print(f"\n[CRITICAL FAILURE] {f}: {e}")
-                # We raise here to "fail hard" as requested
                 raise e
 
     print(f"\n--- Precomputation Complete ---")

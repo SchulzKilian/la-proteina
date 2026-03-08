@@ -391,7 +391,7 @@ class PDBDataset(Dataset):
                 assert graph_or_dict.mean.shape[1] == 8, \
                     f"[{fname}] CRITICAL: 'mean' dim 1 must be exactly 8 (channels). Shape is {graph_or_dict.mean.shape}"
             # 4. Apply transforms (e.g., CoordsToNanometers)
-            if self.transform:
+            if self.transform and not self.use_precomputed_latents:
                 graph_or_dict = self.transform(graph_or_dict)
 
             return graph_or_dict
