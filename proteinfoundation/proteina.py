@@ -56,7 +56,7 @@ class Proteina(L.LightningModule):
             # Re-enable struct mode if needed
             OmegaConf.set_struct(cfg_exp, True)
 
-        DEBUG_AE = True
+        DEBUG_AE = False
 
         if self.use_precomputed_latents and not DEBUG_AE:
             assert "motif" not in cfg_exp.nn.name.lower(), \
