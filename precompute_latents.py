@@ -17,7 +17,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-FORCE_RECOMPUTE = True 
+FORCE_RECOMPUTE = False 
 NUM_WORKERS = 16  # Matches the --cpus-per-task in your .sh script
 BATCH_SIZE = 1   # Keeping logic at 1 protein at a time as per original
 
