@@ -17,7 +17,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # ==============================================================================
 # CONFIGURATION - USING ABSOLUTE RDS PATHS TO AVOID HOME QUOTA ISSUES
 # ==============================================================================
-FORCE_RECOMPUTE = False 
+FORCE_RECOMPUTE = True 
 NUM_WORKERS = 16  # Matches your --cpus-per-task
 BATCH_SIZE = 1   
 
@@ -136,11 +136,12 @@ def main():
                         batch[k] = batch[k].unsqueeze(0)
 
                 # CA index and Mask setup
-                ca_idx = 1
+                # ca_idx = 1
+                na_idx = 0
                 assert batch.coord_mask.shape[2] == 37, "Mask does not have 37 atom channels."
                 
                 # Verify CA mask aligns with sequence length L
-                seq_mask = batch.coord_mask[:, :, ca_idx].bool() 
+                seq_mask = batch.coord_mask[:, :, na_idx].bool() 
                 assert seq_mask.shape[1] == L, f"[{out_path}] seq_mask length {seq_mask.shape[1]} != coord_mask L {L}"
 
                 batch["mask_dict"] = {
