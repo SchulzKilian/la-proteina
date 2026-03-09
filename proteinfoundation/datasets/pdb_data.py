@@ -27,11 +27,14 @@ from graphein.ml.datasets import PDBManager
 from graphein.protein.tensor.io import protein_to_pyg
 # Restored import for downloading
 from graphein.protein.utils import download_pdb_multiprocessing 
-
+import sys
 
 # ==============================================================================
 # STANDALONE WORKER FUNCTION (CRITICAL FIX FOR BROKEN PIPE)
 # ==============================================================================
+
+logger.remove()
+logger.add(sys.stderr, level="DEBUG")
 def process_single_pdb_file(args):
     """
     Standalone worker function. 
