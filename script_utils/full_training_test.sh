@@ -60,11 +60,13 @@ if [ -d "ca_model_weights" ] && [ "$(ls -A ca_model_weights)" ] && \
    [ -d "vanilla_model_weights" ] && [ "$(ls -A vanilla_model_weights)" ]; then
     echo "[+] ProteinMPNN weights found."
 else
+    
     echo "[+] Downloading ProteinMPNN weights..."
     rm -rf ca_model_weights vanilla_model_weights
     mkdir -p ca_model_weights vanilla_model_weights
-
+    echo "[DEBUG] Attempting to download v_48_002.pt..."
     wget -qnc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_002.pt
+    echo "Download one finished with status: $?"
     wget -qnc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_010.pt
     wget -qnc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_020.pt
     
