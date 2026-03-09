@@ -258,7 +258,6 @@ def main(cfg_exp) -> None:
     plugins = [SLURMEnvironment(auto_requeue=True)] if is_cluster_run else []
     show_prog_bar = show_prog_bar or not is_cluster_run
 
-    plugins = [SLURMEnvironment(auto_requeue=True)] if is_cluster_run else []
     
     
     devices = cfg_exp.hardware.ngpus_per_node_
