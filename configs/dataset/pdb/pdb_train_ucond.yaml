@@ -34,7 +34,7 @@ datamodule:
     has_ligands: [] # Include only proteins containing the ligand `ZN`
     remove_ligands: [] # Exclude specific ligands from any available protein-ligand complexes
     remove_non_standard_residues: True # Include only proteins containing standard amino acid residues
-    remove_pdb_unavailable: True # Include only proteins that are available to download
+    remove_pdb_unavailable: False # Include only proteins that are available to download
     exclude_ids: ["9b57", "9b5p", "9b5s", "9b5n", "9b5a", "9b5k", "9b5v", "9b59", "9b5w", "9b5g", "9b5i", "9b5x", "9b5d", "9b5e", "9b5t", "9b5f", 
                   "9b5o", "9b58", "9b5u", "9b5c", "9b5j", "9b5b", "9b5h", "9b5q", "9b5l", "9b56", "9b5m", "9b5l", "9b55", "9b5r", "9ij9", "9iix",
                   "2ezq", "1kld", "1crr", "2ezs", "2ezr", "1vve", "7ll9_G"]   # These ids are failed to be processed
