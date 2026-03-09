@@ -6,7 +6,7 @@ import pandas as pd
 CSV_NAME = "data/df_pdb_f0.5_minlNone_maxlNone_mtNone_minoNone_maxoNone_minrNone_maxrNone_rnsrTrue_rpuTrue_rcuFalse.csv"
 
 # 1. Find all processed .pt files
-processed_dir = "data/processed"
+processed_dir = "data/pdb_train/processed"
 pt_files = glob.glob(f"{processed_dir}/**/*.pt", recursive=True)
 
 data = []
