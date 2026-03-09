@@ -1,27 +1,50 @@
 import os
 import glob
-import pandas as pd
+from omegaconf import OmegaConf
+from hydra.utils import instantiate
+import pathlib
 
-# Set this to the exact filename your pipeline was trying to load
-CSV_NAME = "data/pdb_train/df_pdb_f0.5_minlNone_maxlNone_mtNone_minoNone_maxoNone_minrNone_maxrNone_rnsrTrue_rpuTrue_rcuFalse.csv"
+# 1. Load your exact configuration
+config = OmegaConf.load("configs/dataset/pdb/pdb_train_ucond.yaml")
 
-# 1. Find all processed .pt files
-processed_dir = "data/pdb_train/processed"
-pt_files = glob.glob(f"{processed_dir}/**/*.pt", recursive=True)
+# Set the data path (this matches what your job.sh does)
+data_path = pathlib.Path("data/pdb_train")
 
-data = []
-for path in pt_files:
-    # Get the filename without .pt (e.g., "1abc" or "1abc_A")
-    base_name = os.path.basename(path).replace(".pt", "")
-    
-    # Split into PDB ID and chain (if applicable)
-    parts = base_name.split("_")
-    pdb_id = parts[0]
-    chain = parts[1] if len(parts) > 1 else "all"
-    
-    data.append({"pdb": pdb_id, "id": base_name, "chain": chain})
+# 2. Instantiate the exact DataSelector from your codebase
+selector = instantiate(config.datamodule.dataselector, data_dir=str(data_path))
 
-# 2. Save as DataFrame
-df = pd.DataFrame(data)
-df.to_csv(CSV_NAME, index=False)
-print(f"Rescued metadata! Saved {len(df)} entries to {CSV_NAME}")
+# 3. Create the full dataset metadata from Graphein (Downloads sequences, needs internet)
+print("Fetching full PDB metadata from Graphein...")
+df_full = selector.create_dataset()
+
+# 4. Scan your processed folder for existing latents/graphs
+print("Scanning processed directory for remaining files...")
+processed_dir = data_path / "processed"
+pt_files = glob.glob(str(processed_dir / "**" / "*.pt"), recursive=True)
+
+# Extract just the PDB IDs from your .pt files (e.g., '1abc_A.pt' -> '1abc')
+existing_pdbs = {os.path.basename(p).split('_')[0].replace(".pt", "") for p in pt_files}
+
+# 5. Filter the dataframe to ONLY include what you have in the processed folder
+df_filtered = df_full[df_full["pdb"].isin(existing_pdbs)]
+
+# 6. Generate the EXACT filename your pipeline expects using its own logic
+def get_file_identifier(ds):
+    return (
+        f"df_pdb_f{ds.fraction}_minl{ds.min_length}_maxl{ds.max_length}_mt{ds.molecule_type}"
+        f"_et{''.join(ds.experiment_types) if ds.experiment_types else ''}"
+        f"_mino{ds.oligomeric_min}_maxo{ds.oligomeric_max}"
+        f"_minr{ds.best_resolution}_maxr{ds.worst_resolution}"
+        f"_hl{''.join(ds.has_ligands) if ds.has_ligands else ''}"
+        f"_rl{''.join(ds.remove_ligands) if ds.remove_ligands else ''}"
+        f"_rnsr{ds.remove_non_standard_residues}_rpu{ds.remove_pdb_unavailable}"
+        f"_l{''.join(ds.labels) if ds.labels else ''}"
+        f"_rcu{ds.remove_cath_unavailable}"
+    )
+
+csv_name = get_file_identifier(selector) + ".csv"
+csv_path = data_path / csv_name
+
+# 7. Save the fully populated CSV
+df_filtered.to_csv(csv_path, index=False)
+print(f"Success! Saved {len(df_filtered)} sequences to {csv_path}")
