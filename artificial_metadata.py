@@ -3,7 +3,7 @@ import glob
 import pandas as pd
 
 # Set this to the exact filename your pipeline was trying to load
-CSV_NAME = "data/df_pdb_f0.5_minlNone_maxlNone_mtNone_minoNone_maxoNone_minrNone_maxrNone_rnsrTrue_rpuTrue_rcuFalse.csv"
+CSV_NAME = "data/pdb_train/df_pdb_f0.5_minlNone_maxlNone_mtNone_minoNone_maxoNone_minrNone_maxrNone_rnsrTrue_rpuTrue_rcuFalse.csv"
 
 # 1. Find all processed .pt files
 processed_dir = "data/pdb_train/processed"
