@@ -40,10 +40,12 @@ def get_file_identifier(ds):
         f"_rnsr{ds.remove_non_standard_residues}_rpu{ds.remove_pdb_unavailable}"
         f"_l{''.join(ds.labels) if ds.labels else ''}"
         f"_rcu{ds.remove_cath_unavailable}"
-        f"_latents"
-    )
 
-csv_name = get_file_identifier(selector) + ".csv"
+    )
+if not selector.use_precomputed_latents:
+    csv_name = get_file_identifier(selector) + ".csv"
+else:
+    csv_name = get_file_identifier(selector) + "_latents" + ".csv"
 csv_path = data_path / csv_name
 
 # 7. Save the fully populated CSV
