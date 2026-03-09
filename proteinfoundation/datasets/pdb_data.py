@@ -150,6 +150,8 @@ class PDBDataSelector:
         logger.info(f"Initializing PDBManager in {self.data_dir}...")
         pdb_manager = PDBManager(root_dir=self.data_dir, labels=self.labels)
 
+        logger.info(f"[DEBUG] Total chains in PDB indices: {len(pdb_manager.df)}")
+
         num_chains = len(pdb_manager.df)
         logger.info(f"Starting with: {num_chains} chains")
 
