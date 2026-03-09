@@ -19,7 +19,7 @@ df_full = selector.create_dataset()
 
 # 4. Scan your processed folder for existing latents/graphs
 print("Scanning processed directory for remaining files...")
-processed_dir = data_path / "processed"
+processed_dir = data_path / "processed_latents"
 pt_files = glob.glob(str(processed_dir / "**" / "*.pt"), recursive=True)
 
 # Extract just the PDB IDs from your .pt files (e.g., '1abc_A.pt' -> '1abc')
@@ -40,6 +40,7 @@ def get_file_identifier(ds):
         f"_rnsr{ds.remove_non_standard_residues}_rpu{ds.remove_pdb_unavailable}"
         f"_l{''.join(ds.labels) if ds.labels else ''}"
         f"_rcu{ds.remove_cath_unavailable}"
+        f"_latents"
     )
 
 csv_name = get_file_identifier(selector) + ".csv"
