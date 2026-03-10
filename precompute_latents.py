@@ -134,6 +134,14 @@ def main():
                 for k in batch.keys():
                     if isinstance(batch[k], torch.Tensor):
                         batch[k] = batch[k].unsqueeze(0)
+                L_true = data.coord_mask.shape[0]
+                
+                for key in ['residue_pdb_idx', 'seq_pos', 'residue_type', 'bfactor', 'aatype']:
+                    if hasattr(data, key):
+                        val = getattr(data, key)
+                        if hasattr(val, 'shape') and val.shape[0] > L_true:
+                            # Prune the 'ghost' metadata so the Encoder stays at L_true
+                            setattr(data, key, val[:L_true])
 
                 # CA index and Mask setup
                 # ca_idx = 1
