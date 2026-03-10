@@ -28,6 +28,15 @@ AE_PATH = "/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
 
 class ProteinDataset(Dataset):
     """Dataset to handle CPU-side loading and baking in parallel workers."""
+    def __init__(self, files, data_dir, out_dir, baking_pipeline):
+        self.files = files
+        self.data_dir = data_dir
+        self.out_dir = out_dir
+        self.baking_pipeline = baking_pipeline
+
+    def __len__(self):
+        return len(self.files)
+
     def __getitem__(self, idx):
         f = self.files[idx]
         rel_path = os.path.relpath(f, self.data_dir)
@@ -38,6 +47,7 @@ class ProteinDataset(Dataset):
 
         try:
             data = torch.load(f, map_location='cpu', weights_only=False)
+            
 
             # Determine true length L from the mask
             L_true = data.coord_mask.shape[0]
@@ -61,55 +71,6 @@ class ProteinDataset(Dataset):
             print(f"\n[WORKER FAILURE] {f}: {e}")
             return None, out_path
         
-    def __len__(self):
-        return len(self.files)
-
-    def __getitem__(self, idx):
-        f = self.files[idx]
-        # Resolve path relative to data_dir for sharded output
-        rel_path = os.path.relpath(f, self.data_dir)
-        out_path = os.path.join(self.out_dir, rel_path)
-        
-        if os.path.exists(out_path) and not FORCE_RECOMPUTE:
-            return None, out_path
-
-        try:
-            # A. Load raw Data object
-            data = torch.load(f, map_location='cpu', weights_only=False)
-            
-            # --- ASSERTIONS: INITIAL DATA STATE ---
-            assert hasattr(data, 'coords'), f"[{f}] Missing 'coords' attribute."
-            assert hasattr(data, 'coord_mask'), f"[{f}] Missing 'coord_mask' attribute."
-            assert hasattr(data, 'residue_type'), f"[{f}] Missing 'residue_type' attribute."
-            
-            L_init = data.coord_mask.shape[0]
-            assert data.coords.shape[0] == L_init, f"[{f}] Coords length {data.coords.shape[0]} != Mask length {L_init}"
-            assert data.residue_type.shape[0] == L_init, f"[{f}] Residue type length {data.residue_type.shape[0]} != Mask length {L_init}"
-
-            # B. Standardize Atom Order (Preserving original logic)
-            # Ensure PDB_TO_OPENFOLD indices fit the current atom count (e.g., if cif has >37 atoms)
-            num_atoms = data.coords.shape[1]
-            assert PDB_TO_OPENFOLD_INDEX_TENSOR.max() < num_atoms, \
-                f"[{f}] PDB_TO_OPENFOLD contains index {PDB_TO_OPENFOLD_INDEX_TENSOR.max()} but coords only has {num_atoms} atoms."
-
-            data.coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
-            data.coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
-            
-            # --- ASSERTION: POST-SLICING ATOM DIM ---
-            assert data.coords.shape[1] == 37, f"[{f}] Standardization failed: Expected 37 atoms, got {data.coords.shape[1]}"
-
-            # C. Apply Baking Pipeline (Scaling/Centering/Metadata)
-            data = self.baking_pipeline(data)
-            
-            # --- ASSERTIONS: POST-TRANSFORM INTEGRITY ---
-            assert hasattr(data, 'coords_nm'), f"[{f}] Baking failed: 'coords_nm' attribute missing."
-            assert data.coords_nm.shape[0] == L_init, f"[{f}] Transformation changed sequence length L from {L_init} to {data.coords_nm.shape[0]}"
-            
-            return data, out_path
-        except Exception as e:
-            print(f"\n[WORKER FAILURE] {f}: {e}")
-            return None, out_path
-
 def main():
     # 1. Setup paths
     assert os.path.exists(DATA_DIR), f"Source data directory missing: {DATA_DIR}"
