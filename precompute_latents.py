@@ -28,12 +28,39 @@ AE_PATH = "/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
 
 class ProteinDataset(Dataset):
     """Dataset to handle CPU-side loading and baking in parallel workers."""
-    def __init__(self, files, data_dir, out_dir, baking_pipeline):
-        self.files = files
-        self.data_dir = data_dir
-        self.out_dir = out_dir
-        self.baking_pipeline = baking_pipeline
+    def __getitem__(self, idx):
+        f = self.files[idx]
+        rel_path = os.path.relpath(f, self.data_dir)
+        out_path = os.path.join(self.out_dir, rel_path)
+        
+        if os.path.exists(out_path) and not FORCE_RECOMPUTE:
+            return None, out_path
 
+        try:
+            data = torch.load(f, map_location='cpu', weights_only=False)
+
+            # Determine true length L from the mask
+            L_true = data.coord_mask.shape[0]
+            
+            # Prune every tensor attribute to L_true BEFORE anything else
+            for key in data.keys():
+                val = data[key]
+                if torch.is_tensor(val) and val.shape[0] > L_true:
+                    data[key] = val[:L_true]
+
+            # B. Standardize Atom Order (Preserving original logic)
+            data.coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
+            data.coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
+            
+            # C. Apply Baking Pipeline (Scaling/Centering/Metadata)
+            # Now CenterStructureTransform only sees L_true residues
+            data = self.baking_pipeline(data)
+            
+            return data, out_path
+        except Exception as e:
+            print(f"\n[WORKER FAILURE] {f}: {e}")
+            return None, out_path
+        
     def __len__(self):
         return len(self.files)
 
@@ -123,6 +150,16 @@ def main():
                 continue
 
             try:
+
+                L_true = data.coord_mask.shape[0]
+                
+                for key in ['residue_pdb_idx', 'seq_pos', 'residue_type', 'bfactor', 'aatype']:
+                    if hasattr(data, key):
+                        val = getattr(data, key)
+                        if hasattr(val, 'shape') and val.shape[0] > L_true:
+                            # Prune the 'ghost' metadata so the Encoder stays at L_true
+                            setattr(data, key, val[:L_true])
+
                 # D. Prepare GPU batch for Encoder
                 batch = data.to('cuda', non_blocking=True)
                 
@@ -134,14 +171,6 @@ def main():
                 for k in batch.keys():
                     if isinstance(batch[k], torch.Tensor):
                         batch[k] = batch[k].unsqueeze(0)
-                L_true = data.coord_mask.shape[0]
-                
-                for key in ['residue_pdb_idx', 'seq_pos', 'residue_type', 'bfactor', 'aatype']:
-                    if hasattr(data, key):
-                        val = getattr(data, key)
-                        if hasattr(val, 'shape') and val.shape[0] > L_true:
-                            # Prune the 'ghost' metadata so the Encoder stays at L_true
-                            setattr(data, key, val[:L_true])
 
                 # CA index and Mask setup
                 # ca_idx = 1
