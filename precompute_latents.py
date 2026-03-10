@@ -150,9 +150,24 @@ def main():
                 # E. Run Encoder to get latents
                 output_enc = ae.encoder(batch)
                 
-                # Extract results and verify shapes
-                mean = output_enc["mean"][0] # Shape [L, latent_dim]
+                # Extract results
+                mean = output_enc["mean"][0] 
                 log_scale = output_enc["log_scale"][0]
+                
+                # --- NEW SHAPE ALIGNMENT FIX ---
+                # If the encoder outputs [latent_dim, L] (e.g., 512, L) instead of [L, 512], transpose it.
+                if mean.shape[1] == L and mean.shape[0] == ae.latent_dim:
+                    mean = mean.transpose(0, 1)
+                    log_scale = log_scale.transpose(0, 1)
+                
+                # --- CRITICAL SEQUENCE LENGTH ASSERTION ---
+                assert mean.shape[0] == L, \
+                    f"[{out_path}] CRITICAL: Encoder output length ({mean.shape[0]}) mismatch with mask length ({L})"
+                assert mean.shape[1] == ae.latent_dim, \
+                    f"[{out_path}] Latent dim mismatch: expected {ae.latent_dim}, got {mean.shape[1]}"
+
+                data.mean = mean.cpu()
+                data.log_scale = log_scale.cpu()
                 
                 # --- CRITICAL SEQUENCE LENGTH ASSERTION ---
                 assert mean.shape[0] == L, \
