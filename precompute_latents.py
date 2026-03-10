@@ -52,12 +52,11 @@ class ProteinDataset(Dataset):
             # Determine true length L from the mask
             L_true = data.coord_mask.shape[0]
             
-            # Prune every tensor attribute to L_true BEFORE anything else
             for key in data.keys():
                 val = data[key]
-                if torch.is_tensor(val) and val.shape[0] > L_true:
+                # Add val.ndim > 0 to prevent checking shape[0] on scalar tensors
+                if torch.is_tensor(val) and val.ndim > 0 and val.shape[0] > L_true:
                     data[key] = val[:L_true]
-
             # B. Standardize Atom Order (Preserving original logic)
             data.coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
             data.coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
