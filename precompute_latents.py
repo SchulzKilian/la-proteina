@@ -19,11 +19,22 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # ==============================================================================
 FORCE_RECOMPUTE = True 
 NUM_WORKERS = 16  
-BATCH_SIZE = 1   
+BATCH_SIZE = 1  
+DEV = True
 
-DATA_DIR = "/rds/user/ks2218/hpc-work/processed"
-OUT_DIR = "/rds/user/ks2218/hpc-work/processed_latents"
-AE_PATH = "/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
+if DEV:
+    DATA_DIR = "/home/ks2218/data/pdb_train/processed"
+    OUT_DIR = "/home/ks2218/data/pdb_train/processed_latents"
+    AE_PATH = "/home/ks2218/checkpoints_laproteina/AE1_ucond_512.ckpt"
+
+
+
+
+
+else:
+    DATA_DIR = "/rds/user/ks2218/hpc-work/processed"
+    OUT_DIR = "/rds/user/ks2218/hpc-work/processed_latents"
+    AE_PATH = "/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
 
 class ProteinDataset(Dataset):
     """Dataset to handle CPU-side loading and baking in parallel workers."""
