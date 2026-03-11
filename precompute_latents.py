@@ -23,9 +23,9 @@ BATCH_SIZE = 1
 DEV = True
 
 if DEV:
-    DATA_DIR = "/home/ks2218/data/pdb_train/processed"
-    OUT_DIR = "/home/ks2218/data/pdb_train/processed_latents"
-    AE_PATH = "/home/ks2218/checkpoints_laproteina/AE1_ucond_512.ckpt"
+    DATA_DIR = "/home/ks2218/la-proteina/data/pdb_train/processed"
+    OUT_DIR = "/home/ks2218/la-proteina/data/pdb_train/processed_latents"
+    AE_PATH = "/home/ks2218/la-proteina/checkpoints_laproteina/AE1_ucond_512.ckpt"
 
 
 
