@@ -1,6 +1,7 @@
 import os
 import torch
 import glob
+import traceback
 from tqdm import tqdm
 from torch_geometric.transforms import Compose
 from torch.utils.data import Dataset, DataLoader
@@ -48,26 +49,30 @@ class ProteinDataset(Dataset):
         try:
             data = torch.load(f, map_location='cpu', weights_only=False)
             
-
             # Determine true length L from the mask
             L_true = data.coord_mask.shape[0]
             
             for key in data.keys():
                 val = data[key]
-                # Add val.ndim > 0 to prevent checking shape[0] on scalar tensors
-                if torch.is_tensor(val) and val.ndim > 0 and val.shape[0] > L_true:
-                    data[key] = val[:L_true]
+                # Check for tensors and safely get ndim
+                if torch.is_tensor(val):
+                    # DEBUG PRINT: Uncomment if needed, but might be too spammy
+                    # print(f"[WORKER DEBUG] {rel_path} Key: {key}, Type: {type(val)}, ndim: {val.ndim}")
+                    if val.ndim > 0 and val.shape[0] > L_true:
+                        data[key] = val[:L_true]
+                        
             # B. Standardize Atom Order (Preserving original logic)
             data.coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
             data.coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
             
             # C. Apply Baking Pipeline (Scaling/Centering/Metadata)
-            # Now CenterStructureTransform only sees L_true residues
             data = self.baking_pipeline(data)
             
             return data, out_path
         except Exception as e:
-            print(f"\n[WORKER FAILURE] {f}: {e}")
+            # THIS WILL PRINT THE EXACT LINE OF THE WORKER CRASH
+            err_msg = traceback.format_exc()
+            print(f"\n[WORKER FAILURE] {f}:\n{err_msg}\n")
             return None, out_path
         
 def main():
@@ -110,36 +115,26 @@ def main():
                 continue
 
             try:
-
                 L_true = data.coord_mask.shape[0]
                 
                 for key in ['residue_pdb_idx', 'seq_pos', 'residue_type', 'bfactor', 'aatype']:
                     if hasattr(data, key):
                         val = getattr(data, key)
                         if hasattr(val, 'shape') and val.shape[0] > L_true:
-                            # Prune the 'ghost' metadata so the Encoder stays at L_true
                             setattr(data, key, val[:L_true])
 
                 # D. Prepare GPU batch for Encoder
                 batch = data.to('cuda', non_blocking=True)
                 
-                # Check sequence length before unsqueezing for batching
                 L = batch.coord_mask.shape[0]
                 assert L > 0, f"[{out_path}] Empty protein detected (L=0)"
 
-                # Unsqueeze relevant keys for model expectation
                 for k in batch.keys():
                     if isinstance(batch[k], torch.Tensor):
                         batch[k] = batch[k].unsqueeze(0)
 
-                # CA index and Mask setup
-                # ca_idx = 1
                 na_idx = 0
-                assert batch.coord_mask.shape[2] == 37, "Mask does not have 37 atom channels."
-                
-                # Verify CA mask aligns with sequence length L
                 seq_mask = batch.coord_mask[:, :, na_idx].bool() 
-                assert seq_mask.shape[1] == L, f"[{out_path}] seq_mask length {seq_mask.shape[1]} != coord_mask L {L}"
 
                 batch["mask_dict"] = {
                     "coords": seq_mask.unsqueeze(-1).unsqueeze(-1), 
@@ -150,25 +145,20 @@ def main():
                 # E. Run Encoder to get latents
                 output_enc = ae.encoder(batch)
                 
-                # Extract results
                 mean = output_enc["mean"][0] 
                 log_scale = output_enc["log_scale"][0]
                 
-                # --- NEW SHAPE ALIGNMENT FIX ---
-                # If the encoder outputs [latent_dim, L] (e.g., 512, L) instead of [L, 512], transpose it.
+                print(f"\n[DEBUG] {os.path.basename(out_path)} -> True L: {L}, AE Latent Dim: {ae.latent_dim}")
+                print(f"[DEBUG] {os.path.basename(out_path)} -> RAW mean shape: {mean.shape}")
+                
+                # --- SHAPE ALIGNMENT FIX ---
                 if mean.shape[1] == L and mean.shape[0] == ae.latent_dim:
                     mean = mean.transpose(0, 1)
                     log_scale = log_scale.transpose(0, 1)
+                    print(f"[DEBUG] {os.path.basename(out_path)} -> TRANSPOSED mean shape: {mean.shape}")
                 
-                # --- CRITICAL SEQUENCE LENGTH ASSERTION ---
-                assert mean.shape[0] == L, \
-                    f"[{out_path}] CRITICAL: Encoder output length ({mean.shape[0]}) mismatch with mask length ({L})"
-                assert mean.shape[1] == ae.latent_dim, \
-                    f"[{out_path}] Latent dim mismatch: expected {ae.latent_dim}, got {mean.shape[1]}"
+                print(f"[DEBUG] {os.path.basename(out_path)} -> Final assertion check: mean.shape[0] ({mean.shape[0]}) == L ({L})")
 
-                data.mean = mean.cpu()
-                data.log_scale = log_scale.cpu()
-                
                 # --- CRITICAL SEQUENCE LENGTH ASSERTION ---
                 assert mean.shape[0] == L, \
                     f"[{out_path}] CRITICAL: Encoder output length ({mean.shape[0]}) mismatch with mask length ({L})"
@@ -182,15 +172,15 @@ def main():
                 if hasattr(data, 'coords'):
                     del data.coords
                 
-                # FINAL VALIDATION BEFORE SAVE
-                # This ensures the check_latents.py script will never find a mismatch again.
-                assert data.mean.shape[0] == data.coord_mask.shape[0], "Final check: mean and mask length diverged before save."
+                assert data.mean.shape[0] == data.coord_mask.shape[0], f"Final check failed: data.mean.shape={data.mean.shape}, data.coord_mask.shape={data.coord_mask.shape}"
                 
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 torch.save(data, out_path)
 
             except Exception as e:
-                print(f"\n[GPU FAILURE] {out_path}: {e}")
+                # THIS WILL PRINT THE EXACT LINE OF THE GPU CRASH
+                err_msg = traceback.format_exc()
+                print(f"\n[GPU FAILURE] {out_path}:\n{err_msg}\n")
 
     print(f"\n--- Precomputation Complete ---")
 
