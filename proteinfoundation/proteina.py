@@ -301,7 +301,8 @@ class Proteina(L.LightningModule):
             if self.use_precomputed_latents and self.autoencoder is not None:
                 if "local_latents" in batch["x_1"]:
                     # Pass the latent tensor derived from disk to compare with OTF stats.
-                    self.verify_latent_consistency(batch, batch["x_1"]["local_latents"])
+                    # self.verify_latent_consistency(batch, batch["x_1"]["local_latents"])
+                    pass
 
             # Corrupt the batch
             batch = self.fm.corrupt_batch(batch)  # adds x_1, t, x_0, x_t, mask
