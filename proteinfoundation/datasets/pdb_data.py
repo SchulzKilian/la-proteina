@@ -304,9 +304,9 @@ class PDBDataset(Dataset):
         self.in_memory = in_memory
         self.file_names = file_names
         self.num_workers = num_workers
-        self.transform = transform
+
         self.sequence_id_to_idx = None
-        self.use_precomputed_latents = use_precomputed_latents
+
 
         self.use_precomputed_latents = use_precomputed_latents
 
