@@ -20,7 +20,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 FORCE_RECOMPUTE = True 
 NUM_WORKERS = 16  
 BATCH_SIZE = 1  
-DEV = True
+DEV = False
 
 if DEV:
     DATA_DIR = "/home/ks2218/la-proteina/data/pdb_train/processed"
