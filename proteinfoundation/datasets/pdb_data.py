@@ -318,7 +318,8 @@ class PDBDataset(Dataset):
                 "CoordsToNanometers",
                 "CenterStructureTransform",
                 "GlobalRotationTransform",
-                "ChainBreak" 
+                "ChainBreak",
+                "OpenFoldFrame"
             ]
 
             if isinstance(transform, Compose):
