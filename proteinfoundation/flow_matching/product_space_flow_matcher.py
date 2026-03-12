@@ -117,37 +117,75 @@ class ProductSpaceFlowMatcher(L.LightningModule):
     def process_batch(
         self, batch: Dict
     ) -> Tuple[Tensor, Tensor, Tuple, int, torch.dtype]:
-        
-        # 1. Handle missing 'coords' by falling back to 'coords_nm'
+        """
+        Processes batch for flow matching with explicit shape awareness and logging.
+        """
+        # 1. Identify Coordinate Tensor and Fallback
         if "coords" in batch:
             coors_tensor = batch["coords"]
+            coord_source = "coords (Angstroms)"
         elif "coords_nm" in batch:
             coors_tensor = batch["coords_nm"]
+            coord_source = "coords_nm (Nanometers)"
         else:
-            raise KeyError("Batch is missing both 'coords' and 'coords_nm'.")
+            raise KeyError("Batch must contain either 'coords' or 'coords_nm'. Check your dataset loading logic.")
 
         device = coors_tensor.device
         dtype = coors_tensor.dtype
-        
-        # 2. Extract the mask safely
-        # If using precomputed latents, use the 'coord_mask' attribute created in pdb_data.py
-        if "mask_dict" in batch and "coords" in batch["mask_dict"]:
-            mask = batch["mask_dict"]["coords"]
-        else:
-            # Fallback to the standard mask attribute
-            mask = batch["coord_mask"]
 
-        # 3. Handle dimensionality (4D for full-atom, 3D for CA-only)
-        if coors_tensor.ndim == 4:
+        # 2. Extract Batch Metadata
+        if coors_tensor.ndim == 4: # Full Atom: [B, L, 37, 3]
+            batch_size = coors_tensor.shape[0]
+            n = coors_tensor.shape[1]
             batch_shape = coors_tensor.shape[:-3]
-            n = coors_tensor.shape[-3]
-            if mask.ndim > 2: mask = mask[..., 0, 0] # Standardize to [B, L]
-        else:
+        elif coors_tensor.ndim == 3: # CA-only / Precomputed: [B, L, 3]
+            batch_size = coors_tensor.shape[0]
+            n = coors_tensor.shape[1]
             batch_shape = coors_tensor.shape[:-2]
-            n = coors_tensor.shape[-2]
-            if mask.ndim > 2: mask = mask[..., 0] # Standardize to [B, L]
+        else:
+            raise ValueError(f"Unexpected coordinate tensor shape: {coors_tensor.shape}")
 
+        # 3. Robust Mask Extraction
+        # coord_mask is usually added during padding in pdb_data.py
+        if "coord_mask" in batch:
+            mask = batch["coord_mask"]
+            mask_source = "coord_mask"
+        elif "mask_dict" in batch and "coords" in batch["mask_dict"]:
+            mask = batch["mask_dict"]["coords"]
+            mask_source = "mask_dict['coords']"
+        else:
+            raise KeyError("Valid mask ('coord_mask' or 'mask_dict') not found in batch.")
+
+        # 4. Standardize Mask Shape [B, L]
+        # Squeeze extra dimensions if it's [B, L, 37, 3] or [B, L, 1]
+        if mask.ndim == 4: mask = mask[..., 0, 0]
+        if mask.ndim == 3: mask = mask[..., 0]
+        
+        # 5. Handle [L, B] vs [B, L] Transposition
+        # Some OpenFold features are sequence-first; generative features are batch-first.
+        if mask.shape[0] == n and mask.shape[1] == batch_size and n != batch_size:
+            # print(f"DEBUG: Transposing mask from [L, B] to [B, L] ({mask.shape} -> [{batch_size}, {n}])")
+            mask = mask.transpose(0, 1)
+
+        # 6. Strict Assertions & Logging
+        # Uncomment print statements if you need to debug specific batches in the logs
+        
+        print(f"--- [SHAPE CHECK] ---")
+        print(f"Coord Source: {coord_source} | Shape: {coors_tensor.shape}")
+        print(f"Mask Source: {mask_source} | Shape: {mask.shape}")
+        print(f"Batch Shape: {batch_shape} | Seq Length (n): {n}")
+
+        assert mask.shape == (batch_size, n), \
+            f"CRITICAL: Mask shape {mask.shape} does not match expected (Batch: {batch_size}, Length: {n})"
+        
+        for dm in self.data_modes:
+            x_1_dm = batch["x_1"][dm]
+            assert x_1_dm.shape[0] == batch_size and x_1_dm.shape[1] == n, \
+                f"CRITICAL: Data mode '{dm}' shape {x_1_dm.shape} mismatch with Batch/Length ({batch_size}, {n})"
+
+        # 7. Apply Mask
         x_1 = self._apply_mask(x=batch["x_1"], mask=mask)
+        
         return (x_1, mask, batch_shape, n, dtype, device)
 
     def corrupt_batch(
