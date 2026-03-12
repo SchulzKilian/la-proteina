@@ -118,23 +118,34 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         self, batch: Dict
     ) -> Tuple[Tensor, Tensor, Tuple, int, torch.dtype]:
         
-        coors_tensor = batch["coords"]  # [b, n, 37, 3] OR [b, n, 3]
+        # 1. Handle missing 'coords' by falling back to 'coords_nm'
+        if "coords" in batch:
+            coors_tensor = batch["coords"]
+        elif "coords_nm" in batch:
+            coors_tensor = batch["coords_nm"]
+        else:
+            raise KeyError("Batch is missing both 'coords' and 'coords_nm'.")
+
         device = coors_tensor.device
         dtype = coors_tensor.dtype
         
-        # Check if coordinates are CA-only (3D) or full atom (4D)
+        # 2. Extract the mask safely
+        # If using precomputed latents, use the 'coord_mask' attribute created in pdb_data.py
+        if "mask_dict" in batch and "coords" in batch["mask_dict"]:
+            mask = batch["mask_dict"]["coords"]
+        else:
+            # Fallback to the standard mask attribute
+            mask = batch["coord_mask"]
+
+        # 3. Handle dimensionality (4D for full-atom, 3D for CA-only)
         if coors_tensor.ndim == 4:
             batch_shape = coors_tensor.shape[:-3]
             n = coors_tensor.shape[-3]
-            mask = batch["mask_dict"]["coords"][..., 0, 0]  # [b, n]
+            if mask.ndim > 2: mask = mask[..., 0, 0] # Standardize to [B, L]
         else:
-            # For CA-only precomputed data [B, N, 3]
             batch_shape = coors_tensor.shape[:-2]
             n = coors_tensor.shape[-2]
-            # Use the coords mask directly from the dict
-            mask = batch["mask_dict"]["coords"]  # [b, n]
-            if mask.ndim == 3: # Handle [b, n, 1] if present
-                mask = mask[..., 0]
+            if mask.ndim > 2: mask = mask[..., 0] # Standardize to [B, L]
 
         x_1 = self._apply_mask(x=batch["x_1"], mask=mask)
         return (x_1, mask, batch_shape, n, dtype, device)
