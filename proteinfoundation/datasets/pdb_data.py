@@ -308,6 +308,36 @@ class PDBDataset(Dataset):
         self.sequence_id_to_idx = None
         self.use_precomputed_latents = use_precomputed_latents
 
+        self.use_precomputed_latents = use_precomputed_latents
+
+        if self.use_precomputed_latents and transform is not None:
+            from torch_geometric.transforms import Compose
+            
+            # Define the list of "Structural" transforms to remove
+            baked_in_names = [
+                "CoordsToNanometers",
+                "CenterStructureTransform",
+                "GlobalRotationTransform",
+                "ChainBreak" 
+            ]
+
+            if isinstance(transform, Compose):
+
+                filtered_transforms = [
+                    t for t in transform.transforms 
+                    if not any(name in str(type(t)) for name in baked_in_names)
+                ]
+                self.transform = Compose(filtered_transforms)
+                print(f"DEBUG: Filtered transforms for precomputed latents. Remaining: {self.transform}")
+            else:
+                # If it's just a single transform, check it
+                if any(name in str(type(transform)) for name in baked_in_names):
+                    self.transform = None
+                else:
+                    self.transform = transform
+        else:
+            self.transform = transform
+
 
         if self.use_precomputed_latents:
             self.processed_dir = self.data_dir / "processed_latents"
