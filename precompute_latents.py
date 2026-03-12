@@ -17,7 +17,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-FORCE_RECOMPUTE = True 
+FORCE_RECOMPUTE = False 
 NUM_WORKERS = 16  
 BATCH_SIZE = 1  
 DEV = False
