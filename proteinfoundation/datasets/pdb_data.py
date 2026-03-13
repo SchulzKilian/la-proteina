@@ -348,10 +348,9 @@ class PDBDataset(Dataset):
         
 
         if self.in_memory:
-
-            logger.info(f"Reading {len(file_names)} files into memory using {self.num_workers} workers...")
+            logger.info(f"Reading {len(file_names)} files into memory...")
             
-            # Create tasks for the pool
+            # 1. Prepare tasks
             tasks = []
             for f in file_names:
                 fname = f if f.endswith(".pt") else f"{f}.pt"
@@ -361,13 +360,16 @@ class PDBDataset(Dataset):
                     path = self.processed_dir / fname
                 tasks.append(path)
 
-            # Use a Pool to load files in parallel
-            with Pool(processes=self.num_workers) as pool:
-                self.data = list(tqdm(
-                    pool.imap(torch.load, tasks), # You can add weights_only=True here
-                    total=len(tasks),
-                    desc="Loading Latents"
-                ))
+            # 2. Conditional Serial/Parallel Switch
+            if self.num_workers > 0:
+                # Keep your existing pool logic here
+                with Pool(processes=self.num_workers) as pool:
+                    self.data = list(tqdm(pool.imap(torch.load, tasks), total=len(tasks), desc="Loading (Parallel)"))
+            else:
+                # Fallback to simple serial loading if num_workers is 0
+                self.data = []
+                for path in tqdm(tasks, desc="Loading (Serial)"):
+                    self.data.append(torch.load(path, map_location='cpu'))
 
     def __len__(self):
         return len(self.file_names)
