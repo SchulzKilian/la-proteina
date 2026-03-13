@@ -16,17 +16,17 @@ source $HOME/.bashrc
 # 2. Activate the environment
 conda activate laproteina_env
 
-
+# Define exactly where your "Gold Standard" data lives
 REMOTE_DATA="/home/ks2218/la-proteina/data/pdb_train"
 LOCAL_DATA="/tmp/$USER/la-proteina/data/pdb_train"
 
-mkdir -p "$(dirname "$LOCAL_DATA")"
+mkdir -p "$LOCAL_DATA"
 
-echo "[+] Syncing ENTIRE data folder to local SSD: $LOCAL_DATA"
-# Syncing the entire folder ensures CSVs, FASTA, and clustering files are present
-rsync -ah --progress "$REMOTE_DATA/" "$LOCAL_DATA/"
+echo "[+] Syncing ALL metadata and latents to local SSD..."
+# The trailing slash on REMOTE_DATA/ is important to copy contents, not the folder itself
+rsync -avh --progress "$REMOTE_DATA/" "$LOCAL_DATA/"
 
-# 2. Export the DATA_PATH to the local SSD copy
+# Explicitly set the path for the training script
 export DATA_PATH="$LOCAL_DATA"
 # Redirect the DATA_PATH environment variable to the node's local copy
 
