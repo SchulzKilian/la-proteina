@@ -10,7 +10,7 @@ from multiprocessing import Pool
 # Path where your current 40GB of latents are stored
 SOURCE_DIR = "/rds/user/ks2218/hpc-work/processed_latents"
 # Path where the new, lean latents will be saved
-OUTPUT_DIR = "/rds/user/ks2218/hpc-work/processed_latents_lean"
+OUTPUT_DIR = "/home/ks2218/la-proteina/processed_latents_lean"
 NUM_WORKERS = 32  # Use as many CPU cores as available
 
 def prune_protein_file(paths):
