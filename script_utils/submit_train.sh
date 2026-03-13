@@ -17,16 +17,19 @@ source $HOME/.bashrc
 conda activate laproteina_env
 
 
-LOCAL_DATA="/tmp/$USER/la-proteina/data"
-mkdir -p $LOCAL_DATA
+REMOTE_DATA="/home/ks2218/la-proteina/data/pdb_train"
+LOCAL_DATA="/tmp/$USER/la-proteina/data/pdb_train"
 
-echo "[+] Copying latents to local SSD: $LOCAL_DATA"
-# Use rsync to copy only the processed latents. 
-# This usually takes ~10-15 minutes for 300GB+ but saves hours of training time.
-rsync -ah --progress /home/ks2218/la-proteina/data/processed_latents $LOCAL_DATA/
+mkdir -p "$(dirname "$LOCAL_DATA")"
 
+echo "[+] Syncing ENTIRE data folder to local SSD: $LOCAL_DATA"
+# Syncing the entire folder ensures CSVs, FASTA, and clustering files are present
+rsync -ah --progress "$REMOTE_DATA/" "$LOCAL_DATA/"
+
+# 2. Export the DATA_PATH to the local SSD copy
+export DATA_PATH="$LOCAL_DATA"
 # Redirect the DATA_PATH environment variable to the node's local copy
-export DATA_PATH=$LOCAL_DATA
+
 
 # 3. Verify Environment
 echo "Running on node: $(hostname)"
