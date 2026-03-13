@@ -29,7 +29,8 @@ rsync -avh --progress "$REMOTE_DATA/" "$LOCAL_DATA/"
 # Explicitly set the path for the training script
 export DATA_PATH="$LOCAL_DATA"
 # Redirect the DATA_PATH environment variable to the node's local copy
-
+echo $REMOTE_DATA
+echo $LOCAL_DATA
 
 # 3. Verify Environment
 echo "Running on node: $(hostname)"
