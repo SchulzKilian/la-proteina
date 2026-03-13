@@ -360,16 +360,9 @@ class PDBDataset(Dataset):
                     path = self.processed_dir / fname
                 tasks.append(path)
 
-            # 2. Conditional Serial/Parallel Switch
-            if self.num_workers > 0:
-                # Keep your existing pool logic here
-                with Pool(processes=self.num_workers) as pool:
-                    self.data = list(tqdm(pool.imap(torch.load, tasks), total=len(tasks), desc="Loading (Parallel)"))
-            else:
-                # Fallback to simple serial loading if num_workers is 0
-                self.data = []
-                for path in tqdm(tasks, desc="Loading (Serial)"):
-                    self.data.append(torch.load(path, map_location='cpu'))
+            self.data = []
+            for path in tqdm(tasks, desc="Loading (Serial)"):
+                self.data.append(torch.load(path, map_location='cpu'))
 
     def __len__(self):
         return len(self.file_names)
