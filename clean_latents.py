@@ -28,7 +28,7 @@ def prune_protein_file(paths):
             
         # 2. Delete heavy/redundant metadata
         # aatype is redundant to residue_type; bfactor/pdb_idx are unused in training.
-        keys_to_delete = ['bfactor', 'aatype', 'residue_pdb_idx', 'coords', 'residue_id']
+        keys_to_delete = ['bfactor', 'aatype', 'coords', 'residue_id']
         for key in keys_to_delete:
             if hasattr(data, key):
                 delattr(data, key)
