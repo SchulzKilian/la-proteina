@@ -21,7 +21,7 @@ FORCE_RECOMPUTE = False
 NUM_WORKERS = 16  
 BATCH_SIZE = 1  
 DEV = False
-FOLDING_MODE_ENABLED = False
+FOLDING_MODE_ENABLED = True
 
 if DEV:
     DATA_DIR = "/home/ks2218/la-proteina/data/pdb_train/processed"
