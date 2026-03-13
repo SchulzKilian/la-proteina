@@ -35,7 +35,7 @@ autoencoder_ckpt_path: ./checkpoints_laproteina/AE1_ucond_512.ckpt
 
 dataset:
   datamodule:
-    use_precomputed_latents: True
+    use_precomputed_latents: False
 
 # Loss
 loss:
@@ -62,7 +62,7 @@ training:
   motif_conditioning: False
   self_cond: True
   p_folding_n_inv_folding_iters: 0.1
-  use_precomputed_latents: True
+  use_precomputed_latents: False
 
 # LoRA
 lora:
