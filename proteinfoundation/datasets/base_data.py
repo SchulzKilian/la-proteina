@@ -153,6 +153,8 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             drop_last=True,
+            persistent_workers=True if self.num_workers > 0 else False,
+            prefetch_factor=4 if self.num_workers > 0 else None,
         )
 
     def train_dataloader(self) -> DataLoader:

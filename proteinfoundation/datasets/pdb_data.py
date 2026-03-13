@@ -403,8 +403,8 @@ class PDBDataset(Dataset):
                 # EXPLICIT SHAPE FIX: We ONLY transpose if the sequence length is trapped in dimension 1
                 # (e.g., shape is (512, L))
                 if graph_or_dict.mean.shape[1] == L:
-                    graph_or_dict.mean = graph_or_dict.mean.transpose(0, 1)
-                    graph_or_dict.log_scale = graph_or_dict.log_scale.transpose(0, 1)
+                    graph_or_dict.mean = graph_or_dict.mean.transpose(0, 1).contiguous()
+                    graph_or_dict.log_scale = graph_or_dict.log_scale.transpose(0, 1).contiguous()
                 
                 # STRICT ASSERTS: Enforce that Dimension 0 is always the sequence length (L)
                 # and Dimension 1 is the channel dimension (512)
