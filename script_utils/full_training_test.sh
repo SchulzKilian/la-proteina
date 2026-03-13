@@ -44,11 +44,11 @@ mkdir -p "$CHECKPOINT_DIR"
 
 # Update/Append the path to .env for Hydra
 # Note: Using sed to update if it exists, or appending if it doesn't
-if grep -q "DATA_PATH=" .env 2>/dev/null; then
-    sed -i "s|DATA_PATH=.*|DATA_PATH=$DATA_PATH|" .env
-else
-    echo "DATA_PATH=$DATA_PATH" >> .env
-fi
+#if grep -q "DATA_PATH=" .env 2>/dev/null; then
+#    sed -i "s|DATA_PATH=.*|DATA_PATH=$DATA_PATH|" .env
+#else
+#    echo "DATA_PATH=$DATA_PATH" >> .env
+#fi
 
 # --- ProteinMPNN Weights ---
 mkdir -p ProteinMPNN
