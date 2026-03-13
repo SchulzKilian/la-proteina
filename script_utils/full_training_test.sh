@@ -6,10 +6,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-# 2. Set the Hardcoded Defaults
-DATA_PATH="$PROJECT_DIR/data"
-CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
-REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
+
 
 export SLURM_NTASKS=4
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
@@ -19,7 +16,7 @@ export TORCH_COMPILE_DISABLE=1
 # 1. Configuration & Defaults
 # ==============================================================================
 # DEFAULT VALUES
-DATA_PATH="$PROJECT_DIR/data"
+: "${DATA_PATH:="$PROJECT_DIR/data"}"
 CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
 REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
