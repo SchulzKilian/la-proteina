@@ -17,8 +17,8 @@ source $HOME/.bashrc
 conda activate laproteina_env
 
 # Define exactly where your "Gold Standard" data lives
-REMOTE_DATA="/home/ks2218/la-proteina/data/pdb_train"
-LOCAL_DATA="/tmp/$USER/la-proteina/data/pdb_train"
+REMOTE_DATA="/home/ks2218/la-proteina/data"
+LOCAL_DATA="/tmp/$USER/la-proteina/data"
 
 mkdir -p "$LOCAL_DATA"
 
