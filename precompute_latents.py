@@ -21,6 +21,7 @@ FORCE_RECOMPUTE = False
 NUM_WORKERS = 16  
 BATCH_SIZE = 1  
 DEV = False
+FOLDING_MODE_ENABLED = False
 
 if DEV:
     DATA_DIR = "/home/ks2218/la-proteina/data/pdb_train/processed"
@@ -171,6 +172,13 @@ def main():
                 assert data.mean.shape[0] == data.coord_mask.shape[0], \
                     f"Final check failed: mean {data.mean.shape} != mask {data.coord_mask.shape}"
                 
+                keys_to_keep = ['mean', 'log_scale', 'coord_mask', 'id']
+                if not (FOLDING_MODE_ENABLED): # Only keep if doing folding iters
+                    keys_to_keep += ['residue_type', 'bb_ca'] 
+
+                for key in list(data.keys()):
+                    if key not in keys_to_keep:
+                        del data[key]
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 torch.save(data, out_path)
 
