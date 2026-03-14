@@ -2,9 +2,9 @@
 #SBATCH -J train_test
 #SBATCH -A COMPUTERLAB-SL3-GPU
 #SBATCH -p ampere
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=500GB               
 #SBATCH --time=5:00:00
