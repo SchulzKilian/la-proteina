@@ -3,7 +3,7 @@
 #SBATCH -A COMPUTERLAB-SL2-CPU   # Matches your -A
 #SBATCH -p sapphire              # Matches your -p
 #SBATCH --nodes=1
-#SBATCH --mem=64G
+#SBATCH --mem=128G
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4       # Matches your --cpus-per-task
 #SBATCH --time=1:00:00          # I increased this to 4h (1h might be tight for downloading)
