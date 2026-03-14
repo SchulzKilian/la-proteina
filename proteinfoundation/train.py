@@ -41,6 +41,31 @@ def fixed_download_cath(self):
     else:
         print("[Patch] File already exists. Skipping download.")
 
+
+# --- ADD THIS TO THE MONKEYPATCH SECTION IN proteinfoundation/train.py ---
+
+def robust_parse_ligand_map(self):
+    """
+    Robust version of Graphein's ligand map parser that skips empty or malformed lines.
+    """
+    path = self.root_dir / "ligand_map.txt"
+    if not path.exists():
+        # Optional: You could try to download it here, but PDBManager usually handles it.
+        # If it's missing, just return empty to avoid the crash.
+        return {}
+    
+    ligand_map = {}
+    with open(path, "r") as f:
+        for line in f:
+            params = line.strip().split("\t")
+            # The original code fails here if params is empty or has only 1 element
+            if len(params) > 1:
+                ligand_map[params[0]] = params[1:]
+    return ligand_map
+
+# Apply the patch
+
+graphein.ml.datasets.pdb_data.PDBManager._parse_ligand_map = robust_parse_ligand_map
 # 4. Apply the monkeypatch
 graphein.ml.datasets.pdb_data.PDBManager._download_cath_id_cath_code_map = fixed_download_cath
 import json
