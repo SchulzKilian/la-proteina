@@ -100,7 +100,7 @@ fi
 # 4. Execution: Run Data Prep (CPU Mode)
 # ==============================================================================
 echo "[+] Starting DATA PREPARATION script..."
-
+export PYTHONHTTPSVERIFY=0
 # We target the specific pdb_train subdirectory here!
 python prepare_data.py \
     dataset=pdb/pdb_train_ucond \
