@@ -1,7 +1,7 @@
 import sys
 import os
 import hydra
-from omegaconf import 
+from omegaconf import OmegaConf
 import ssl
 
 
