@@ -592,12 +592,13 @@ class PDBLightningDataModule(BaseLightningDataModule):
                     self._process_structure_data(pdb_codes=df_data["pdb"].tolist(), chains=None)
                 df_data.to_csv(self.data_dir / df_data_name, index=False)
 
-
     def _process_structure_data(self, pdb_codes, chains):
-        """Process raw data. Supports serial execution if num_workers=0."""
-        
-
+        """Process raw data using joblib threading to avoid fork deadlocks."""
         import glob
+
+        from joblib import Parallel, delayed
+
+
         logger.info("Scanning sharded processed directory (this may take a minute)...")
         try:
             # SHARDING FIX: Recursively find all .pt files in subfolders
@@ -606,18 +607,14 @@ class PDBLightningDataModule(BaseLightningDataModule):
         except Exception as e:
             logger.warning(f"Could not scan processed directory: {e}")
             processed_files = set()
-        # -----------------------------------------
 
         tasks = []
         for i, pdb in enumerate(pdb_codes):
             chain = chains[i] if chains is not None else "all"
-            
             fname = f"{pdb}.pt" if chain == "all" else f"{pdb}_{chain}.pt"
             
-            # Check against the set in memory, NOT the disk ---
             if fname in processed_files:
                 continue
-
                 
             tasks.append((
                 pdb,
@@ -634,31 +631,29 @@ class PDBLightningDataModule(BaseLightningDataModule):
         file_names = []
         if len(tasks) > 0:
             if self.num_workers > 0:
-                # --- PARALLEL MODE (Use Pool) ---
-                n_workers = self.num_workers
-                logger.info(f"Processing {len(tasks)} files with {n_workers} workers...")
+                # --- PARALLEL MODE (Joblib Threading) ---
+                logger.info(f"Processing {len(tasks)} files with {self.num_workers} workers (threading backend)...")
                 
                 try:
-                    with Pool(processes=n_workers) as pool:
-                        results = list(tqdm(
-                            pool.imap_unordered(process_single_pdb_file, tasks), 
-                            total=len(tasks),
-                            desc="Processing (Parallel)",
-                            unit="file"
-                        ))
+                    # 'threading' backend avoids the fork() that causes the 0% hang.
+                    # We wrap the generator in tqdm so joblib reports progress as it consumes tasks.
+                    results = Parallel(n_jobs=self.num_workers, backend="threading")(
+                        delayed(process_single_pdb_file)(task) 
+                        for task in tqdm(tasks, desc="Processing (Parallel)", unit="file")
+                    )
                     file_names = [r for r in results if r is not None]
                 except Exception as e:
-                    logger.error("Parallel processing crashed!")
+                    logger.error(f"Parallel processing failed: {e}")
                     raise e
             else:
-                # --- SERIAL MODE (Main Process) ---
+                # --- SERIAL MODE ---
                 logger.info(f"Processing {len(tasks)} files in SERIAL mode...")
                 for task in tqdm(tasks, desc="Processing (Serial)", unit="file"):
                     res = process_single_pdb_file(task)
                     if res is not None:
                         file_names.append(res)
         
-        logger.info("Completed processing.")
+        logger.info(f"Completed processing. Total files: {len(file_names)}")
         return file_names
 
     def _load_pdb_folder_data(self, data_dir: pathlib.Path) -> pd.DataFrame:
