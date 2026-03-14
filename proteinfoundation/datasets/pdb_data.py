@@ -531,17 +531,50 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 df_data.to_csv(self.data_dir / df_data_name, index=False)
                 return
             # --------------------------------------------------
-
             # 3. Standard Mode (Non-Latent): Download and Process
-            logger.info(f"Dataset created. Downloading {len(df_data)} structures...")
-            self._download_structure_data(df_data["pdb"].tolist())
+            import glob
+            # Scan for existing processed .pt files
+            try:
+                existing_pt_paths = glob.glob(str(self.processed_dir / "**" / "*.pt"), recursive=True)
+                processed_files = {os.path.basename(p) for p in existing_pt_paths}
+            except Exception:
+                processed_files = set()
+
+            # Determine which PDBs actually need downloading (i.e. not yet processed)
+            pdbs_to_download = []
+            for _, row in df_data.iterrows():
+                pdb = row['pdb'].lower()
+                chain = row.get('chain', 'all')
+                fname = f"{pdb}.pt" if pd.isna(chain) or chain == "all" else f"{pdb}_{chain}.pt"
+                
+                if fname not in processed_files:
+                    pdbs_to_download.append(pdb)
+            
+            # Remove duplicates
+            pdbs_to_download = list(set(pdbs_to_download))
+
+            logger.info(f"Dataset created. Downloading {len(pdbs_to_download)} missing structures (skipped already processed files)...")
+            if len(pdbs_to_download) > 0:
+                self._download_structure_data(pdbs_to_download)
 
             logger.info("Verifying file availability...")
-            unique_pdbs = df_data["pdb"].unique()
             raw_files_on_disk = set(os.listdir(self.raw_dir)) if self.raw_dir.exists() else set()
-            existing_pdbs = [p for p in unique_pdbs if f"{p}.{self.format}" in raw_files_on_disk or f"{p}.{self.format}.gz" in raw_files_on_disk]
             
-            df_data = df_data[df_data["pdb"].isin(set(existing_pdbs))]
+            # A PDB is valid if its raw file exists OR its processed .pt file already exists
+            valid_pdbs = []
+            for _, row in df_data.iterrows():
+                pdb = row['pdb'].lower()
+                chain = row.get('chain', 'all')
+                fname = f"{pdb}.pt" if pd.isna(chain) or chain == "all" else f"{pdb}_{chain}.pt"
+                
+                raw_exists = f"{pdb}.{self.format}" in raw_files_on_disk or f"{pdb}.{self.format}.gz" in raw_files_on_disk
+                processed_exists = fname in processed_files
+                
+                if raw_exists or processed_exists:
+                    valid_pdbs.append(pdb)
+
+            df_data = df_data[df_data["pdb"].isin(set(valid_pdbs))]
+            
             self._process_structure_data(df_data["pdb"].tolist(), df_data["chain"].tolist())
 
             logger.info(f"Saving dataset csv to {df_data_name}")
