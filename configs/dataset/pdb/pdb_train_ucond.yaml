@@ -25,6 +25,7 @@ datamodule:
     fraction: 1 # Fraction of dataset to use
     molecule_type: "protein" # Type of molecule for which to select
     experiment_types: ["diffraction", "EM"] # other options are "NMR" and "other"
+    labels: []
     min_length: 50 # Exclude peptides of length 50
     max_length: 300 # Exclude polypeptides greater than length 256
     oligomeric_min: null 
