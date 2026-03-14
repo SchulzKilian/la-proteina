@@ -1,7 +1,13 @@
 import sys
 import os
 import hydra
-from omegaconf import OmegaConf
+from omegaconf import 
+import ssl
+
+
+# This disables certificate verification globally for the current process
+ssl._create_default_https_context = ssl._create_unverified_context
+
 
 # Add root to path so imports work
 sys.path.insert(0, os.path.abspath("."))
