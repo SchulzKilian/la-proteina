@@ -635,7 +635,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 # joblib.Parallel can consume a generator. 
                 # We wrap it in tqdm to show progress. 
                 # Note: tqdm needs an 'estimated' total because generators don't have a length.
-                results = Parallel(n_jobs=self.num_workers, backend="threading")(
+                results = Parallel(n_jobs=self.num_workers)(
                     delayed(process_single_pdb_file)(task) 
                     for task in tqdm(task_generator(), total=len(pdb_codes), desc="Processing")
                 )
