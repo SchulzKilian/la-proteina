@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=500GB               
-#SBATCH --time=5:00:00
+#SBATCH --time=1:00:00
 
 
 # 1. Load your personal shell config (Reliable Conda setup)
