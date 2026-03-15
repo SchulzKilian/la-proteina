@@ -600,67 +600,55 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 df_data.to_csv(self.data_dir / df_data_name, index=False)
 
     def _process_structure_data(self, pdb_codes, chains):
-        """Process raw data using joblib threading to avoid fork deadlocks."""
+        import os
         import glob
-
         from joblib import Parallel, delayed
+        from tqdm import tqdm
 
+        # 1. Scan the directory once (as you already do)
+        logger.info("Scanning sharded processed directory...")
+        existing_paths = glob.glob(str(self.processed_dir / "**" / "*.pt"), recursive=True)
+        processed_files = {os.path.basename(p) for p in existing_paths}
 
-        logger.info("Scanning sharded processed directory (this may take a minute)...")
-        try:
-            # SHARDING FIX: Recursively find all .pt files in subfolders
-            existing_paths = glob.glob(str(self.processed_dir / "**" / "*.pt"), recursive=True)
-            processed_files = {os.path.basename(p) for p in existing_paths}
-        except Exception as e:
-            logger.warning(f"Could not scan processed directory: {e}")
-            processed_files = set()
-
-        tasks = []
-        for i, pdb in enumerate(pdb_codes):
-            chain = chains[i] if chains is not None else "all"
-            fname = f"{pdb}.pt" if chain == "all" else f"{pdb}_{chain}.pt"
-            
-            if fname in processed_files:
-                continue
+        # 2. Define the Generator Pattern
+        # This function 'yields' one task at a time instead of building a giant list
+        def task_generator():
+            for i, pdb in enumerate(pdb_codes):
+                chain = chains[i] if chains is not None else "all"
+                fname = f"{pdb}.pt" if chain == "all" else f"{pdb}_{chain}.pt"
                 
-            tasks.append((
-                pdb,
-                chain,
-                self.raw_dir,
-                self.processed_dir,
-                self.format,
-                self.store_het,
-                self.store_bfactor,
-                getattr(self, 'pre_transform', None),
-                getattr(self, 'pre_filter', None)
-            ))
+                if fname not in processed_files:
+                    # Yielding is 'lazy' — it only executes when the worker is ready
+                    yield (
+                        pdb, chain, self.raw_dir, self.processed_dir,
+                        self.format, self.store_het, self.store_bfactor,
+                        getattr(self, 'pre_transform', None),
+                        getattr(self, 'pre_filter', None)
+                    )
 
         file_names = []
-        if len(tasks) > 0:
-            if self.num_workers > 0:
-                # --- PARALLEL MODE (Joblib Threading) ---
-                logger.info(f"Processing {len(tasks)} files with {self.num_workers} workers...")
-                
-                try:
-                    # 'threading' backend avoids the fork() that causes the 0% hang.
-                    # We wrap the generator in tqdm so joblib reports progress as it consumes tasks.
-                    results = Parallel(n_jobs=self.num_workers)(
-                        delayed(process_single_pdb_file)(task) 
-                        for task in tqdm(tasks, desc="Processing (Parallel)", unit="file")
-                    )
-                    file_names = [r for r in results if r is not None]
-                except Exception as e:
-                    logger.error(f"Parallel processing failed: {e}")
-                    raise e
-            else:
-                # --- SERIAL MODE ---
-                logger.info(f"Processing {len(tasks)} files in SERIAL mode...")
-                for task in tqdm(tasks, desc="Processing (Serial)", unit="file"):
-                    res = process_single_pdb_file(task)
-                    if res is not None:
-                        file_names.append(res)
         
-        logger.info(f"Completed processing. Total files: {len(file_names)}")
+        # 3. Use the Generator in Parallel
+        if self.num_workers > 0:
+            logger.info(f"Processing with {self.num_workers} workers (Generator Mode)...")
+            try:
+                # joblib.Parallel can consume a generator. 
+                # We wrap it in tqdm to show progress. 
+                # Note: tqdm needs an 'estimated' total because generators don't have a length.
+                results = Parallel(n_jobs=self.num_workers, backend="threading")(
+                    delayed(process_single_pdb_file)(task) 
+                    for task in tqdm(task_generator(), total=len(pdb_codes), desc="Processing")
+                )
+                file_names = [r for r in results if r is not None]
+            except Exception as e:
+                logger.error(f"Parallel processing failed: {e}")
+                raise e
+        else:
+            # Serial fallback
+            for task in tqdm(task_generator(), total=len(pdb_codes), desc="Serial"):
+                res = process_single_pdb_file(task)
+                if res: file_names.append(res)
+
         return file_names
 
     def _load_pdb_folder_data(self, data_dir: pathlib.Path) -> pd.DataFrame:
