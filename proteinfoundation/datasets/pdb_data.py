@@ -632,7 +632,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
         if len(tasks) > 0:
             if self.num_workers > 0:
                 # --- PARALLEL MODE (Joblib Threading) ---
-                logger.info(f"Processing {len(tasks)} files with {self.num_workers} workers (threading backend)...")
+                logger.info(f"Processing {len(tasks)} files with {self.num_workers} workers...")
                 
                 try:
                     # 'threading' backend avoids the fork() that causes the 0% hang.
