@@ -535,8 +535,15 @@ class PDBLightningDataModule(BaseLightningDataModule):
             import glob
             # Scan for existing processed .pt files
             try:
-                existing_pt_paths = glob.glob(str(self.processed_dir / "**" / "*.pt"), recursive=True)
-                processed_files = {os.path.basename(p) for p in existing_pt_paths}
+                processed_files = set()
+                if self.processed_dir.exists():
+                    import os
+                    for root, _, files in os.walk(self.processed_dir):
+                        for f in files:
+                            if f.endswith(".pt"):
+                                processed_files.add(f)
+                else:
+                    processed_files = set()
             except Exception:
                 processed_files = set()
 
