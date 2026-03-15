@@ -63,6 +63,6 @@ def main(cfg):
 
 if __name__ == "__main__":
     # This prevents some multiprocessing errors on specific setups
-    import torch.multiprocessing
-    torch.multiprocessing.set_sharing_strategy('file_system')
+    # import torch.multiprocessing
+    # torch.multiprocessing.set_sharing_strategy('file_system')
     main()

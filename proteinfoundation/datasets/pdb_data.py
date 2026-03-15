@@ -637,7 +637,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
                 try:
                     # 'threading' backend avoids the fork() that causes the 0% hang.
                     # We wrap the generator in tqdm so joblib reports progress as it consumes tasks.
-                    results = Parallel(n_jobs=self.num_workers, backend="threading")(
+                    results = Parallel(n_jobs=self.num_workers)(
                         delayed(process_single_pdb_file)(task) 
                         for task in tqdm(tasks, desc="Processing (Parallel)", unit="file")
                     )
