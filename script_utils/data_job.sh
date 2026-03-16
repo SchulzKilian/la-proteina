@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --mem=128G
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=76       # Matches your --cpus-per-task
+#SBATCH --cpus-per-task=32       # Matches your --cpus-per-task
 #SBATCH --time=1:30:00          # I increased this to 4h (1h might be tight for downloading)
 #SBATCH --output=slurm_prep_%j.out
 source $HOME/.bashrc
