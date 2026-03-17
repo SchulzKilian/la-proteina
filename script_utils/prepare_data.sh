@@ -105,7 +105,7 @@ export PYTHONHTTPSVERIFY=0
 python prepare_data.py \
     dataset=pdb/pdb_train_ucond \
     dataset.datamodule.data_dir="$DATA_PATH/pdb_train" \
-    dataset.datamodule.num_workers=32 \
+    dataset.datamodule.num_workers=70 \
     ++nolog=true \
     ++hardware.accelerator=cpu \
     ++hardware.ngpus_per_node_=1
