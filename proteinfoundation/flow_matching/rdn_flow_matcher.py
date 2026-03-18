@@ -209,7 +209,7 @@ class RDNFlowMatcher(BaseFlowMatcher):
             mask=mask,
             nn_out=nn_out,
         )
-        nres = torch.sum(mask, dim=-1)  # .clamp(min=1)  # [*]
+        nres = torch.sum(mask, dim=-1).clamp(min=1)  # [*] clamp prevents 0/0 NaN
         err = (x_1 - nn_out["x_1"]) * mask[..., None]  # [*, n, d]
         loss = torch.sum(err**2, dim=(-1, -2)) / nres  # [*]
         total_loss_w = 1.0 / ((1.0 - t) ** 2 + 1e-5)
