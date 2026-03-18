@@ -161,11 +161,7 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         if mask.ndim == 4: mask = mask[..., 0, 0]
         if mask.ndim == 3: mask = mask[..., 0]
         
-        # 5. Handle [L, B] vs [B, L] Transposition
-        # Some OpenFold features are sequence-first; generative features are batch-first.
-        if mask.shape[0] == n and mask.shape[1] == batch_size and n != batch_size:
-            # print(f"DEBUG: Transposing mask from [L, B] to [B, L] ({mask.shape} -> [{batch_size}, {n}])")
-            mask = mask.transpose(0, 1)
+
 
         # 6. Strict Assertions & Logging
         # Uncomment print statements if you need to debug specific batches in the logs
