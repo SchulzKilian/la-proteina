@@ -111,10 +111,21 @@ class LocalLatentsTransformer(torch.nn.Module):
                 ]
             )
 
-        self.local_latents_linear = torch.nn.Sequential(
-            torch.nn.LayerNorm(self.token_dim),
-            torch.nn.Linear(self.token_dim, kwargs["latent_dim"], bias=False),
-        )
+        self.latent_dim = kwargs.get("latent_dim", None)
+        if self.latent_dim is not None:
+            self.local_latents_linear = torch.nn.Sequential(
+                torch.nn.LayerNorm(self.token_dim),
+                torch.nn.Linear(self.token_dim, self.latent_dim, bias=False),
+            )
+        else:
+            self.local_latents_linear = None
+
+        assert "local_latents" not in self.output_param or self.local_latents_linear is not None, \
+            "output_parameterization contains 'local_latents' but latent_dim is None. " \
+            "Either provide latent_dim or remove 'local_latents' from output_parameterization."
+        assert "local_latents" not in self.output_param or self.latent_dim is not None, \
+            "Contradiction: output_parameterization requests local_latents but no latent_dim given."
+
         self.ca_linear = torch.nn.Sequential(
             torch.nn.LayerNorm(self.token_dim),
             torch.nn.Linear(self.token_dim, 3, bias=False),
@@ -203,14 +214,24 @@ class LocalLatentsTransformer(torch.nn.Module):
             seqs = seqs * mask[..., None]
 
         # Get outputs
-        local_latents_out = (
-            self.local_latents_linear(seqs) * mask[..., None]
-        )  # [b, n, latent_dim]
+        assert "bb_ca" in self.output_param, \
+            "output_parameterization must contain 'bb_ca'."
+
         ca_nm_out = self.ca_linear(seqs) * mask[..., None]  # [b, n, 3]
+        assert ca_nm_out.shape[-1] == 3, \
+            f"CA output should have dim 3, got {ca_nm_out.shape[-1]}"
 
         nn_out = {}
         nn_out["bb_ca"] = {self.output_param["bb_ca"]: ca_nm_out}
-        nn_out["local_latents"] = {
-            self.output_param["local_latents"]: local_latents_out
-        }
+
+        if self.local_latents_linear is not None:
+            assert "local_latents" in self.output_param, \
+                "local_latents_linear exists but 'local_latents' missing from output_parameterization."
+            local_latents_out = (
+                self.local_latents_linear(seqs) * mask[..., None]
+            )  # [b, n, latent_dim]
+            nn_out["local_latents"] = {
+                self.output_param["local_latents"]: local_latents_out
+            }
+
         return nn_out
