@@ -331,7 +331,7 @@ class Proteina(L.LightningModule):
             self.log(
                 f"{log_prefix}/loss",
                 train_loss,
-                on_step=not val_step,
+                on_step=True,
                 on_epoch=True,
                 prog_bar=False,
                 logger=True,
@@ -340,16 +340,7 @@ class Proteina(L.LightningModule):
                 add_dataloader_idx=False,
             )
 
-            if val_step:
-                self.log(
-                    "scaling/val_nsamples_processed",
-                    self.nsamples_processed * 1.0,
-                    on_step=False, 
-                    on_epoch=True,
-                    logger=True,
-                    batch_size=bs,
-                    sync_dist=True,
-                )
+
 
             if not val_step:  # Don't log these for val step
                 self.log_train_loss_n_prog_bar(bs, train_loss)
