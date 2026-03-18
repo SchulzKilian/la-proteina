@@ -9,7 +9,7 @@ hardware:
 
 defaults:
   - dataset: pdb/pdb_train_ucond
-  - nn: local_latents_score_nn_70M
+  - nn: local_latents_score_nn_160M
   - generation: validation_local_latents    # specifies all arguments for validation
   - _self_
 
@@ -75,7 +75,7 @@ lora:
 opt:
   lr: 0.0001
   max_epochs: 10000000
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: 4
   skip_nan_grad: True  # Skip updates with nan gradient
   grad_and_weight_analysis: False  # Log some statistics of gradients and weights
   dist_strategy: ddp  # For multi GPU training, do not change
