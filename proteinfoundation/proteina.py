@@ -291,6 +291,8 @@ class Proteina(L.LightningModule):
 
         try:
 
+ 
+
             val_step = batch_idx == -1  # validation step is indicated with batch_idx -1
             log_prefix = "validation_loss" if val_step else "train"
 

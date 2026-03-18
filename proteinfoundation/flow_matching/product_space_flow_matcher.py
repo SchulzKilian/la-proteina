@@ -160,8 +160,29 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         # Squeeze extra dimensions if it's [B, L, 37, 3] or [B, L, 1]
         if mask.ndim == 4: mask = mask[..., 0, 0]
         if mask.ndim == 3: mask = mask[..., 0]
+
+
         
 
+        # 5. Verify mask matches mask_dict if both are present (only on first step)
+        if not getattr(self, "_mask_verified", False):
+            self._mask_verified = True
+            print(f"[MASK CHECK] source={mask_source}, shape={mask}, dtype={mask.dtype}")
+            if "mask_dict" in batch and "coords" in batch["mask_dict"]:
+                old_mask = batch["mask_dict"]["coords"]
+                if old_mask.ndim == 4: old_mask = old_mask[..., 0, 0]
+                if old_mask.ndim == 3: old_mask = old_mask[..., 0]
+                print(f"[MASK CHECK] mask_dict fallback shape={old_mask.shape}, dtype={old_mask.dtype}")
+                if mask.shape == old_mask.shape:
+                    match = (mask == old_mask).all().item()
+                    frac_valid_new = mask.float().mean().item()
+                    frac_valid_old = old_mask.float().mean().item()
+                    print(f"[MASK CHECK] masks identical={match}, frac_valid new={frac_valid_new:.3f} old={frac_valid_old:.3f}")
+                else:
+                    print(f"[MASK CHECK] SHAPE MISMATCH: new={mask.shape} vs old={old_mask.shape}")
+            else:
+                frac_valid = mask.float().mean().item()
+                print(f"[MASK CHECK] mask_dict not in batch, frac_valid={frac_valid:.3f}")
 
         # 6. Strict Assertions & Logging
         # Uncomment print statements if you need to debug specific batches in the logs
