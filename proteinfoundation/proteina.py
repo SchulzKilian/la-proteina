@@ -475,7 +475,7 @@ class Proteina(L.LightningModule):
             self.log(
                 f"{log_prefix}/loss_{log_name}",
                 torch.mean(losses[k]),
-                on_step=not val_step,
+                on_step=True,
                 on_epoch=True,
                 prog_bar=False,
                 logger=True,
