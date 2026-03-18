@@ -170,10 +170,10 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         # 6. Strict Assertions & Logging
         # Uncomment print statements if you need to debug specific batches in the logs
         
-        print(f"--- [SHAPE CHECK] ---")
-        print(f"Coord Source: {coord_source} | Shape: {coors_tensor.shape}")
-        print(f"Mask Source: {mask_source} | Shape: {mask.shape}")
-        print(f"Batch Shape: {batch_shape} | Seq Length (n): {n}")
+        # print(f"--- [SHAPE CHECK] ---")
+        # print(f"Coord Source: {coord_source} | Shape: {coors_tensor.shape}")
+        # print(f"Mask Source: {mask_source} | Shape: {mask.shape}")
+        # print(f"Batch Shape: {batch_shape} | Seq Length (n): {n}")
 
         assert mask.shape == (batch_size, n), \
             f"CRITICAL: Mask shape {mask.shape} does not match expected (Batch: {batch_size}, Length: {n})"
