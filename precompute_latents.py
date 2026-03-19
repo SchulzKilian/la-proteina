@@ -172,8 +172,8 @@ def main():
                 assert data.mean.shape[0] == data.coord_mask.shape[0], \
                     f"Final check failed: mean {data.mean.shape} != mask {data.coord_mask.shape}"
                 
-                keys_to_keep = ['mean', 'log_scale', 'coord_mask', 'id']
-                if not (FOLDING_MODE_ENABLED): # Only keep if doing folding iters
+                keys_to_keep = ['mean', 'log_scale', 'coords_nm', 'coord_mask', 'id']
+                if  (FOLDING_MODE_ENABLED): # Only keep if doing folding iters
                     keys_to_keep += ['residue_type', 'bb_ca'] 
 
                 for key in list(data.keys()):
