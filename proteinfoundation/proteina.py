@@ -73,7 +73,24 @@ class Proteina(L.LightningModule):
             logger.info("Skipping AutoEncoder load -> using precomputed latents.")
             self.autoencoder = None
             latent_dim = cfg_exp.product_flowmatcher.local_latents.get("dim", 8)
+            # OmegaConf returns None when key exists with `null` value (not the default).
+            # Fall back to 8 (standard AE latent dim) so downstream modules get a valid int.
+            if latent_dim is None:
+                latent_dim = 8
+                logger.warning(
+                    "product_flowmatcher.local_latents.dim is null in config; "
+                    "defaulting to latent_dim=8 for precomputed latents. "
+                    "Set it explicitly in the config to suppress this warning."
+                )
             self.latent_dim = latent_dim
+            # Write resolved dim back so the flow matcher and NN are instantiated correctly,
+            # mirroring what the normal AE path does.
+            try:
+                cfg_exp.product_flowmatcher.local_latents.dim = self.latent_dim
+            except:
+                OmegaConf.set_struct(cfg_exp, False)
+                cfg_exp.product_flowmatcher.local_latents.dim = self.latent_dim
+                OmegaConf.set_struct(cfg_exp, True)
         else:
             # Original AutoEncoder loading
             self.autoencoder, latent_dim = self.load_autoencoder(cfg_exp, freeze_params=True)
