@@ -537,7 +537,6 @@ class PDBLightningDataModule(BaseLightningDataModule):
             try:
                 processed_files = set()
                 if self.processed_dir.exists():
-                    import os
                     for root, _, files in os.walk(self.processed_dir):
                         for f in files:
                             if f.endswith(".pt"):
