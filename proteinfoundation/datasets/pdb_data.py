@@ -360,9 +360,16 @@ class PDBDataset(Dataset):
                     path = self.processed_dir / fname
                 tasks.append(path)
 
-            self.data = []
-            for path in tqdm(tasks, desc="Loading (Serial)"):
-                self.data.append(torch.load(path, map_location='cpu'))
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _load(path):
+                return torch.load(path, map_location='cpu', weights_only=False)
+
+            self.data = [None] * len(tasks)
+            with ThreadPoolExecutor(max_workers=self.num_workers) as pool:
+                futures = {pool.submit(_load, path): i for i, path in enumerate(tasks)}
+                for future in tqdm(as_completed(futures), total=len(tasks), desc="Loading (Parallel)"):
+                    self.data[futures[future]] = future.result()
 
     def __len__(self):
         return len(self.file_names)
