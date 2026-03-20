@@ -349,25 +349,32 @@ class PDBDataset(Dataset):
 
         if self.in_memory:
             logger.info(f"Reading {len(file_names)} files into memory...")
-            
-            # 1. Prepare tasks
+
+            # Resolve symlink once so every thread uses the real path directly,
+            # avoiding repeated symlink resolution on every file open.
+            real_processed_dir = pathlib.Path(os.path.realpath(self.processed_dir))
+
+            # Build task list without per-file exists() calls (each is a network
+            # metadata round-trip on /rds/ — 100K calls = ~500s overhead).
+            # Instead, try shard path first and fall back inside the loader.
             tasks = []
             for f in file_names:
                 fname = f if f.endswith(".pt") else f"{f}.pt"
                 shard = fname[0:2].lower()
-                path = self.processed_dir / shard / fname
-                if not path.exists():
-                    path = self.processed_dir / fname
-                tasks.append(path)
+                tasks.append((real_processed_dir / shard / fname, real_processed_dir / fname))
 
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            def _load(path):
-                return torch.load(path, map_location='cpu', weights_only=False)
+            def _load(paths):
+                shard_path, flat_path = paths
+                try:
+                    return torch.load(shard_path, map_location='cpu', weights_only=False)
+                except FileNotFoundError:
+                    return torch.load(flat_path, map_location='cpu', weights_only=False)
 
             self.data = [None] * len(tasks)
-            with ThreadPoolExecutor(max_workers=self.num_workers) as pool:
-                futures = {pool.submit(_load, path): i for i, path in enumerate(tasks)}
+            with ThreadPoolExecutor(max_workers=max(1, self.num_workers)) as pool:
+                futures = {pool.submit(_load, paths): i for i, paths in enumerate(tasks)}
                 for future in tqdm(as_completed(futures), total=len(tasks), desc="Loading (Parallel)"):
                     self.data[futures[future]] = future.result()
 
