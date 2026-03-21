@@ -349,20 +349,51 @@ class PDBDataset(Dataset):
 
         if self.in_memory:
             logger.info(f"Reading {len(file_names)} files into memory...")
-            
-            # 1. Prepare tasks
+
+            # Resolve symlink once so every thread uses the real path directly,
+            # avoiding repeated symlink resolution on every file open.
+            real_processed_dir = pathlib.Path(os.path.realpath(self.processed_dir))
+
+            # Build task list without per-file exists() calls (each is a network
+            # metadata round-trip on /rds/ — 100K calls = ~500s overhead).
+            # Instead, try shard path first and fall back inside the loader.
             tasks = []
             for f in file_names:
                 fname = f if f.endswith(".pt") else f"{f}.pt"
                 shard = fname[0:2].lower()
-                path = self.processed_dir / shard / fname
-                if not path.exists():
-                    path = self.processed_dir / fname
-                tasks.append(path)
+                tasks.append((real_processed_dir / shard / fname, real_processed_dir / fname))
 
-            self.data = []
-            for path in tqdm(tasks, desc="Loading (Serial)"):
-                self.data.append(torch.load(path, map_location='cpu'))
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _load(paths):
+                shard_path, flat_path = paths
+                try:
+                    return torch.load(shard_path, map_location='cpu', weights_only=False)
+                except FileNotFoundError:
+                    try:
+                        return torch.load(flat_path, map_location='cpu', weights_only=False)
+                    except FileNotFoundError:
+                        logger.warning(f"File not found (skipping): {shard_path}")
+                        return None
+                except Exception as e:
+                    logger.warning(f"Failed to load {shard_path} ({type(e).__name__}: {e}) — skipping.")
+                    return None
+
+            self.data = [None] * len(tasks)
+            with ThreadPoolExecutor(max_workers=max(1, self.num_workers)) as pool:
+                futures = {pool.submit(_load, paths): i for i, paths in enumerate(tasks)}
+                for future in tqdm(as_completed(futures), total=len(tasks), desc="Loading (Parallel)"):
+                    self.data[futures[future]] = future.result()
+
+            # Filter out failed/corrupted files and keep file_names in sync
+            # (__len__ uses file_names, __getitem__ uses self.data[idx])
+            n_before = len(self.data)
+            valid_mask = [d is not None for d in self.data]
+            self.data = [d for d, ok in zip(self.data, valid_mask) if ok]
+            self.file_names = [f for f, ok in zip(self.file_names, valid_mask) if ok]
+            n_skipped = n_before - len(self.data)
+            if n_skipped > 0:
+                logger.warning(f"Skipped {n_skipped} corrupted/missing files. {len(self.data)} loaded successfully.")
 
     def __len__(self):
         return len(self.file_names)
@@ -537,7 +568,6 @@ class PDBLightningDataModule(BaseLightningDataModule):
             try:
                 processed_files = set()
                 if self.processed_dir.exists():
-                    import os
                     for root, _, files in os.walk(self.processed_dir):
                         for f in files:
                             if f.endswith(".pt"):

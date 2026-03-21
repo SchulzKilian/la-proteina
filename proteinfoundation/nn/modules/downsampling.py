@@ -29,7 +29,7 @@ class DownsampleBlock(nn.Module):
         self.norm = nn.LayerNorm(dim) # Added Norm for stability
         self.act = nn.SiLU()
         # 2. BlurPool for downsampling
-        self.pool = BlurPool1D(dim, stride=2)
+        self.pool = BlurPool1D(dim, stride=1)
 
     def forward(self, x):
         # x: [b, n, d]

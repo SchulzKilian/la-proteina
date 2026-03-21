@@ -58,31 +58,56 @@ class Proteina(L.LightningModule):
 
         DEBUG_AE = False
 
-        if self.use_precomputed_latents and not DEBUG_AE:
+        self._ca_only_mode = "local_latents" not in cfg_exp.product_flowmatcher
+
+        if self._ca_only_mode:
+            # CA-only mode: no autoencoder, no latents
+            logger.info("CA-only mode detected (no 'local_latents' in product_flowmatcher). Skipping AutoEncoder.")
+            assert "autoencoder_ckpt_path" not in cfg_exp or cfg_exp.autoencoder_ckpt_path is None, \
+                "CA-only mode active but autoencoder_ckpt_path is set. Remove it from the config."
+            self.autoencoder = None
+            self.latent_dim = None
+        elif self.use_precomputed_latents and not DEBUG_AE:
             assert "motif" not in cfg_exp.nn.name.lower(), \
                 f"FATAL: Motif scaffolding (NN: {cfg_exp.nn.name}) requires full 37-atom coordinates, but precomputed latents discard them. Disable precomputed latents."
             logger.info("Skipping AutoEncoder load -> using precomputed latents.")
             self.autoencoder = None
             latent_dim = cfg_exp.product_flowmatcher.local_latents.get("dim", 8)
-        else:
-            # Original AutoEncoder loading
-            self.autoencoder, latent_dim = self.load_autoencoder(cfg_exp, freeze_params=True)
-        
-        # Add right latent dimensionality in the config file, needed to instantiate the flow matcher below
-        if latent_dim is not None:
+            # OmegaConf returns None when key exists with `null` value (not the default).
+            # Fall back to 8 (standard AE latent dim) so downstream modules get a valid int.
+            if latent_dim is None:
+                latent_dim = 8
+                logger.warning(
+                    "product_flowmatcher.local_latents.dim is null in config; "
+                    "defaulting to latent_dim=8 for precomputed latents. "
+                    "Set it explicitly in the config to suppress this warning."
+                )
             self.latent_dim = latent_dim
-        else:
-            self.latent_dim = cfg_exp.product_flowmatcher.local_latents.get("dim", 8)
-            
-        if self.autoencoder is not None:
+            # Write resolved dim back so the flow matcher and NN are instantiated correctly,
+            # mirroring what the normal AE path does.
             try:
                 cfg_exp.product_flowmatcher.local_latents.dim = self.latent_dim
             except:
                 OmegaConf.set_struct(cfg_exp, False)
-                # Update the configuration with the new key-value pair
                 cfg_exp.product_flowmatcher.local_latents.dim = self.latent_dim
-                # Re-enable struct mode if needed
                 OmegaConf.set_struct(cfg_exp, True)
+        else:
+            # Original AutoEncoder loading
+            self.autoencoder, latent_dim = self.load_autoencoder(cfg_exp, freeze_params=True)
+
+            # Add right latent dimensionality in the config file, needed to instantiate the flow matcher below
+            if latent_dim is not None:
+                self.latent_dim = latent_dim
+            else:
+                self.latent_dim = cfg_exp.product_flowmatcher.local_latents.get("dim", 8)
+
+            if self.autoencoder is not None:
+                try:
+                    cfg_exp.product_flowmatcher.local_latents.dim = self.latent_dim
+                except:
+                    OmegaConf.set_struct(cfg_exp, False)
+                    cfg_exp.product_flowmatcher.local_latents.dim = self.latent_dim
+                    OmegaConf.set_struct(cfg_exp, True)
 
         self.fm = ProductSpaceFlowMatcher(cfg_exp)
         logger.info(f"cfg_exp.nn: {cfg_exp.nn}")

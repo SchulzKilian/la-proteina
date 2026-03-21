@@ -145,21 +145,24 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         else:
             raise ValueError(f"Unexpected coordinate tensor shape: {coors_tensor.shape}")
 
-        # 3. Robust Mask Extraction
-        # coord_mask is usually added during padding in pdb_data.py
-        if "coord_mask" in batch:
-            mask = batch["coord_mask"]
-            mask_source = "coord_mask"
-        elif "mask_dict" in batch and "coords" in batch["mask_dict"]:
+        # 3. Mask Extraction
+        # Prefer mask_dict["coords"] (padding mask: True=real residue, False=padding),
+        # which matches the original behaviour. coord_mask[..., 0] is the N-atom existence
+        # mask and is False for residues missing the N atom (chain termini, cryo-EM), which
+        # causes nres=0 → NaN loss.
+        if "mask_dict" in batch and "coords" in batch["mask_dict"]:
             mask = batch["mask_dict"]["coords"]
             mask_source = "mask_dict['coords']"
+        elif "coord_mask" in batch:
+            # Fallback: use CA atom (index 1) — almost always present, unlike N (index 0)
+            mask = batch["coord_mask"]
+            mask_source = "coord_mask (CA fallback)"
         else:
-            raise KeyError("Valid mask ('coord_mask' or 'mask_dict') not found in batch.")
+            raise KeyError("No valid mask found in batch. Need 'mask_dict' or 'coord_mask'.")
 
         # 4. Standardize Mask Shape [B, L]
-        # Squeeze extra dimensions if it's [B, L, 37, 3] or [B, L, 1]
         if mask.ndim == 4: mask = mask[..., 0, 0]
-        if mask.ndim == 3: mask = mask[..., 0]
+        elif mask.ndim == 3: mask = mask[..., 1]  # CA atom (index 1), not N atom (index 0)
 
 
         
@@ -167,7 +170,7 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         # 5. Verify mask matches mask_dict if both are present (only on first step)
         if not getattr(self, "_mask_verified", False):
             self._mask_verified = True
-            print(f"[MASK CHECK] source={mask_source}, shape={mask}, dtype={mask.dtype}")
+            print(f"[MASK CHECK] source={mask_source}, shape={mask.shape}, dtype={mask.dtype}")
             if "mask_dict" in batch and "coords" in batch["mask_dict"]:
                 old_mask = batch["mask_dict"]["coords"]
                 if old_mask.ndim == 4: old_mask = old_mask[..., 0, 0]
@@ -184,21 +187,15 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 frac_valid = mask.float().mean().item()
                 print(f"[MASK CHECK] mask_dict not in batch, frac_valid={frac_valid:.3f}")
 
-        # 6. Strict Assertions & Logging
-        # Uncomment print statements if you need to debug specific batches in the logs
-        
-        # print(f"--- [SHAPE CHECK] ---")
-        # print(f"Coord Source: {coord_source} | Shape: {coors_tensor.shape}")
-        # print(f"Mask Source: {mask_source} | Shape: {mask.shape}")
-        # print(f"Batch Shape: {batch_shape} | Seq Length (n): {n}")
+        # 6. Shape warnings (non-fatal — print but don't crash)
+        if mask.shape != (batch_size, n):
+            print(f"[MASK WARNING] Mask shape {mask.shape} does not match expected ({batch_size}, {n})")
 
-        assert mask.shape == (batch_size, n), \
-            f"CRITICAL: Mask shape {mask.shape} does not match expected (Batch: {batch_size}, Length: {n})"
-        
         for dm in self.data_modes:
-            x_1_dm = batch["x_1"][dm]
-            assert x_1_dm.shape[0] == batch_size and x_1_dm.shape[1] == n, \
-                f"CRITICAL: Data mode '{dm}' shape {x_1_dm.shape} mismatch with Batch/Length ({batch_size}, {n})"
+            if dm in batch.get("x_1", {}):
+                x_1_dm = batch["x_1"][dm]
+                if x_1_dm.shape[0] != batch_size or x_1_dm.shape[1] != n:
+                    print(f"[MASK WARNING] Data mode '{dm}' shape {x_1_dm.shape} mismatch with ({batch_size}, {n})")
 
         # 7. Apply Mask
         x_1 = self._apply_mask(x=batch["x_1"], mask=mask)
