@@ -44,8 +44,7 @@ class LocalLatentsTransformer(torch.nn.Module):
             self.seq_downsample = DownsampleBlock(self.token_dim)
             self.cond_downsample = DownsampleBlock(kwargs["dim_cond"])
             self.seq_upsample = UpsampleBlock(self.token_dim)
-            # Use AvgPool2d for the pair representation
-            self.pair_downsample = nn.AvgPool2d(kernel_size=2, stride=2)
+            # pair_rep is built at n/2 directly — no separate pair downsampler needed
         # To form initial representation
         self.init_repr_factory = FeatureFactory(
             feats=kwargs["feats_seq"],
@@ -131,6 +130,22 @@ class LocalLatentsTransformer(torch.nn.Module):
             torch.nn.Linear(self.token_dim, 3, bias=False),
         )
 
+    def _subsample_input(self, inp: Dict, n: int, stride: int = 2) -> Dict:
+        """
+        Shallow-copies the input dict, subsampling any tensor whose dim-1 equals n.
+        Recurses into nested dicts (e.g. x_t, x_sc) automatically.
+        Scalars, time tensors [b], and non-sequence tensors are passed through unchanged.
+        """
+        out = {}
+        for k, v in inp.items():
+            if isinstance(v, dict):
+                out[k] = self._subsample_input(v, n, stride)
+            elif isinstance(v, torch.Tensor) and v.ndim >= 2 and v.shape[1] == n:
+                out[k] = v[:, ::stride].contiguous()
+            else:
+                out[k] = v
+        return out
+
     # @torch.compile
     def forward(self, input: Dict) -> Dict[str, Dict[str, torch.Tensor]]:
         """
@@ -170,29 +185,26 @@ class LocalLatentsTransformer(torch.nn.Module):
         seq_f_repr = self.init_repr_factory(input)  # [b, n, token_dim]
         seqs = seq_f_repr * mask[..., None]  # [b, n, token_dim]
 
-        pair_rep = self.pair_repr_builder(input)  # [b, n, n, pair_dim]
-
         if self.use_downsampling:
             original_n = seqs.shape[1]
-            
-            # 1. Downsample Sequence and Conditioning
-            seqs = self.seq_downsample(seqs) 
-            c = self.cond_downsample(c)
-            
-            # 2. Downsample Mask (Max pool keeps 'True' if any residue in window is valid)
-            mask_float = mask.float().unsqueeze(1) # [b, 1, n]
-            mask_down = F.max_pool1d(mask_float, kernel_size=2, stride=2).squeeze(1)
-            mask = mask_down > 0.5 
-            
-            # 3. Downsample Pair Representation (2D)
-            # [b, n, n, d] -> [b, d, n, n]
-            pair_rep = pair_rep.permute(0, 3, 1, 2)
-            pair_rep = self.pair_downsample(pair_rep)
-            # [b, d, n', n'] -> [b, n', n', d]
-            pair_rep = pair_rep.permute(0, 2, 3, 1)
-            
+
+            # 1. Downsample sequence and conditioning via learned blocks
+            seqs = self.seq_downsample(seqs)   # [b, n/2, token_dim]
+            c = self.cond_downsample(c)         # [b, n/2, dim_cond]
+
+            # 2. Downsample mask (max pool: True if any residue in window is valid)
+            mask_float = mask.float().unsqueeze(1)  # [b, 1, n]
+            mask = F.max_pool1d(mask_float, kernel_size=2, stride=2).squeeze(1) > 0.5  # [b, n/2]
+
+            # 3. Build pair representation directly at n/2 using stride-2 subsampled coords.
+            #    This avoids computing the full [b, n, n, d] tensor and then pooling it down.
+            input_ds = self._subsample_input(input, original_n, stride=2)
+            pair_rep = self.pair_repr_builder(input_ds)  # [b, n/2, n/2, pair_dim]
+
             # Re-apply mask to sequence
             seqs = seqs * mask[..., None]
+        else:
+            pair_rep = self.pair_repr_builder(input)  # [b, n, n, pair_dim]
 
         # Run trunk
         for i in range(self.nlayers):
