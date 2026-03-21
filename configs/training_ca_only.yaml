@@ -32,7 +32,7 @@ loss:
       p1: 1.9
       p2: 1.0
       p3: 0.02
-  shared_groups:
+    shared_groups:
 
 force_precision_f32: False
 
