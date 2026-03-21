@@ -18,7 +18,7 @@ from proteinfoundation.utils.constants import PDB_TO_OPENFOLD_INDEX_TENSOR
 # CONFIGURATION
 # ==============================================================================
 FORCE_RECOMPUTE = False
-NUM_WORKERS = 16
+NUM_WORKERS = 32
 BATCH_SIZE = 1
 DEV = False
 FOLDING_MODE_ENABLED = True
