@@ -204,7 +204,9 @@ def main():
                     if key not in keys_to_keep:
                         del data[key]
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                torch.save(data, out_path)
+                tmp_path = out_path + ".tmp"
+                torch.save(data, tmp_path)
+                os.rename(tmp_path, out_path)  # atomic: prevents partial files if job is killed mid-write
 
             except Exception as e:
                 print(f"\n[GPU FAILURE] {out_path}: {e}")
