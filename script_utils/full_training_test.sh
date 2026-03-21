@@ -21,10 +21,12 @@ CHECKPOINT_DIR="/rds/user/ks2218/hpc-work/checkpoints_laproteina"
 ENV_NAME="laproteina_env"
 REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 # 3. Parse Overwrites
-while getopts "d:c:" opt; do
+CONFIG_NAME="training_local_latents"
+while getopts "d:c:n:" opt; do
   case $opt in
     d) DATA_PATH="$OPTARG" ;;
     c) CHECKPOINT_DIR="$OPTARG" ;;
+    n) CONFIG_NAME="$OPTARG" ;;
   esac
 done
 shift $((OPTIND-1))
@@ -107,8 +109,7 @@ export SLURM_NTASKS_PER_NODE=$SLURM_NTASKS
 
 # "$@" now contains ONLY the arguments that weren't picked up by getopts
 srun --mem=0 python proteinfoundation/train.py \
-    dataset=pdb/pdb_train_ucond \
-    nn=local_latents_score_nn_160M \
+    --config-name "$CONFIG_NAME" \
     hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
     "$@"
 

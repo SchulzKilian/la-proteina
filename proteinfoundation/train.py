@@ -331,7 +331,7 @@ def store_n_log_configs(cfg_exp, cfg_data, run_name, ckpt_path_store, wandb_logg
 @hydra.main(
     version_base=None,
     config_path="../configs",
-    config_name="training_local_latents",
+    config_name="training_local_latents",  # overridden by --config-name from submit script
 )
 def main(cfg_exp) -> None:
     load_dotenv()
