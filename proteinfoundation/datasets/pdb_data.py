@@ -370,13 +370,30 @@ class PDBDataset(Dataset):
                 try:
                     return torch.load(shard_path, map_location='cpu', weights_only=False)
                 except FileNotFoundError:
-                    return torch.load(flat_path, map_location='cpu', weights_only=False)
+                    try:
+                        return torch.load(flat_path, map_location='cpu', weights_only=False)
+                    except FileNotFoundError:
+                        logger.warning(f"File not found (skipping): {shard_path}")
+                        return None
+                except Exception as e:
+                    logger.warning(f"Failed to load {shard_path} ({type(e).__name__}: {e}) — skipping.")
+                    return None
 
             self.data = [None] * len(tasks)
             with ThreadPoolExecutor(max_workers=max(1, self.num_workers)) as pool:
                 futures = {pool.submit(_load, paths): i for i, paths in enumerate(tasks)}
                 for future in tqdm(as_completed(futures), total=len(tasks), desc="Loading (Parallel)"):
                     self.data[futures[future]] = future.result()
+
+            # Filter out failed/corrupted files and keep file_names in sync
+            # (__len__ uses file_names, __getitem__ uses self.data[idx])
+            n_before = len(self.data)
+            valid_mask = [d is not None for d in self.data]
+            self.data = [d for d, ok in zip(self.data, valid_mask) if ok]
+            self.file_names = [f for f, ok in zip(self.file_names, valid_mask) if ok]
+            n_skipped = n_before - len(self.data)
+            if n_skipped > 0:
+                logger.warning(f"Skipped {n_skipped} corrupted/missing files. {len(self.data)} loaded successfully.")
 
     def __len__(self):
         return len(self.file_names)
