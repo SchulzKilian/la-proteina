@@ -8,7 +8,7 @@ def check_and_delete(file_path):
     """Checks if a torch file is valid; deletes and returns path if corrupt."""
     try:
         # Using weights_only=True is slightly faster if your torch version supports it
-        torch.load(file_path, map_location='cpu', weights_only=True)
+        torch.load(file_path, map_location='cpu', weights_only=False)
         return None 
     except Exception:
         try:

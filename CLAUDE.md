@@ -22,28 +22,29 @@ DATA_PATH=/directory/where/you/want/dataset
 WANDB_API_KEY=<key>
 ```
 
-Checkpoints go in `./checkpoints_laproteina/`.
+Checkpoints go in `./checkpoints_laproteina/` (local) or `/rds/user/ks2218/hpc-work/checkpoints_laproteina/` (cluster).
 
 ## Common Commands
 
 **Training:**
 ```bash
-# Autoencoder (VAE)
-python proteinfoundation/partial_autoencoder/train.py
+# Submit training job (supports -n <config_name>, -d <data_path>, -c <checkpoint_dir>)
+sbatch script_utils/submit_train.sh -n training_ca_only
+sbatch script_utils/submit_train.sh -n training_local_latents
 
-# Diffusion/flow matching model
-python proteinfoundation/train.py
+# Run locally (same flags)
+bash script_utils/full_training_test.sh -n training_local_latents
+```
+
+**Precompute latents** (run before training with `use_precomputed_latents: True`):
+```bash
+sbatch script_utils/compute_latents.sh
 ```
 
 **Sampling:**
 ```bash
-# Unconditional generation (≤500 residues)
 python proteinfoundation/generate.py --config_name inference_ucond_notri
-
-# Unconditional generation (300–800 residues)
 python proteinfoundation/generate.py --config_name inference_ucond_notri_long
-
-# Motif scaffolding variants
 python proteinfoundation/generate.py --config_name inference_motif_idx_aa
 ```
 
@@ -51,59 +52,94 @@ python proteinfoundation/generate.py --config_name inference_motif_idx_aa
 ```bash
 bash script_utils/download_pmpnn_weights.sh  # one-time setup
 python proteinfoundation/evaluate.py --config_name <config_name>
-bash script_utils/gen_n_eval.sh              # full generate + eval pipeline
+bash script_utils/gen_n_eval.sh
 ```
 
-No formal test suite exists. Experiment tracking is via Weights & Biases.
+No formal test suite. Experiment tracking via Weights & Biases.
 
 ## Architecture
 
 ### Core Components
 
-**`proteinfoundation/proteina.py`** — Central `LightningModule` (`Proteina` class). Orchestrates flow matching, neural networks, and autoencoders. Handles both training and inference; supports self-conditioning and guidance.
+**`proteinfoundation/proteina.py`** — Central `LightningModule` (`Proteina` class). Orchestrates flow matching, neural networks, and autoencoders. Handles both training and inference.
 
-**`proteinfoundation/flow_matching/`** — Flow matching logic:
-- `ProductSpaceFlowMatcher`: Combines backbone CA atoms and per-residue latent variables into a joint distribution.
-- Supports both unconditional and motif-conditioned generation.
+Key flags:
+- `self._ca_only_mode`: True when `local_latents` absent from `product_flowmatcher`. Skips AE entirely.
+- `self.use_precomputed_latents`: Loads latents from disk (precomputed by `precompute_latents.py`) instead of running AE encoder each step.
+- `latent_dim=None` in CA-only mode — the NN handles this gracefully (no `local_latents_linear` head).
 
-**`proteinfoundation/partial_autoencoder/`** — Two-stage encoding:
-- Encoder compresses full atomistic structures to fixed-size per-residue latent vectors (bypasses variable side-chain atom counts).
-- Decoder reconstructs full-atom coordinates from latents.
-- Has its own training entrypoint (`train.py`) and config (`configs/training_ae.yaml`).
+**`proteinfoundation/flow_matching/product_space_flow_matcher.py`** — Flow matching logic:
+- `ProductSpaceFlowMatcher`: Combines bb_ca and local_latents into a joint distribution.
+- `self.data_modes` is derived from `product_flowmatcher` config keys — only iterates over present modalities.
+- `sample_t` accesses `cfg_exp.loss.t_distribution.shared_groups` — must be under `t_distribution`, not `loss`.
+
+**`proteinfoundation/partial_autoencoder/`** — VAE that compresses full-atom structures to per-residue latent vectors. AE encoder is only ~15-20% of total GPU compute — removing it gives modest speedup.
 
 **`proteinfoundation/nn/`** — Neural network architectures:
-- `LocalLatentsTransformer`: Indexed motif scaffolding (explicit conditioning on known residue positions).
-- `LocalLatentsTransformerMotifUidx`: Unindexed motif scaffolding (implicit/soft conditioning).
-- Feature factory module (~78K lines) for data featurization.
+- `LocalLatentsTransformer`: Used for both full latent model and CA-only (same class, different config).
+- `ca_only_score_nn_160M.yaml`: CA-only config — `output_parameterization: {bb_ca: v}`, no `local_latents` entry.
+- `DownsampleBlock` / `UpsampleBlock` in `modules/downsampling.py`: BlurPool1D stride must be 2 in DownsampleBlock (to halve sequence), 1 in UpsampleBlock (smoothing only, interpolate already restores length).
 
-**`proteinfoundation/datasets/`** — Data pipeline:
-- `BaseLightningDataModule` wraps PDB data loading.
-- `GenDataset`: Training dataset with sequence clustering (via MMSeqs2).
-- Transforms handle preprocessing and augmentation.
+**`proteinfoundation/datasets/pdb_data.py`** — Data pipeline:
+- `in_memory=True`: loads all data to RAM. Requires `torch.multiprocessing.set_sharing_strategy('file_system')` (set in `train.py`) to avoid "Too many open files".
+- In-memory loading uses `ThreadPoolExecutor` for parallel loading — serial loading of 350K files took 40+ min.
+- Precomputed latents path: symlink `/home/ks2218/la-proteina/data/pdb_train/processed_latents` → `/rds/user/ks2218/hpc-work/processed_latents`.
 
-**`proteinfoundation/metrics/`** — Evaluation metrics:
-- Designability via ProteinMPNN (inverse folding + ESMFold re-folding).
-- Structural metrics: secondary structure content, CA–CA distance distributions.
-
-**`proteinfoundation/utils/`** — Shared utilities: PDB I/O, coordinate transforms (Å ↔ nm), alignment, clustering, motif extraction.
+**`precompute_latents.py`** — Precomputes AE latents to disk. Key details:
+- Use atomic writes: `torch.save(data, tmp_path); os.rename(tmp_path, out_path)` — prevents corrupted files if job killed mid-write (SLURM kills jobs without warning at time limit).
+- `weights_only=False` required for PyG `Data` objects — `weights_only=True` rejects them all and causes mass deletion if used in a validation loop.
+- `FILTER_CSV` filters to only the proteins used in training (avoids processing unused proteins).
+- `keys_to_keep = ['mean', 'log_scale', 'coords_nm', 'coord_mask', 'id', 'residue_type', 'bb_ca']`
+- AE latents are NOT rotation-invariant (`GlobalRotationTransform` must still be applied during training, not removable from baked_in_names).
+- Cambridge HPC Ampere partition: requesting 1 GPU gives full 1/4-node allocation (32 CPUs, ~250G RAM) regardless of `--cpus-per-task`. Set `NUM_WORKERS=32` to use all available CPUs.
 
 ### Configuration System
 
-Hydra-based configuration in `configs/`. Key top-level configs:
-- `training_local_latents.yaml` — Main diffusion model training
+Hydra-based in `configs/`. Key top-level configs:
+- `training_local_latents.yaml` — Full latent diffusion model
+- `training_ca_only.yaml` — CA-only baseline (no latents, no AE)
 - `training_ae.yaml` — Autoencoder training
 - `inference_ucond_notri*.yaml` — Unconditional sampling
-- `inference_motif_*.yaml` — Motif scaffolding (idx/uidx × aa/tip variants)
+- `inference_motif_*.yaml` — Motif scaffolding
 
-Sub-configs are organized by `dataset/`, `nn/`, `nn_ae/`, `generation/`. Model sizes: 70M and 160M parameter variants.
+Sub-configs: `dataset/`, `nn/`, `nn_ae/`, `generation/`. Model sizes: 70M and 160M.
 
-### Model Variants
+**Passing config name to submit script:**
+```bash
+sbatch script_utils/submit_train.sh -n training_ca_only
+```
+`full_training_test.sh` uses a manual `while [[ $# -gt 0 ]]` loop (not `getopts`) to parse `-n`, `-d`, `-c` flags. The `--config-name` arg is passed to Hydra; remaining args become extra Hydra overrides.
 
-Seven latent diffusion checkpoints (LD1–LD7) for different tasks, three autoencoder checkpoints for different sequence length ranges.
+### Key Config Pitfalls
 
-### Key Conventions
+- `shared_groups` must be indented under `loss.t_distribution`, not under `loss`. Wrong indentation causes `ConfigAttributeError`.
+- `OmegaConf` returns `None` for `null` keys even with a default in `.get("key", default)` — check explicitly for `None`.
+- `generation: validation_local_latents` is safe to use with CA-only — it has `local_latents` ODE keys but they are never accessed during training (only used at inference via `configure_inference`).
+- `autoencoder_ckpt_path` must be absent or null in CA-only config — the guard in `proteina.py:66` asserts this.
+- `p_folding_n_inv_folding_iters` in CA-only config should be `0.0` unless you specifically want folding/inv-folding conditioning.
 
-- Coordinates are in nanometers internally; PDB files use Ångströms — conversions happen in utils.
-- Graphein's CATH URL is monkey-patched at import time (compatibility fix).
-- `ProteinMPNN/` and `openfold/` are vendored external tools, not installed packages.
-- Distributed training uses PyTorch Lightning + DeepSpeed or DDP (configured via Hydra).
+### Performance Notes
+
+- **DDP sync** (every `accumulate_grad_batches` steps) is the dominant bottleneck, not the AE encoder.
+- **EMA every step** adds significant overhead — use `every_n_steps: 5` not 1.
+- Recommended settings for both full and CA-only: `accumulate_grad_batches: 8`, `ema.every_n_steps: 5`, `batch_size: 26`.
+- CA-only vs full model: similar wall-clock time per step (same transformer backbone). CA-only advantage is faster validation loss convergence per epoch (simpler task, all gradient signal on bb_ca).
+- For real speedup: use 70M model instead of 160M (~2x faster per step).
+
+### Cluster (Cambridge HPC) Notes
+
+- Data: `/rds/user/ks2218/hpc-work/processed` (raw PDB .pt files), `/rds/user/ks2218/hpc-work/processed_latents` (precomputed latents)
+- Checkpoints: `/rds/user/ks2218/hpc-work/checkpoints_laproteina/`
+- Ampere partition: 1 GPU = 32 CPUs + ~250G RAM (full 1/4-node), regardless of `--cpus-per-task` SBATCH header.
+- SLURM kills jobs at time limit without warning — use atomic writes for any file outputs.
+- Stale CSV/FASTA files cause MMseqs2 "empty FASTA" error — delete `df_pdb_..._latents.csv` and `seq_df_pdb_..._latents.fasta` if processed_latents directory was recreated.
+
+### Known Issues / Fixes Applied
+
+- **`NameError: free variable 'os'`** in `pdb_data.py`: caused by `import os` inside a function body. Removed inner import.
+- **`RuntimeError: Too many open files`**: `in_memory=True` + multiprocessing workers. Fixed by `torch.multiprocessing.set_sharing_strategy('file_system')` in `train.py`.
+- **`EOFError: Ran out of Input`**: SLURM job killed mid-write → corrupted `.pt` file. Fix: atomic write pattern in `precompute_latents.py`.
+- **CA-only not running CA-only**: shell script had hardcoded `nn=local_latents_score_nn_160M` override. Removed; now uses `-n <config_name>` flag.
+- **`getopts` illegal option**: replaced `getopts` in `full_training_test.sh` with manual `while [[ $# -gt 0 ]]` loop.
+- **`BlurPool1D` stride bug**: `DownsampleBlock` needs `stride=2` (to halve length); `UpsampleBlock` blur needs `stride=1` (smoothing only).
+- **`shared_groups` indentation**: must be 4 spaces (under `t_distribution`), not 2 (under `loss`).
