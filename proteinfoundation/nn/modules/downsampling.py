@@ -29,7 +29,7 @@ class DownsampleBlock(nn.Module):
         self.norm = nn.LayerNorm(dim) # Added Norm for stability
         self.act = nn.SiLU()
         # 2. BlurPool for downsampling
-        self.pool = BlurPool1D(dim, stride=1)
+        self.pool = BlurPool1D(dim, stride=2)
 
     def forward(self, x):
         # x: [b, n, d]
@@ -56,8 +56,8 @@ class UpsampleBlock(nn.Module):
     """
     def __init__(self, dim):
         super().__init__()
-        # 1. Added the Blur filter
-        self.blur = BlurPool1D(dim)
+        # 1. Added the Blur filter (stride=1: smoothing only, no length reduction)
+        self.blur = BlurPool1D(dim, stride=1)
         
         # 2. Refinement Convolution
         self.conv = nn.Conv1d(dim, dim, kernel_size=3, padding=1)
