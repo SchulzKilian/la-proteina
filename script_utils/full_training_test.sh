@@ -22,14 +22,16 @@ ENV_NAME="laproteina_env"
 REQUIRED_AE_CKPT="AE1_ucond_512.ckpt"
 # 3. Parse Overwrites
 CONFIG_NAME="training_local_latents"
-while getopts "d:c:n:" opt; do
-  case $opt in
-    d) DATA_PATH="$OPTARG" ;;
-    c) CHECKPOINT_DIR="$OPTARG" ;;
-    n) CONFIG_NAME="$OPTARG" ;;
+_remaining_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d) DATA_PATH="$2"; shift 2 ;;
+    -c) CHECKPOINT_DIR="$2"; shift 2 ;;
+    -n) CONFIG_NAME="$2"; shift 2 ;;
+    *) _remaining_args+=("$1"); shift ;;
   esac
 done
-shift $((OPTIND-1))
+set -- "${_remaining_args[@]}"
 
 # 4. ALIGNMENT STEP: Convert relative inputs to absolute
 # If the user input doesn't start with / (absolute), prefix it with Project Root
