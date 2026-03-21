@@ -108,7 +108,7 @@ export SLURM_NTASKS_PER_NODE=$SLURM_NTASKS
 # "$@" now contains ONLY the arguments that weren't picked up by getopts
 srun --mem=0 python proteinfoundation/train.py \
     dataset=pdb/pdb_train_ucond \
-    nn=local_latents_score_nn_160M \
+    nn=ca_only_score_nn_160M \
     hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
     "$@"
 
