@@ -24,29 +24,28 @@ class BlurPool1D(nn.Module):
 class DownsampleBlock(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        # 1. Project to hidden dimension (optional, but good for mixing)
         self.conv = nn.Conv1d(dim, dim, kernel_size=3, padding=1)
-        self.norm = nn.LayerNorm(dim) # Added Norm for stability
+        self.norm = nn.LayerNorm(dim)
         self.act = nn.SiLU()
-        # 2. BlurPool for downsampling
         self.pool = BlurPool1D(dim, stride=2)
+        # Zero-init output projection: at init this block is a pure stride-2 downsample.
+        # Gradients will grow the projection's contribution over time.
+        self.out_proj = nn.Linear(dim, dim, bias=True)
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, x):
         # x: [b, n, d]
-        
+
+        # Residual: smooth stride-2 downsample of input (shape [b, n/2, d])
+        residual = self.pool(x.transpose(1, 2)).transpose(1, 2)
+
         # Conv branch
-        residual = x
-        x_in = x.transpose(1, 2) # [b, d, n]
-        x_in = self.conv(x_in)
-        x_in = x_in.transpose(1, 2) # [b, n, d]
-        
-        # Norm + Act
-        x_in = self.norm(x_in)
-        x_in = self.act(x_in)
-        
-        # Pool
-        x_out = self.pool(x_in.transpose(1, 2)).transpose(1, 2)
-        return x_out
+        x_in = self.conv(x.transpose(1, 2))        # [b, d, n]
+        x_in = self.act(self.norm(x_in.transpose(1, 2)))  # [b, n, d]
+        x_out = self.pool(x_in.transpose(1, 2)).transpose(1, 2)  # [b, n/2, d]
+
+        return residual + self.out_proj(x_out)
 
 class UpsampleBlock(nn.Module):
     """
