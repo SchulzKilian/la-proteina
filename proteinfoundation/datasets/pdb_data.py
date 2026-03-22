@@ -318,7 +318,6 @@ class PDBDataset(Dataset):
                 "CoordsToNanometers",
                 "CenterStructureTransform",
                 "GlobalRotationTransform",
-                "ChainBreak",
                 "OpenFoldFrame"
             ]
 
@@ -400,7 +399,8 @@ class PDBDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Union[Data, Dict]:
             if self.in_memory:
-                graph_or_dict = self.data[idx]
+                import copy
+                graph_or_dict = copy.copy(self.data[idx])
             else:
                 fname = self.file_names[idx] if self.file_names is not None else f"{self.pdb_codes[idx]}.pt"
                 if not fname.endswith(".pt"): fname += ".pt"

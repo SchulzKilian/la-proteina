@@ -53,9 +53,15 @@ class ChainBreakPerResidueTransform(T.BaseTransform):
         self.chain_break_cutoff = chain_break_cutoff
 
     def __call__(self, graph: Data) -> Data:
-        ca_coords = graph.coords if graph.coords.ndim == 2 else graph.coords[:, 1, :]
+        if hasattr(graph, 'coords'):
+            raw = graph.coords
+            cutoff = self.chain_break_cutoff
+        else:
+            raw = graph.coords_nm
+            cutoff = self.chain_break_cutoff * 0.1  # Å → nm
+        ca_coords = raw if raw.ndim == 2 else raw[:, 1, :]
         ca_dists = torch.norm(ca_coords[1:] - ca_coords[:-1], dim=1)
-        chain_breaks_per_residue = ca_dists > self.chain_break_cutoff
+        chain_breaks_per_residue = ca_dists > cutoff
         graph.chain_breaks_per_residue = torch.cat(
             (
                 chain_breaks_per_residue,
