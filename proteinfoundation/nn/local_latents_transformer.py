@@ -1,7 +1,7 @@
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
-import torch.nn as nn 
+import torch.nn as nn
 import torch.nn.functional as F
 from openfold.np.residue_constants import RESTYPE_ATOM37_MASK
 from proteinfoundation.nn.feature_factory import FeatureFactory
@@ -10,6 +10,7 @@ from proteinfoundation.nn.modules.pair_update import PairReprUpdate
 from proteinfoundation.nn.modules.seq_transition_af3 import Transition
 from proteinfoundation.nn.modules.pair_rep_initial import PairReprBuilder
 from proteinfoundation.nn.modules.downsampling import DownsampleBlock, UpsampleBlock
+from proteinfoundation.nn.modules.sparse_neighbors import build_neighbor_idx
 
 
 def get_atom_mask(device: torch.device = None):
@@ -110,6 +111,12 @@ class LocalLatentsTransformer(torch.nn.Module):
                 ]
             )
 
+        # Sparse attention config
+        self.sparse_attention = kwargs.get("sparse_attention", False)
+        self.n_seq_neighbors     = kwargs.get("n_seq_neighbors",     8)
+        self.n_spatial_neighbors = kwargs.get("n_spatial_neighbors", 8)
+        self.n_random_neighbors  = kwargs.get("n_random_neighbors",  16)
+
         self.latent_dim = kwargs.get("latent_dim", None)
         if self.latent_dim is not None:
             self.local_latents_linear = torch.nn.Sequential(
@@ -128,6 +135,16 @@ class LocalLatentsTransformer(torch.nn.Module):
         self.ca_linear = torch.nn.Sequential(
             torch.nn.LayerNorm(self.token_dim),
             torch.nn.Linear(self.token_dim, 3, bias=False),
+        )
+
+    def _build_neighbor_idx(self, ca_coors: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Compute sparse neighbor indices [b, n, K] from Cα coordinates."""
+        return build_neighbor_idx(
+            ca_coors,
+            mask,
+            n_seq=self.n_seq_neighbors,
+            n_spatial=self.n_spatial_neighbors,
+            n_random=self.n_random_neighbors,
         )
 
     def _subsample_input(self, inp: Dict, n: int, stride: int = 2) -> Dict:
@@ -199,25 +216,29 @@ class LocalLatentsTransformer(torch.nn.Module):
             # 3. Build pair representation directly at n/2 using stride-2 subsampled coords.
             #    This avoids computing the full [b, n, n, d] tensor and then pooling it down.
             input_ds = self._subsample_input(input, original_n, stride=2)
-            pair_rep = self.pair_repr_builder(input_ds)  # [b, n/2, n/2, pair_dim]
+            # Compute sparse neighbor indices on downsampled coords if needed
+            neighbor_idx = self._build_neighbor_idx(input_ds["x_t"]["bb_ca"], mask) if self.sparse_attention else None
+            pair_rep = self.pair_repr_builder(input_ds, neighbor_idx=neighbor_idx)
 
             # Re-apply mask to sequence
             seqs = seqs * mask[..., None]
         else:
-            pair_rep = self.pair_repr_builder(input)  # [b, n, n, pair_dim]
+            # Compute sparse neighbor indices on current CA coords if needed
+            neighbor_idx = self._build_neighbor_idx(input["x_t"]["bb_ca"], mask) if self.sparse_attention else None
+            pair_rep = self.pair_repr_builder(input, neighbor_idx=neighbor_idx)
 
         # Run trunk
         for i in range(self.nlayers):
             seqs = self.transformer_layers[i](
-                seqs, pair_rep, c, mask
+                seqs, pair_rep, c, mask, neighbor_idx=neighbor_idx
             )  # [b, n, token_dim]
 
             if self.update_pair_repr:
                 if i < self.nlayers - 1:
                     if self.pair_update_layers[i] is not None:
                         pair_rep = self.pair_update_layers[i](
-                            seqs, pair_rep, mask
-                        )  # [b, n, n, pair_dim]
+                            seqs, pair_rep, mask, neighbor_idx=neighbor_idx
+                        )
 
         if self.use_downsampling:
             seqs = self.seq_upsample(seqs, target_length=original_n)

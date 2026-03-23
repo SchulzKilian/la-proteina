@@ -46,3 +46,12 @@ use_tri_mult: False  # whether to use triangular multiplication layers in pair u
 use_downsampling: False
 
 use_qkln: True
+
+# Sparse attention (SALAD-style neighbor list)
+# When enabled, pair_rep is [b, n, K, pair_dim] instead of [b, n, n, pair_dim].
+# K = 2*n_seq_neighbors + n_spatial_neighbors + n_random_neighbors
+# Neighbor list is recomputed each forward pass from x_t["bb_ca"].
+sparse_attention: false
+n_seq_neighbors: 8       # sequential (residue-index) neighbors each side → 2*n_seq total
+n_spatial_neighbors: 8   # nearest Cα neighbors (not already selected sequentially)
+n_random_neighbors: 16   # random neighbors sampled ∝ 1/d³_Cα (not already selected)

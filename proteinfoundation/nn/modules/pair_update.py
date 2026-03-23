@@ -44,36 +44,60 @@ class PairReprUpdate(torch.nn.Module):
         """
         return pair_rep * pair_mask[..., None]
 
-    def forward(self, x, pair_rep, mask):
+    def forward(self, x, pair_rep, mask, neighbor_idx=None):
         """
         Args:
             x: Input sequence, shape [b, n, token_dim]
-            pair_rep: Input pair representation, shape [b, n, n, pair_dim]
+            pair_rep: Input pair representation, [b, n, n, pair_dim] (dense) or [b, n, K, pair_dim] (sparse)
             mask: binary mask, shape [b, n]
+            neighbor_idx: optional [b, n, K] for sparse mode
 
         Returns:
-            Updated pair representation, shape [b, n, n, pair_dim].
+            Updated pair representation, same shape as input pair_rep.
         """
-        pair_mask = mask[:, None, :] * mask[:, :, None]  # [b, n, n]
         x = x * mask[..., None]  # [b, n, token_dim]
-        x_proj_1, x_proj_2 = self.linear_x(self.layer_norm_in(x)).chunk(
-            2, dim=-1
-        )  # [b, n, pair_dim] each
-        pair_rep = (
-            pair_rep + x_proj_1[:, None, :, :] + x_proj_2[:, :, None, :]
-        )  # [b, n, n, pair_dim]
-        pair_rep = self._apply_mask(pair_rep, pair_mask)  # [b, n, n, pair_dim]
-        if self.use_tri_mult:
+        x_proj_1, x_proj_2 = self.linear_x(self.layer_norm_in(x)).chunk(2, dim=-1)
+
+        if neighbor_idx is not None:
+            # Sparse mode: pair_rep is [b, n, K, pair_dim]
+            if self.use_tri_mult:
+                raise ValueError(
+                    "use_tri_mult=True is incompatible with sparse attention "
+                    "(triangular updates require the full n×n pair representation)."
+                )
+            B, N, K = neighbor_idx.shape
+            B_idx = torch.arange(B, device=mask.device).view(B, 1, 1).expand(B, N, K)
+            # Match dense convention: proj_1 is j-feature, proj_2 is i-feature.
+            # Dense: pair_rep[i,j] += proj_1[j] + proj_2[i]
+            # Sparse: pair_rep[i,k] += proj_1[neighbor[i,k]] + proj_2[i]
+            x_proj_1_j = x_proj_1[B_idx, neighbor_idx]              # [b, n, K, pair_dim]
+            pair_rep = pair_rep + x_proj_2[:, :, None, :] + x_proj_1_j  # [b, n, K, pair_dim]
+            # Build sparse pair mask [b, n, K]
+            nbr_valid = mask[B_idx, neighbor_idx]
+            i_valid   = mask[:, :, None].expand(B, N, K)
+            pair_mask = (i_valid & nbr_valid).float()                   # [b, n, K]
+            pair_rep = pair_rep * pair_mask[..., None]
+            pair_rep = pair_rep + checkpoint(self.transition_out, *(pair_rep, pair_mask))
+            pair_rep = pair_rep * pair_mask[..., None]
+        else:
+            # Dense mode (original behaviour)
+            pair_mask = mask[:, None, :] * mask[:, :, None]             # [b, n, n]
+            pair_rep = (
+                pair_rep + x_proj_1[:, None, :, :] + x_proj_2[:, :, None, :]
+            )  # [b, n, n, pair_dim]
+            pair_rep = self._apply_mask(pair_rep, pair_mask)
+            if self.use_tri_mult:
+                pair_rep = pair_rep + checkpoint(
+                    self.tri_mult_out, *(pair_rep, pair_mask * 1.0)
+                )
+                pair_rep = self._apply_mask(pair_rep, pair_mask)
+                pair_rep = pair_rep + checkpoint(
+                    self.tri_mult_in, *(pair_rep, pair_mask * 1.0)
+                )
+                pair_rep = self._apply_mask(pair_rep, pair_mask)
             pair_rep = pair_rep + checkpoint(
-                self.tri_mult_out, *(pair_rep, pair_mask * 1.0)
+                self.transition_out, *(pair_rep, pair_mask * 1.0)
             )
-            pair_rep = self._apply_mask(pair_rep, pair_mask)  # [b, n, n, pair_dim]
-            pair_rep = pair_rep + checkpoint(
-                self.tri_mult_in, *(pair_rep, pair_mask * 1.0)
-            )
-            pair_rep = self._apply_mask(pair_rep, pair_mask)  # [b, n, n, pair_dim]
-        pair_rep = pair_rep + checkpoint(
-            self.transition_out, *(pair_rep, pair_mask * 1.0)
-        )
-        pair_rep = self._apply_mask(pair_rep, pair_mask)  # [b, n, n, pair_dim]
+            pair_rep = self._apply_mask(pair_rep, pair_mask)
+
         return pair_rep

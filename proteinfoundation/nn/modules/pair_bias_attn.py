@@ -84,12 +84,14 @@ class PairBiasAttention(nn.Module):
         node_feats: Tensor,
         pair_feats: Optional[Tensor],
         mask: Optional[Tensor],
+        neighbor_idx: Optional[Tensor] = None,
     ) -> Tensor:
         """Multi-head scalar Attention Layer
 
         :param node_feats: scalar features of shape (b,n,d_s)
-        :param pair_feats: pair features of shape (b,n,n,d_e)
-        :param mask: boolean tensor of node adjacencies
+        :param pair_feats: pair features of shape (b,n,n,d_e) [dense] or (b,n,K,d_e) [sparse]
+        :param mask: (b,n,n) boolean pair mask [dense] or (b,n) sequence mask [sparse]
+        :param neighbor_idx: (b,n,K) int tensor for sparse attention; None → dense
         :return:
         """
         assert exists(self.to_bias) or not exists(pair_feats)
@@ -99,6 +101,7 @@ class PairBiasAttention(nn.Module):
         q = self.q_layer_norm(q)
         k = self.k_layer_norm(k)
         g = self.to_g(node_feats)
+        # pair bias: works for both [b,n,n,h] dense and [b,n,K,h] sparse via "b ... h -> b h ..."
         b = (
             rearrange(self.to_bias(pair_feats), "b ... h -> b h ...")
             if exists(pair_feats)
@@ -107,20 +110,70 @@ class PairBiasAttention(nn.Module):
         q, k, v, g = map(
             lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=h), (q, k, v, g)
         )
-        attn_feats = self._attn(q, k, v, b, mask)
+        if neighbor_idx is not None:
+            attn_feats = self._attn_sparse(q, k, v, b, neighbor_idx, mask)
+        else:
+            attn_feats = self._attn(q, k, v, b, mask)
         attn_feats = rearrange(
             torch.sigmoid(g) * attn_feats, "b h n d -> b n (h d)", h=h
         )
         return self.to_out_node(attn_feats)
 
     def _attn(self, q, k, v, b, mask: Optional[Tensor]) -> Tensor:
-        """Perform attention update"""
+        """Dense attention update."""
         sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
         if exists(mask):
             mask = rearrange(mask, "b i j -> b () i j")
             sim = sim.masked_fill(~mask, max_neg_value(sim))
         attn = torch.softmax(sim + b, dim=-1)
         return einsum("b h i j, b h j d -> b h i d", attn, v)
+
+    def _attn_sparse(
+        self,
+        q: Tensor,            # [b, h, n, d]
+        k: Tensor,            # [b, h, n, d]
+        v: Tensor,            # [b, h, n, d]
+        b: Tensor,            # [b, h, n, K]  pair bias (already projected + rearranged)
+        neighbor_idx: Tensor, # [b, n, K]
+        seq_mask: Optional[Tensor],  # [b, n] residue validity
+    ) -> Tensor:
+        """Sparse attention: each query attends only to its K neighbors."""
+        B, H, N, D = q.shape
+        K = neighbor_idx.shape[-1]
+        BH = B * H
+
+        # Flatten batch+head dims for efficient gather
+        k_bh = k.reshape(BH, N, D)
+        v_bh = v.reshape(BH, N, D)
+
+        # Expand neighbor_idx over heads: [b, n, K] → [BH, n, K]
+        idx_bh = neighbor_idx.unsqueeze(1).expand(B, H, N, K).reshape(BH, N, K)
+
+        # Gather K neighbors: [BH, N*K] → expand dim → gather → [BH, N, K, D]
+        idx_flat   = idx_bh.reshape(BH, N * K)
+        idx_flat_d = idx_flat.unsqueeze(-1).expand(BH, N * K, D)
+        k_sparse = k_bh.gather(1, idx_flat_d).reshape(BH, N, K, D)
+        v_sparse = v_bh.gather(1, idx_flat_d).reshape(BH, N, K, D)
+
+        # Attention scores via einsum (avoids [BH,N,K,D] intermediate in product)
+        q_bh = q.reshape(BH, N, D)
+        sim = torch.einsum("bnd,bnkd->bnk", q_bh, k_sparse) * self.scale  # [BH, n, K]
+        sim = sim.reshape(B, H, N, K)
+
+        # Mask invalid neighbors
+        if exists(seq_mask):
+            B_idx = torch.arange(B, device=seq_mask.device).view(B, 1, 1).expand(B, N, K)
+            nbr_valid = seq_mask[B_idx, neighbor_idx]               # [b, n, K]
+            i_valid   = seq_mask[:, :, None].expand(B, N, K)        # [b, n, K]
+            attn_mask = nbr_valid & i_valid                          # [b, n, K]
+            sim = sim.masked_fill(~attn_mask.unsqueeze(1), max_neg_value(sim))
+
+        attn = torch.softmax(sim + b, dim=-1)  # [b, h, n, K]
+
+        # Aggregate values
+        attn_bh = attn.reshape(BH, N, K)
+        out = torch.einsum("bnk,bnkd->bnd", attn_bh, v_sparse)     # [BH, n, D]
+        return out.reshape(B, H, N, D)
 
 
 class MultiHeadBiasedAttentionADALN_MM(torch.nn.Module):
@@ -142,19 +195,25 @@ class MultiHeadBiasedAttentionADALN_MM(torch.nn.Module):
         )
         self.scale_output = AdaptiveOutputScale(dim=dim_token, dim_cond=dim_cond)
 
-    def forward(self, x, pair_rep, cond, mask):
+    def forward(self, x, pair_rep, cond, mask, neighbor_idx=None):
         """
         Args:
             x: Input sequence representation, shape [b, n, dim_token]
             cond: Conditioning variables, shape [b, n, dim_cond]
-            pair_rep: Pair represnetation, shape [b, n, n, dim_pair]
+            pair_rep: Pair representation, shape [b, n, n, dim_pair] (dense) or [b, n, K, dim_pair] (sparse)
             mask: Binary mask, shape [b, n]
+            neighbor_idx: optional [b, n, K] for sparse attention
 
         Returns:
             Updated sequence representation, shape [b, n, dim_token].
         """
-        pair_mask = mask[:, :, None] * mask[:, None, :]  # [b, n, n]
-        x = self.adaln(x, cond, mask)
-        x = self.mha(node_feats=x, pair_feats=pair_rep, mask=pair_mask)
+        if neighbor_idx is not None:
+            x = self.adaln(x, cond, mask)
+            # sparse: pass sequence mask [b, n]; PairBiasAttention handles neighbor masking
+            x = self.mha(node_feats=x, pair_feats=pair_rep, mask=mask, neighbor_idx=neighbor_idx)
+        else:
+            pair_mask = mask[:, :, None] * mask[:, None, :]  # [b, n, n]  — original order
+            x = self.adaln(x, cond, mask)
+            x = self.mha(node_feats=x, pair_feats=pair_rep, mask=pair_mask)
         x = self.scale_output(x, cond, mask)
         return x * mask[..., None]
