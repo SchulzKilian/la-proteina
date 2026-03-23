@@ -1981,34 +1981,55 @@ class FeatureFactory(torch.nn.Module):
                 f"Wrong feature mode (pad mask): {self.mode}. Should be 'seq' or 'pair'."
             )
 
-    def forward(self, batch):
-        """Returns masked features, shape depends on mode, either 'seq' or 'pair'."""
+    def forward(self, batch, neighbor_idx=None):
+        """
+        Returns masked features, shape depends on mode and neighbor_idx:
+          - seq mode:                  [b, n, dim_feats_out]
+          - pair mode, no neighbor_idx: [b, n, n, dim_feats_out]
+          - pair mode, with neighbor_idx: [b, n, K, dim_feats_out]  (sparse)
+        """
         # If no features requested just return the zero tensor of appropriate dimensions
         if self.ret_zero:
             return self.zero_creator(batch)
 
+        sparse = (neighbor_idx is not None) and (self.mode == "pair")
+
         # Compute requested features
         feature_tensors = []
         for fcreator in self.feat_creators:
-            feature_tensors.append(
-                fcreator(batch)
-            )  # [b, n, dim_f] or [b, n, n, dim_f] if seq or pair mode
+            if sparse and getattr(fcreator, "supports_sparse", False):
+                feat = fcreator(batch, neighbor_idx=neighbor_idx)
+            elif sparse:
+                # Fallback: compute full [b, n, n, d] and gather to [b, n, K, d]
+                feat = _gather_sparse_pairs(fcreator(batch), neighbor_idx)
+            else:
+                feat = fcreator(batch)
+            feature_tensors.append(feat)
 
-        # Concatenate features and mask
-        features = torch.cat(
-            feature_tensors, dim=-1
-        )  # [b, n, dim_f] or [b, n, n, dim_f]
-        features = self.apply_padding_mask(
-            features, batch["mask"]
-        )  # [b, n, dim_f] or [b, n, n, dim_f]
+        # Concatenate features
+        features = torch.cat(feature_tensors, dim=-1)
 
-        # Linear layer and mask
-        features_proc = self.ln_out(
-            self.linear_out(features)
-        )  # [b, n, dim_f] or [b, n, n, dim_f]
-        return self.apply_padding_mask(
-            features_proc, batch["mask"]
-        )  # [b, n, dim_f] or [b, n, n, dim_f]
+        # Apply padding mask
+        if sparse:
+            B, N, K, _ = features.shape
+            B_idx = torch.arange(B, device=neighbor_idx.device).view(B, 1, 1).expand(B, N, K)
+            nbr_valid = batch["mask"][B_idx, neighbor_idx]        # [b, n, K]
+            i_valid   = batch["mask"][:, :, None].expand(B, N, K) # [b, n, K]
+            smask = (i_valid & nbr_valid).float()                  # [b, n, K]
+            features = features * smask[..., None]
+        else:
+            features = self.apply_padding_mask(features, batch["mask"])
+
+        # Linear + LN
+        features_proc = self.ln_out(self.linear_out(features))
+
+        # Re-apply padding mask after projection
+        if sparse:
+            features_proc = features_proc * smask[..., None]
+        else:
+            features_proc = self.apply_padding_mask(features_proc, batch["mask"])
+
+        return features_proc
 
 
 class FeatureFactoryUidxMotif(torch.nn.Module):

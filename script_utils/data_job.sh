@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J prep_data
-#SBATCH -A COMPUTERLAB-SL2-CPU   # Matches your -A
+#SBATCH -A COMPUTERLAB-SL3-CPU   # Matches your -A
 #SBATCH -p icelake              # Matches your -p
 #SBATCH --nodes=1
 #SBATCH --mem=256G
