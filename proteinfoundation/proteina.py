@@ -379,10 +379,11 @@ class Proteina(L.LightningModule):
         
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
-                logger.warning(f"⚠️  OOM detected in batch {batch_idx}. Skipping this batch.")
-                # Clear cache to prevent subsequent batches from failing
                 torch.cuda.empty_cache()
-                return None # Lightning will skip the optimizer step for this batch
+                raise RuntimeError(
+                    f"OOM in batch {batch_idx}. "
+                    "Reduce batch_size or accumulate_grad_batches, or reduce K (n_seq/spatial/random neighbors)."
+                ) from e
             else:
                 raise e
 

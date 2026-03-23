@@ -33,6 +33,6 @@ pair_repr_dim: 256
 update_pair_repr: False
 update_pair_repr_every_n: 3
 use_tri_mult: False
-use_downsampling: True
+use_downsampling: False
 
 use_qkln: True
