@@ -3,7 +3,7 @@
 #SBATCH -A COMPUTERLAB-SL3-CPU   # Matches your -A
 #SBATCH -p icelake              # Matches your -p
 #SBATCH --nodes=1
-#SBATCH --mem=256G
+#SBATCH --mem=250G
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=30       # Matches your --cpus-per-task
 #SBATCH --time=4:00:00          # I increased this to 4h (1h might be tight for downloading)
