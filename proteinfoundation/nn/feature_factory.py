@@ -106,6 +106,38 @@ def bin_pairwise_distances(x, min_dist, max_dist, dim):
     return bin_and_one_hot(pair_dists_nm, bin_limits)  # [b, n, n, pair_dist_dim]
 
 
+def bin_pairwise_distances_sparse(x, neighbor_idx, min_dist, max_dist, dim):
+    """
+    Computes binned pairwise distances only for the K neighbors given by neighbor_idx.
+
+    Args:
+        x: Coordinates of shape [b, n, 3]
+        neighbor_idx: Neighbor indices of shape [b, n, K]
+        min_dist, max_dist, dim: binning parameters
+
+    Returns:
+        Tensor of shape [b, n, K, dim]
+    """
+    B, N, K = neighbor_idx.shape
+    # Gather neighbor coordinates: [b, n, K, 3]
+    B_idx = torch.arange(B, device=x.device).view(B, 1, 1).expand(B, N, K)
+    x_j = x[B_idx, neighbor_idx]                       # [b, n, K, 3]
+    dists = torch.norm(x[:, :, None, :] - x_j, dim=-1) # [b, n, K]
+    bin_limits = torch.linspace(min_dist, max_dist, dim - 1, device=x.device)
+    return bin_and_one_hot(dists, bin_limits)            # [b, n, K, dim]
+
+
+def _gather_sparse_pairs(feat: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
+    """
+    Gathers a dense pair feature [b, n, n, d] to sparse [b, n, K, d]
+    using neighbor_idx [b, n, K].
+    """
+    B, N, _, D = feat.shape
+    K = neighbor_idx.shape[-1]
+    idx = neighbor_idx.unsqueeze(-1).expand(B, N, K, D)  # [b, n, K, d]
+    return feat.gather(2, idx)                            # [b, n, K, d]
+
+
 def bin_and_one_hot(tensor, bin_limits):
     """
     Converts a tensor of shape [*] to a tensor of shape [*, d] using the given bin limits.
@@ -462,16 +494,21 @@ class TimeEmbeddingSeqFeat(Feature):
 class TimeEmbeddingPairFeat(Feature):
     """Computes time embedding and returns as pair feature of shape [b, n, n, t_emb_dim]."""
 
+    supports_sparse = True
+
     def __init__(self, data_mode_use, t_emb_dim, **kwargs):
         super().__init__(dim=t_emb_dim)
         self.data_mode_use = data_mode_use
 
-    def forward(self, batch):
+    def forward(self, batch, neighbor_idx=None):
         t = batch["t"][self.data_mode_use]  # [b]
         _, n = self.extract_bs_and_n(batch)
         t_emb = get_time_embedding(t, edim=self.dim)  # [b, t_emb_dim]
+        if neighbor_idx is not None:
+            K = neighbor_idx.shape[-1]
+            return t_emb[:, None, None, :].expand(t_emb.shape[0], n, K, self.dim)  # [b, n, K, dim]
         t_emb = t_emb[:, None, None, :]  # [b, 1, 1, t_emb_dim]
-        return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, t_emb_dim]
+        return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, n, t_emb_dim]
 
 
 class IdxEmbeddingSeqFeat(Feature):
@@ -1342,10 +1379,12 @@ class ChainIdxSeqFeat(Feature):
 class SequenceSeparationPairFeat(Feature):
     """Computes sequence separation and returns feature of shape [b, n, n, seq_sep_dim]."""
 
+    supports_sparse = True
+
     def __init__(self, seq_sep_dim, **kwargs):
         super().__init__(dim=seq_sep_dim)
 
-    def forward(self, batch):
+    def forward(self, batch, neighbor_idx=None):
         if "residue_pdb_idx" in batch:
             # no need to force 1 since taking difference
             inds = batch["residue_pdb_idx"]  # [b, n]
@@ -1357,53 +1396,57 @@ class SequenceSeparationPairFeat(Feature):
                 device
             )  # [b, n]
 
-        seq_sep = inds[:, :, None] - inds[:, None, :]  # [b, n, n]
-
-        # Dimension should be odd, bins limits [-(dim/2-1), ..., -1.5, -0.5, 0.5, 1.5, ..., dim/2-1]
-        # gives dim-2 bins, and the first and last for values beyond the bin limits
         assert (
             self.dim % 2 == 1
         ), "Relative seq separation feature dimension must be odd and > 3"
-
-        # Create bins limits [..., -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.3, 3.5, ...]
-        # Equivalent to binning relative sequence separation
         low = -(self.dim / 2.0 - 1)
         high = self.dim / 2.0 - 1
         bin_limits = torch.linspace(low, high, self.dim - 1, device=inds.device)
 
-        return bin_and_one_hot(seq_sep, bin_limits)  # [b, n, n, seq_sep_dim]
+        if neighbor_idx is not None:
+            # Sparse: compute seq sep only for neighbor pairs  [b, n, K]
+            B, N, K = neighbor_idx.shape
+            B_idx = torch.arange(B, device=inds.device).view(B, 1, 1).expand(B, N, K)
+            inds_j = inds[B_idx, neighbor_idx]          # [b, n, K]
+            seq_sep = inds[:, :, None] - inds_j         # [b, n, K]
+            return bin_and_one_hot(seq_sep, bin_limits)  # [b, n, K, seq_sep_dim]
+
+        seq_sep = inds[:, :, None] - inds[:, None, :]  # [b, n, n]
+        return bin_and_one_hot(seq_sep, bin_limits)     # [b, n, n, seq_sep_dim]
 
 
 class XtBBCAPairwiseDistancesPairFeat(Feature):
     """Computes pairwise distances for CA backbone atoms and returns feature of shape [b, n, n, dim_pair_dist]."""
+
+    supports_sparse = True
 
     def __init__(self, xt_pair_dist_dim, xt_pair_dist_min, xt_pair_dist_max, **kwargs):
         super().__init__(dim=xt_pair_dist_dim)
         self.min_dist = xt_pair_dist_min
         self.max_dist = xt_pair_dist_max
 
-    def forward(self, batch):
+    def forward(self, batch, neighbor_idx=None):
         data_modes_avail = [k for k in batch["x_t"]]
         assert (
             "bb_ca" in data_modes_avail
         ), f"`bb_ca` pair dist feature requested but key not available in data modes {data_modes_avail}"
-        return bin_pairwise_distances(
-            x=batch["x_t"]["bb_ca"],
-            min_dist=self.min_dist,
-            max_dist=self.max_dist,
-            dim=self.dim,
-        )  # [b, n, n, pair_dist_dim]
+        x = batch["x_t"]["bb_ca"]
+        if neighbor_idx is not None:
+            return bin_pairwise_distances_sparse(x, neighbor_idx, self.min_dist, self.max_dist, self.dim)
+        return bin_pairwise_distances(x=x, min_dist=self.min_dist, max_dist=self.max_dist, dim=self.dim)
 
 
 class CaCoorsNanometersPairwiseDistancesPairFeat(Feature):
     """Computes pairwise distances for CA backbone atoms and returns feature of shape [b, n, n, dim_pair_dist]."""
+
+    supports_sparse = True
 
     def __init__(self, **kwargs):
         super().__init__(dim=30)
         self.min_dist = 0.1
         self.max_dist = 3.0
 
-    def forward(self, batch):
+    def forward(self, batch, neighbor_idx=None):
         assert (
             "ca_coors_nm" in batch or "coords_nm" in batch
         ), f"`ca_coors_nm` pair dist feature requested but key `ca_coors_nm` nor `coords_nm` not available"
@@ -1414,14 +1457,10 @@ class CaCoorsNanometersPairwiseDistancesPairFeat(Feature):
             # Only index if it has 37 atoms (4D), otherwise use as-is
             if ca_coors.ndim == 4:
                 ca_coors = ca_coors[:, :, 1, :]
-                
-        return bin_pairwise_distances(
-            x=ca_coors,
-            min_dist=self.min_dist,
-            max_dist=self.max_dist,
-            dim=self.dim,
-        )  # [b, n, n, pair_dist_dim]
-    
+        if neighbor_idx is not None:
+            return bin_pairwise_distances_sparse(ca_coors, neighbor_idx, self.min_dist, self.max_dist, self.dim)
+        return bin_pairwise_distances(x=ca_coors, min_dist=self.min_dist, max_dist=self.max_dist, dim=self.dim)
+
 
 class OptionalCaCoorsNanometersPairwiseDistancesPairFeat(
     CaCoorsNanometersPairwiseDistancesPairFeat
@@ -1432,13 +1471,15 @@ class OptionalCaCoorsNanometersPairwiseDistancesPairFeat(
     If `use_ca_coors_nm_feature` not in batch, defaults to False.
     """
 
+    supports_sparse = True
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._has_logged = False
 
-    def forward(self, batch):
+    def forward(self, batch, neighbor_idx=None):
         if batch.get("use_ca_coors_nm_feature", False):  # defaults to False
-            return super().forward(batch)
+            return super().forward(batch, neighbor_idx=neighbor_idx)
         else:
             b, n = self.extract_bs_and_n(batch)
             device = self.extract_device(batch)
@@ -1447,11 +1488,14 @@ class OptionalCaCoorsNanometersPairwiseDistancesPairFeat(
                     "use_ca_coors_nm_feature disabled or not in batch, returning zeros for OptionalCaCoorsNanometersPairwiseDistancesPairFeat"
                 )
                 self._has_logged = True
-            return torch.zeros(b, n, n, self.dim, device=device)
+            K = neighbor_idx.shape[-1] if neighbor_idx is not None else n
+            return torch.zeros(b, n, K, self.dim, device=device)
 
 
 class XscBBCAPairwiseDistancesPairFeat(Feature):
     """Computes pairwise distances for CA backbone atoms and returns feature of shape [b, n, n, dim_pair_dist]."""
+
+    supports_sparse = True
 
     def __init__(
         self,
@@ -1467,18 +1511,16 @@ class XscBBCAPairwiseDistancesPairFeat(Feature):
         self.mode_key = mode_key
         self._has_logged = False
 
-    def forward(self, batch):
+    def forward(self, batch, neighbor_idx=None):
         if self.mode_key in batch:
             data_modes_avail = [k for k in batch[self.mode_key]]
             assert (
                 "bb_ca" in data_modes_avail
             ), f"`bb_ca` sc/recycle pair dist feature requested but key not available in data modes {data_modes_avail}"
-            return bin_pairwise_distances(
-                x=batch[self.mode_key]["bb_ca"],
-                min_dist=self.min_dist,
-                max_dist=self.max_dist,
-                dim=self.dim,
-            )  # [b, n, n, pair_dist_dim]
+            x = batch[self.mode_key]["bb_ca"]
+            if neighbor_idx is not None:
+                return bin_pairwise_distances_sparse(x, neighbor_idx, self.min_dist, self.max_dist, self.dim)
+            return bin_pairwise_distances(x=x, min_dist=self.min_dist, max_dist=self.max_dist, dim=self.dim)
         else:
             # If we do not provide self-conditioning as input to the nn
             b, n = self.extract_bs_and_n(batch)
@@ -1488,7 +1530,8 @@ class XscBBCAPairwiseDistancesPairFeat(Feature):
                     f"No {self.mode_key} in batch, returning zeros for XscBBCAPairwiseDistancesPairFeat"
                 )
                 self._has_logged = True
-            return torch.zeros(b, n, n, self.dim, device=device)
+            K = neighbor_idx.shape[-1] if neighbor_idx is not None else n
+            return torch.zeros(b, n, K, self.dim, device=device)
 
 
 class RelativeResidueOrientationPairFeat(Feature):

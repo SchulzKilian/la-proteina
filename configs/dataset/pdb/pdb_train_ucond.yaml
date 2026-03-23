@@ -27,7 +27,7 @@ datamodule:
     experiment_types: ["diffraction", "EM"] # other options are "NMR" and "other"
     labels: []
     min_length: 50 # Exclude peptides of length 50
-    max_length: 200 # Exclude polypeptides greater than length 256
+    max_length: 500 # Exclude polypeptides greater than length 256
     oligomeric_min: null 
     oligomeric_max: null 
     best_resolution: 0.0  # Include only proteins with resolution >= 0.0
