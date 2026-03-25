@@ -36,6 +36,10 @@ loss:
 
 force_precision_f32: False
 
+dataset:
+  dataselector:
+    worst_resolution: 2.0  # Only high-quality structures (≤2Å)
+
 training:
   n_recycle: 0
   motif_conditioning: False
@@ -52,7 +56,7 @@ lora:
 opt:
   lr: 0.0003
   max_epochs: 10000000
-  accumulate_grad_batches: 4
+  accumulate_grad_batches: 8
   skip_nan_grad: False
   grad_and_weight_analysis: False
   dist_strategy: ddp
