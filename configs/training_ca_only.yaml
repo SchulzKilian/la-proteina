@@ -37,8 +37,9 @@ loss:
 force_precision_f32: False
 
 dataset:
-  dataselector:
-    worst_resolution: 2.0  # Only high-quality structures (≤2Å)
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0  # Only high-quality structures (≤2Å)
 
 training:
   n_recycle: 0

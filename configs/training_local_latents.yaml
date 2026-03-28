@@ -36,8 +36,8 @@ autoencoder_ckpt_path: ./checkpoints_laproteina/AE1_ucond_512.ckpt
 dataset:
   datamodule:
     use_precomputed_latents: False
-  dataselector:
-    worst_resolution: 2.0  # Only high-quality structures (≤2Å)
+    dataselector:
+      worst_resolution: 2.0  # Only high-quality structures (≤2Å)
 
 # Loss
 loss:

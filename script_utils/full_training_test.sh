@@ -107,6 +107,7 @@ fi
 # 6. Execution: Train
 # ==============================================================================
 echo "[+] Starting TRAINING..."
+export TMPDIR=/tmp  # keep torch_shm_manager sockets on local node storage, not RDS
 export SLURM_NTASKS_PER_NODE=$SLURM_NTASKS
 
 # "$@" now contains ONLY the arguments that weren't picked up by getopts
