@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, Iterable, List, Literal, Optional
 
 import lightning as L
+import torch
+import torch.multiprocessing
 from loguru import logger
 from torch_geometric import transforms as T
 from torch_geometric.data import Dataset
@@ -9,6 +11,14 @@ from torch_geometric.loader import DataLoader
 
 from proteinfoundation.utils.cluster_utils import ClusterSampler
 from proteinfoundation.utils.dense_padding_data_loader import DensePaddingDataLoader
+
+
+def _worker_init_fn(worker_id):
+    # Workers are spawned fresh and don't inherit the main process sharing strategy.
+    # Without this, workers default to file_descriptor/POSIX shm, which requires
+    # torch_shm_manager — a binary on RDS NFS that times out when 96 workers
+    # (24 per rank × 4 ranks) all connect to it simultaneously.
+    torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 class BaseLightningDataModule(L.LightningDataModule, ABC):
@@ -155,6 +165,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
             drop_last=True,
             persistent_workers=True if self.num_workers > 0 else False,
             prefetch_factor=4 if self.num_workers > 0 else None,
+            worker_init_fn=_worker_init_fn if self.num_workers > 0 else None,
         )
 
     def train_dataloader(self) -> DataLoader:
