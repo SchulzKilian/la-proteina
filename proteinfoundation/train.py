@@ -77,7 +77,6 @@ import lightning as L
 import loralib as lora
 import torch
 import torch.multiprocessing
-torch.multiprocessing.set_sharing_strategy('file_system')
 import wandb
 from dotenv import load_dotenv
 from lightning.pytorch.loggers import WandbLogger
