@@ -24,6 +24,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
         batch_size: int = 32,
         num_workers: int = 32,
         pin_memory: bool = False,
+        prefetch_factor: int = 4,
     ):
         """Initialising the base data module class.
 
@@ -62,6 +63,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.prefetch_factor = prefetch_factor
         self.train_ds = None
         self.val_ds = None
         self.test_ds = None
@@ -154,7 +156,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
             pin_memory=self.pin_memory,
             drop_last=True,
             persistent_workers=True if self.num_workers > 0 else False,
-            prefetch_factor=4 if self.num_workers > 0 else None,
+            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None,
         )
 
     def train_dataloader(self) -> DataLoader:

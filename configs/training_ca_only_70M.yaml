@@ -6,8 +6,9 @@ defaults:
 # 70M model uses less VRAM (~50%) so we can double batch size
 dataset:
   datamodule:
-    batch_size: 52
+    batch_size: 72
     pin_memory: True
+    prefetch_factor: 8
 
 # Validate less frequently — 70M steps are fast, so val gaps are proportionally larger
 opt:
