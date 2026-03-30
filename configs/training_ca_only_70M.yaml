@@ -1,6 +1,6 @@
 defaults:
-  - training_ca_only       # inherit all base CA-only settings
-  - nn: ca_only_score_nn_70M  # override nn to 70M model
+  - training_ca_only            # inherit all base CA-only settings
+  - override nn: ca_only_score_nn_70M  # override nn to 70M model
   - _self_
 
 # 70M model uses less VRAM (~50%) so we can double batch size
