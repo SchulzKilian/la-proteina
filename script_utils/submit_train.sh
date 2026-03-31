@@ -8,6 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=500G              
 #SBATCH --time=3:00:00
+#SBATCH --signal=SIGUSR1@300
 
 
 # 1. Load your personal shell config (Reliable Conda setup)
