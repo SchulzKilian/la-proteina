@@ -8,7 +8,7 @@ dataset:
   datamodule:
     batch_size: 72
     pin_memory: True
-    prefetch_factor: 8
+    prefetch_factor: 4
 
 # Validate less frequently — 70M steps are fast, so val gaps are proportionally larger
 opt:
