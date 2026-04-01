@@ -157,17 +157,32 @@ def handle_cath_conditioning(cfg_exp):
 def get_run_dirs(cfg_exp):
     """
     Get root directory for run and directory to store checkpoints.
+    If a previous checkpoint exists for this run_name, reuse that directory
+    so that interactive session restarts and manual SIGUSR1 saves resume correctly.
     """
     run_name = cfg_exp.run_name_
     log_info(f"Job name: {run_name}")
-    root_run = os.path.join(
-        ".", "store", run_name, f"{int(time.time())}"
-    )  # Everything stored in ./store/<run_id>
-    log_info(f"Root run: {root_run}")
+    store_base = os.path.join(".", "store", run_name)
 
-    ckpt_path_store = os.path.join(
-        root_run, "checkpoints"
-    )  # Checkpoints in ./store/run_id/checkpoints/<ckpt-file>
+    # Look for the most recent timestamp subdir that contains a last.ckpt
+    root_run = None
+    if os.path.isdir(store_base):
+        subdirs = sorted(
+            (d for d in os.listdir(store_base) if os.path.isdir(os.path.join(store_base, d))),
+            reverse=True,
+        )
+        for subdir in subdirs:
+            candidate_ckpts = os.path.join(store_base, subdir, "checkpoints")
+            if fetch_last_ckpt(candidate_ckpts) is not None:
+                root_run = os.path.join(store_base, subdir)
+                log_info(f"Resuming from existing run directory: {root_run}")
+                break
+
+    if root_run is None:
+        root_run = os.path.join(store_base, f"{int(time.time())}")
+
+    log_info(f"Root run: {root_run}")
+    ckpt_path_store = os.path.join(root_run, "checkpoints")
     log_info(f"Checkpoints directory: {ckpt_path_store}")
     return run_name, root_run, ckpt_path_store
 

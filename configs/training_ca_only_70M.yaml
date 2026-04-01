@@ -3,6 +3,8 @@ defaults:
   - override nn: ca_only_score_nn_70M  # override nn to 70M model
   - _self_
 
+run_name_: ca_only_diffusion_70M
+
 # 70M model uses less VRAM (~50%) so we can double batch size
 dataset:
   datamodule:
@@ -12,4 +14,4 @@ dataset:
 
 # Validate less frequently — 70M steps are fast, so val gaps are proportionally larger
 opt:
-  val_check_interval: 500
+  val_check_interval: 200

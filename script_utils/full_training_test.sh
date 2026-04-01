@@ -109,12 +109,22 @@ fi
 echo "[+] Starting TRAINING..."
 export TMPDIR=/tmp
 export SLURM_NTASKS_PER_NODE=$SLURM_NTASKS
+ulimit -n 65536 2>/dev/null || ulimit -n $(ulimit -Hn) 2>/dev/null || true
 
 
-# "$@" now contains ONLY the arguments that weren't picked up by getopts
+# For interactive sessions (no SLURM batch job): auto-save after 50 min via SIGUSR1.
+# For sbatch jobs: SLURM's --signal=SIGUSR1@300 handles this instead (5 min before limit).
+# [ -t 0 ] is true when stdin is a terminal (interactive), false in sbatch.
+SAVE_TIMER_PID=""
+if [ -t 0 ]; then
+    (sleep 3000 && kill -SIGUSR1 $(pgrep -f "train.py") 2>/dev/null) &
+    SAVE_TIMER_PID=$!
+fi
+
 srun --mem=0 python proteinfoundation/train.py \
     --config-name "$CONFIG_NAME" \
     hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
     "$@"
 
+[ -n "$SAVE_TIMER_PID" ] && kill $SAVE_TIMER_PID 2>/dev/null  # cancel timer if training ended naturally
 echo "[+] Process Complete."

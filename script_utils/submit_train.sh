@@ -27,6 +27,8 @@ echo "Running on node: $(hostname)"
 echo "Using Python: $(which python)"
 echo "GPUs available: $CUDA_VISIBLE_DEVICES"
 
+ulimit -n 65536 2>/dev/null || ulimit -n $(ulimit -Hn) 2>/dev/null || true
+
 # 4. Run the training test script
 # We run it directly since the environment is already active
 bash script_utils/full_training_test.sh "$@"
