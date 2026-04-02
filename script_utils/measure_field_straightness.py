@@ -148,7 +148,10 @@ def main():
     parser.add_argument("--ae_ckpt_name", default=None,
                         help="AE filename (omit for CA-only models)")
     parser.add_argument("--nsamples",     type=int, default=8,
-                        help="Batch size. More = lower-variance estimates.")
+                        help="Total number of samples to average over.")
+    parser.add_argument("--batch_size",   type=int, default=None,
+                        help="Samples per forward pass. Defaults to nsamples (single batch). "
+                             "Set lower (e.g. 8) to avoid OOM on large models.")
     parser.add_argument("--nres",         type=int, default=100,
                         help="Protein length.")
     parser.add_argument("--nsteps",       type=int, default=500,
@@ -171,11 +174,23 @@ def main():
         autoencoder_ckpt_path=ae_ckpt_path,
     ).to(device).eval()
 
-    print(f"Data modes : {model.fm.data_modes}")
-    print(f"nsamples={args.nsamples}  nres={args.nres}  nsteps={args.nsteps}")
-    print(f"NFEs (NN calls): {args.nsteps}  (one per Euler step, batch of {args.nsamples})")
+    batch_size = args.batch_size if args.batch_size is not None else args.nsamples
+    n_batches = (args.nsamples + batch_size - 1) // batch_size  # ceil division
 
-    metrics = run_simulation(model, args.nsamples, args.nres, args.nsteps, device)
+    print(f"Data modes : {model.fm.data_modes}")
+    print(f"nsamples={args.nsamples}  batch_size={batch_size}  n_batches={n_batches}  nres={args.nres}  nsteps={args.nsteps}")
+    print(f"NFEs (NN calls): {args.nsteps} per batch  ×  {n_batches} batches  =  {args.nsteps * n_batches} total")
+
+    # Accumulate metrics across batches then average
+    accumulated: dict = {}
+    for i in range(n_batches):
+        this_batch = min(batch_size, args.nsamples - i * batch_size)
+        print(f"  batch {i+1}/{n_batches} (nsamples={this_batch}) ...")
+        m = run_simulation(model, this_batch, args.nres, args.nsteps, device)
+        for k, v in m.items():
+            accumulated[k] = accumulated.get(k, 0.0) + v
+    metrics = {k: v / n_batches for k, v in accumulated.items()}
+
     print_report(metrics, model.fm.data_modes, args.nsteps)
 
     if args.out_json:

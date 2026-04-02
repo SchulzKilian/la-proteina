@@ -39,6 +39,7 @@ python script_utils/measure_field_straightness.py \
     --ckpt_name    "$LD3_FNAME" \
     --ae_ckpt_name "$AE2_FNAME" \
     --nsamples 80 \
+    --batch_size 8 \
     --nres 400 \
     --nsteps 800 \
     --out_json "$CKPT_DIR/straightness_ld3.json"
