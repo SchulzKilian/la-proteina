@@ -577,6 +577,7 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         save_trajectory_every: int = 0,
         guidance_w: float = 1.0,
         ag_ratio: float = 0.0,
+        measure_straightness: bool = False,
     ) -> Dict[str, Tensor]:
         """
         Generates samples by simulating the
@@ -665,6 +666,14 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 mask=mask,
             )
 
+            # Straightness tracking buffers (only allocated when requested)
+            if measure_straightness:
+                x_0_saved = {dm: x[dm].clone() for dm in self.data_modes}
+                # x_traj[dm]: list of nsteps+1 tensors [nsamples, n, d], includes x_0
+                x_traj = {dm: [x[dm].clone()] for dm in self.data_modes}
+                x1_preds_traj = {dm: [] for dm in self.data_modes}
+                ts_list = {dm: [ts[dm][0].item()] for dm in self.data_modes}
+
             for step in range(nsteps):
                 t = {
                     data_mode: ts[data_mode][step] * torch.ones(nsamples, device=device)
@@ -682,7 +691,7 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 batch["x_t"] = x
                 batch["t"] = t
                 batch["mask"] = mask
-                
+
                 # self conditioning
                 if step > 0 and self_cond:
                     batch["x_sc"] = x_1_pred
@@ -718,10 +727,110 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                     simulation_step_params=simulation_step_params,
                 )
 
+                if measure_straightness:
+                    for dm in self.data_modes:
+                        x_traj[dm].append(x[dm].clone())
+                        x1_preds_traj[dm].append(x_1_pred[dm].clone())
+                        ts_list[dm].append(ts[dm][step + 1].item())
+
             additional_info = {
                 "mask": mask,
             }
+            if measure_straightness:
+                additional_info["straightness"] = compute_straightness_metrics(
+                    x_0=x_0_saved,
+                    x_traj=x_traj,
+                    x1_preds_traj=x1_preds_traj,
+                    ts=ts_list,
+                    mask=mask,
+                )
             return x, additional_info
+
+
+def compute_straightness_metrics(
+    x_0: Dict[str, torch.Tensor],
+    x_traj: Dict[str, list],
+    x1_preds_traj: Dict[str, list],
+    ts: Dict[str, list],
+    mask: torch.Tensor,
+    n_bins: Optional[int] = None,
+) -> Dict[str, float]:
+    """
+    Computes straightness metrics for each data modality from a recorded simulation trajectory.
+
+    Three complementary metrics:
+
+    1. **straightness_ratio**: ||x_T - x_0||_F / Σ_t ||x_{t+dt} - x_t||_F, per sample then averaged.
+       A perfectly straight trajectory = 1.0. Non-straight < 1.0.
+
+    2. **x1_pred_variance**: mean variance of x_1 predictions across time steps, per residue.
+       Low = model consistently predicts the same endpoint regardless of t → easier integration.
+       High = model changes its mind a lot → more steps needed, curvature present.
+
+    3. **step_length_bin_{i}** (n_bins values): mean per-residue displacement per step in each
+       time bin. Uneven distribution reveals where the field exerts most force, pointing to regions
+       where non-uniform schedules should allocate more steps.
+
+    Args:
+        x_0: initial noise for each data mode, Dict[dm -> [nsamples, n, d]]
+        x_traj: trajectory snapshots including x_0 as first element, Dict[dm -> list of [nsamples, n, d]]
+                length nsteps+1
+        x1_preds_traj: x_1 predictions at each step, Dict[dm -> list of [nsamples, n, d]]
+                       length nsteps
+        ts: time values for each trajectory snapshot (length nsteps+1), Dict[dm -> list of floats]
+        mask: boolean mask [nsamples, n], True = valid residue
+        n_bins: number of time bins to split the trajectory into for per-bin step length
+
+    Returns:
+        Dict of scalar floats with keys like "{dm}/straightness_ratio", "{dm}/x1_pred_variance",
+        "{dm}/step_length_bin_{i}_t{t:.2f}".
+    """
+    metrics = {}
+    nres = mask.float().sum(-1).clamp(min=1)  # [nsamples]
+
+    for dm in x_traj:
+        # Stack trajectory: [nsteps+1, nsamples, n, d]
+        traj = torch.stack(x_traj[dm], dim=0).float()
+        nsteps = traj.shape[0] - 1
+
+        # --- 1. Straightness ratio ---
+        # Per-step displacements
+        step_vecs = traj[1:] - traj[:-1]  # [nsteps, nsamples, n, d]
+        step_norms = step_vecs.norm(dim=-1)  # [nsteps, nsamples, n]
+        step_norms = (step_norms * mask[None].float()).sum(-1)  # [nsteps, nsamples]
+        total_path = step_norms.sum(0)  # [nsamples]
+
+        end_vec = (traj[-1] - traj[0]) * mask[None, ..., None].float()
+        straight_dist = end_vec.norm(dim=-1).sum(-1)  # [nsamples], sum over residues
+
+        straightness_ratio = straight_dist / (total_path + 1e-8)  # [nsamples], ∈ (0, 1]
+        metrics[f"{dm}/straightness_ratio"] = straightness_ratio.mean().item()
+
+        # --- 2. x_1 prediction variance over time ---
+        if x1_preds_traj[dm]:
+            x1_stack = torch.stack(x1_preds_traj[dm], dim=0).float()  # [nsteps, nsamples, n, d]
+            # Variance over time dimension, then average over d, n (masked), then batch
+            x1_var = x1_stack.var(dim=0)  # [nsamples, n, d]
+            x1_var_per_res = x1_var.mean(-1)  # [nsamples, n], average over d
+            x1_var_masked = (x1_var_per_res * mask.float()).sum(-1) / nres  # [nsamples]
+            metrics[f"{dm}/x1_pred_variance"] = x1_var_masked.mean().item()
+
+        # --- 3. Per-time-bin step length ---
+        # n_bins=None means one bin per step (full resolution)
+        effective_bins = nsteps if n_bins is None else min(n_bins, nsteps)
+        bin_size = max(1, nsteps // effective_bins)
+        for b in range(effective_bins):
+            start = b * bin_size
+            end = min(start + bin_size, nsteps)
+            if start >= nsteps:
+                break
+            bin_step_norms = step_norms[start:end]  # [bin_size, nsamples]
+            # Mean per-residue displacement per step in this bin
+            mean_step_len = bin_step_norms.mean(0) / nres  # [nsamples]
+            t_val = ts[dm][start]
+            metrics[f"{dm}/step_length_bin_{b:02d}_t{t_val:.3f}"] = mean_step_len.mean().item()
+
+    return metrics
 
 
 def get_gt(
