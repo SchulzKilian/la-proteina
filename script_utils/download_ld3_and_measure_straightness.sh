@@ -35,12 +35,12 @@ fi
 echo ""
 echo "📐 Measuring vector field straightness for LD3..."
 python script_utils/measure_field_straightness.py \
-    --ckpt_dir  "$CKPT_DIR" \
-    --ckpt_name "$LD3_FNAME" \
+    --ckpt_dir     "$CKPT_DIR" \
+    --ckpt_name    "$LD3_FNAME" \
     --ae_ckpt_name "$AE2_FNAME" \
-    --nsamples 8 \
+    --nsamples 80 \
     --nres 400 \
-    --nsteps 200 \
+    --nsteps 800 \
     --out_json "$CKPT_DIR/straightness_ld3.json"
 
 echo ""
