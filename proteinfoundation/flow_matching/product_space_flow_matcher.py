@@ -830,6 +830,27 @@ def compute_straightness_metrics(
             t_val = ts[dm][start]
             metrics[f"{dm}/step_length_bin_{b:02d}_t{t_val:.3f}"] = mean_step_len.mean().item()
 
+        # --- 4. Per-time-bin local curvature (direction change between consecutive steps) ---
+        # unit vectors for each step
+        step_dirs = step_vecs / (step_vecs.norm(dim=-1, keepdim=True) + 1e-8)  # [nsteps, nsamples, n, d]
+        # cosine similarity between consecutive step directions: [nsteps-1, nsamples, n]
+        cos_sim = (step_dirs[:-1] * step_dirs[1:]).sum(dim=-1).clamp(-1.0, 1.0)
+        angles = torch.acos(cos_sim)  # [nsteps-1, nsamples, n], in radians
+        # mask invalid residues, mean over residues → [nsteps-1, nsamples]
+        angles_masked = (angles * mask[None].float()).sum(-1) / nres
+
+        n_angle_steps = nsteps - 1
+        effective_curv_bins = n_angle_steps if n_bins is None else min(n_bins, n_angle_steps)
+        curv_bin_size = max(1, n_angle_steps // effective_curv_bins)
+        for b in range(effective_curv_bins):
+            start = b * curv_bin_size
+            end = min(start + curv_bin_size, n_angle_steps)
+            if start >= n_angle_steps:
+                break
+            mean_angle = angles_masked[start:end].mean(0).mean().item()  # scalar
+            t_val = ts[dm][start + 1]  # t at the second of the two steps forming the angle
+            metrics[f"{dm}/local_curvature_bin_{b:02d}_t{t_val:.3f}"] = mean_angle
+
     return metrics
 
 
