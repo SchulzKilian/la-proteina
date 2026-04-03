@@ -1,0 +1,49 @@
+args:
+  fold_cond: False
+
+dataset:
+  # Lengths matching training range (min_length: 50, max_length: 200)
+  nlens_cfg:
+    nres_lens: [50, 75, 100, 125, 150, 175, 200]
+    min_len:
+    max_len:
+    step_len:
+
+  cath_codes: null
+
+  nsamples: 20
+  max_nsamples_per_batch: 10
+
+  empirical_distribution_cfg:
+    len_cath_code_path: null
+    cath_code_level: null
+    bucket_min_len: 50
+    bucket_max_len: 200
+    bucket_step_size: 25
+
+metric:
+  compute_designability: True
+  designability_modes: ["ca"]           # CA-only PDBs have no backbone heavy atoms
+  designability_folding_models: ["esmfold"]
+
+  compute_codesignability: True
+  codesignability_modes: ["ca"]         # same reason
+  codesignability_folding_models: ["esmfold"]
+  compute_co_sequence_recovery: False
+
+  compute_novelty_pdb: False
+  compute_novelty_afdb: False
+  compute_novelty_afdb_rep_v4: False
+  compute_novelty_afdb_rep_v4_geniefilters_maxlen512: False
+
+  compute_motif_scaffolding: False
+  compute_motif_backbone_designability: False
+  compute_motif_aa_designability: False
+  compute_motif_rmsd: False
+
+  keep_folding_outputs: True
+
+  compute_binder_metrics: False
+  compute_multimer_metrics: False
+  compute_fid: False
+  metric_factory: null
