@@ -164,7 +164,7 @@ def get_run_dirs(cfg_exp):
     log_info(f"Job name: {run_name}")
     store_base = os.path.join(".", "store", run_name)
 
-    # Look for the most recent timestamp subdir that contains a last.ckpt or hpc_ckpt_*.ckpt
+    # Look for the most recent timestamp subdir that contains a last.ckpt
     root_run = None
     if os.path.isdir(store_base):
         subdirs = sorted(
@@ -174,12 +174,7 @@ def get_run_dirs(cfg_exp):
         for subdir in subdirs:
             candidate_root = os.path.join(store_base, subdir)
             candidate_ckpts = os.path.join(candidate_root, "checkpoints")
-            has_last = fetch_last_ckpt(candidate_ckpts) is not None
-            has_hpc = any(
-                f.startswith("hpc_ckpt") and f.endswith(".ckpt")
-                for f in os.listdir(candidate_root)
-            ) if os.path.isdir(candidate_root) else False
-            if has_last or has_hpc:
+            if fetch_last_ckpt(candidate_ckpts) is not None:
                 root_run = candidate_root
                 log_info(f"Resuming from existing run directory: {root_run}")
                 break
@@ -270,13 +265,7 @@ def get_model_n_ckpt_resume(cfg_exp, ckpt_path_store):
     if last_ckpt_name is not None:
         last_ckpt_path = os.path.join(ckpt_path_store, last_ckpt_name)
     else:
-        # fall back to Lightning's HPC fault-tolerance checkpoint (saved to root_run on SIGUSR1)
-        root_run = os.path.dirname(ckpt_path_store)
-        hpc_ckpts = sorted(
-            f for f in os.listdir(root_run)
-            if f.startswith("hpc_ckpt") and f.endswith(".ckpt")
-        ) if os.path.isdir(root_run) else []
-        last_ckpt_path = os.path.join(root_run, hpc_ckpts[-1]) if hpc_ckpts else None
+        last_ckpt_path = None
     log_info(f"Last checkpoint: {last_ckpt_path}")
 
     # If LoRA is turned on, replace Linear with LoRA layers
