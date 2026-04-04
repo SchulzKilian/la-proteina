@@ -66,15 +66,15 @@ else
     rm -rf ca_model_weights vanilla_model_weights
     mkdir -p ca_model_weights vanilla_model_weights
     echo "[DEBUG] Attempting to download v_48_002.pt..."
-    wget  -nc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_002.pt
+    wget --no-check-certificate -nc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_002.pt
     echo "Download one finished with status: $?"
-    wget  -nc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_010.pt
-    wget  -nc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_020.pt
+    wget --no-check-certificate -nc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_010.pt
+    wget --no-check-certificate -nc -P ca_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/ca_model_weights/v_48_020.pt
 
-    wget  -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_002.pt
-    wget  -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_010.pt
-    wget  -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_020.pt
-    wget  -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_030.pt
+    wget --no-check-certificate -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_002.pt
+    wget --no-check-certificate -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_010.pt
+    wget --no-check-certificate -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_020.pt
+    wget --no-check-certificate -nc -P vanilla_model_weights https://github.com/dauparas/ProteinMPNN/raw/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/vanilla_model_weights/v_48_030.pt
 fi
 popd > /dev/null
 
@@ -86,7 +86,7 @@ AE_URL="https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/clara/ae1_ucond_
 if [ ! -f "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" ]; then
     echo "⚠️  Autoencoder missing in $CHECKPOINT_DIR. Attempting download..."
     
-    wget --content-disposition "$AE_URL" \
+    wget --no-check-certificate --content-disposition "$AE_URL" \
          --output-document "$CHECKPOINT_DIR/$REQUIRED_AE_CKPT" \
          --progress=bar:force:noscroll || echo "Wget failed."
 
