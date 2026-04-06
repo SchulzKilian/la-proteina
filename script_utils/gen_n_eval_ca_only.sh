@@ -1,4 +1,17 @@
-#!/usr/bin/env bash
+#!/bin/bash
+#SBATCH -J eval_ca_only
+#SBATCH -A COMPUTERLAB-SL3-GPU
+#SBATCH -p ampere
+#SBATCH --gres=gpu:1
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH --time=2:00:00
+
+source $HOME/.bashrc
+conda activate laproteina_env
+
 # gen_n_eval_ca_only.sh
 # Generate structures and run designability evaluation for a CA-only 70M checkpoint.
 #
