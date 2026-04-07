@@ -63,6 +63,8 @@ class Proteina(L.LightningModule):
         if self._ca_only_mode:
             # CA-only mode: no autoencoder, no latents
             logger.info("CA-only mode detected (no 'local_latents' in product_flowmatcher). Skipping AutoEncoder.")
+            if cfg_exp.autoencoder_ckpt_path is not None:
+                cfg_exp.autoencoder_ckpt_path = None
             assert "autoencoder_ckpt_path" not in cfg_exp or cfg_exp.autoencoder_ckpt_path is None, \
                 "CA-only mode active but autoencoder_ckpt_path is set. Remove it from the config."
             self.autoencoder = None
