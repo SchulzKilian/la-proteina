@@ -137,8 +137,16 @@ class LocalLatentsTransformer(torch.nn.Module):
             torch.nn.Linear(self.token_dim, 3, bias=False),
         )
 
-    def _build_neighbor_idx(self, ca_coors: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """Compute sparse neighbor indices [b, n, K] from Cα coordinates."""
+    def _build_neighbor_idx(
+        self, ca_coors: torch.Tensor, mask: torch.Tensor
+    ) -> tuple:
+        """Compute sparse neighbor indices and slot validity.
+
+        Returns:
+            neighbor_idx: [b, n, K] int64 — neighbor residue indices
+            slot_valid:   [b, n, K] bool  — True for real neighbors, False for padding slots
+                          (padding only occurs for proteins shorter than K=2*n_seq+n_spatial+n_random)
+        """
         return build_neighbor_idx(
             ca_coors,
             mask,
@@ -217,27 +225,33 @@ class LocalLatentsTransformer(torch.nn.Module):
             #    This avoids computing the full [b, n, n, d] tensor and then pooling it down.
             input_ds = self._subsample_input(input, original_n, stride=2)
             # Compute sparse neighbor indices on downsampled coords if needed
-            neighbor_idx = self._build_neighbor_idx(input_ds["x_t"]["bb_ca"], mask) if self.sparse_attention else None
-            pair_rep = self.pair_repr_builder(input_ds, neighbor_idx=neighbor_idx)
+            if self.sparse_attention:
+                neighbor_idx, slot_valid = self._build_neighbor_idx(input_ds["x_t"]["bb_ca"], mask)
+            else:
+                neighbor_idx, slot_valid = None, None
+            pair_rep = self.pair_repr_builder(input_ds, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
 
             # Re-apply mask to sequence
             seqs = seqs * mask[..., None]
         else:
             # Compute sparse neighbor indices on current CA coords if needed
-            neighbor_idx = self._build_neighbor_idx(input["x_t"]["bb_ca"], mask) if self.sparse_attention else None
-            pair_rep = self.pair_repr_builder(input, neighbor_idx=neighbor_idx)
+            if self.sparse_attention:
+                neighbor_idx, slot_valid = self._build_neighbor_idx(input["x_t"]["bb_ca"], mask)
+            else:
+                neighbor_idx, slot_valid = None, None
+            pair_rep = self.pair_repr_builder(input, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
 
         # Run trunk
         for i in range(self.nlayers):
             seqs = self.transformer_layers[i](
-                seqs, pair_rep, c, mask, neighbor_idx=neighbor_idx
+                seqs, pair_rep, c, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
             )  # [b, n, token_dim]
 
             if self.update_pair_repr:
                 if i < self.nlayers - 1:
                     if self.pair_update_layers[i] is not None:
                         pair_rep = self.pair_update_layers[i](
-                            seqs, pair_rep, mask, neighbor_idx=neighbor_idx
+                            seqs, pair_rep, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
                         )
 
         if self.use_downsampling:

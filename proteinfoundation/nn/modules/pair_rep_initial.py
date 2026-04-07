@@ -35,12 +35,13 @@ class PairReprBuilder(torch.nn.Module):
                     dim=dim_feats_out, dim_cond=dim_cond_pair
                 )
 
-    def forward(self, batch_nn, neighbor_idx=None):
+    def forward(self, batch_nn, neighbor_idx=None, slot_valid=None):
         """
         Args:
             batch_nn: batch dict
             neighbor_idx: optional [b, n, K] int tensor for sparse mode.
                           When provided, returns [b, n, K, dim] instead of [b, n, n, dim].
+            slot_valid: optional [b, n, K] bool; True = real neighbor slot (not padding)
         """
         mask = batch_nn["mask"]  # [b, n]
 
@@ -49,13 +50,16 @@ class PairReprBuilder(torch.nn.Module):
             B, N, K = neighbor_idx.shape
             B_idx = torch.arange(B, device=mask.device).view(B, 1, 1).expand(B, N, K)
             pair_mask = mask[:, :, None].expand(B, N, K) & mask[B_idx, neighbor_idx]  # [b, n, K]
+            # Guard against padding slots pointing to valid-but-spurious residue 0
+            if slot_valid is not None:
+                pair_mask = pair_mask & slot_valid
         else:
             pair_mask = mask[:, :, None] * mask[:, None, :]  # [b, n, n]  — original
 
-        repr = self.init_repr_factory(batch_nn, neighbor_idx=neighbor_idx)
+        repr = self.init_repr_factory(batch_nn, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
 
         if self.cond_factory is not None:
-            cond = self.cond_factory(batch_nn, neighbor_idx=neighbor_idx)
+            cond = self.cond_factory(batch_nn, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
             repr = self.adaln(repr, cond, pair_mask)
 
         return repr

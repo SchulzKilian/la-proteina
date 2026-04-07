@@ -85,6 +85,7 @@ class PairBiasAttention(nn.Module):
         pair_feats: Optional[Tensor],
         mask: Optional[Tensor],
         neighbor_idx: Optional[Tensor] = None,
+        slot_valid: Optional[Tensor] = None,
     ) -> Tensor:
         """Multi-head scalar Attention Layer
 
@@ -111,7 +112,7 @@ class PairBiasAttention(nn.Module):
             lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=h), (q, k, v, g)
         )
         if neighbor_idx is not None:
-            attn_feats = self._attn_sparse(q, k, v, b, neighbor_idx, mask)
+            attn_feats = self._attn_sparse(q, k, v, b, neighbor_idx, mask, slot_valid)
         else:
             attn_feats = self._attn(q, k, v, b, mask)
         attn_feats = rearrange(
@@ -125,7 +126,7 @@ class PairBiasAttention(nn.Module):
         if exists(mask):
             mask = rearrange(mask, "b i j -> b () i j")
             sim = sim.masked_fill(~mask, max_neg_value(sim))
-        attn = torch.softmax(sim + b, dim=-1)
+        attn = torch.softmax(sim + b, dim=-1).nan_to_num(0.0)  # guard all-masked rows
         return einsum("b h i j, b h j d -> b h i d", attn, v)
 
     def _attn_sparse(
@@ -135,7 +136,8 @@ class PairBiasAttention(nn.Module):
         v: Tensor,            # [b, h, n, d]
         b: Tensor,            # [b, h, n, K]  pair bias (already projected + rearranged)
         neighbor_idx: Tensor, # [b, n, K]
-        seq_mask: Optional[Tensor],  # [b, n] residue validity
+        seq_mask: Optional[Tensor],   # [b, n] residue validity
+        slot_valid: Optional[Tensor] = None,  # [b, n, K] True = real neighbor slot
     ) -> Tensor:
         """Sparse attention: each query attends only to its K neighbors."""
         B, H, N, D = q.shape
@@ -166,9 +168,12 @@ class PairBiasAttention(nn.Module):
             nbr_valid = seq_mask[B_idx, neighbor_idx]               # [b, n, K]
             i_valid   = seq_mask[:, :, None].expand(B, N, K)        # [b, n, K]
             attn_mask = nbr_valid & i_valid                          # [b, n, K]
+            # Also mask padding slots (only active when protein length < K)
+            if slot_valid is not None:
+                attn_mask = attn_mask & slot_valid
             sim = sim.masked_fill(~attn_mask.unsqueeze(1), max_neg_value(sim))
 
-        attn = torch.softmax(sim + b, dim=-1)  # [b, h, n, K]
+        attn = torch.softmax(sim + b, dim=-1).nan_to_num(0.0)  # [b, h, n, K]; guard all-masked rows
 
         # Aggregate values
         attn_bh = attn.reshape(BH, N, K)
@@ -195,7 +200,7 @@ class MultiHeadBiasedAttentionADALN_MM(torch.nn.Module):
         )
         self.scale_output = AdaptiveOutputScale(dim=dim_token, dim_cond=dim_cond)
 
-    def forward(self, x, pair_rep, cond, mask, neighbor_idx=None):
+    def forward(self, x, pair_rep, cond, mask, neighbor_idx=None, slot_valid=None):
         """
         Args:
             x: Input sequence representation, shape [b, n, dim_token]
@@ -203,6 +208,7 @@ class MultiHeadBiasedAttentionADALN_MM(torch.nn.Module):
             pair_rep: Pair representation, shape [b, n, n, dim_pair] (dense) or [b, n, K, dim_pair] (sparse)
             mask: Binary mask, shape [b, n]
             neighbor_idx: optional [b, n, K] for sparse attention
+            slot_valid: optional [b, n, K] bool; True = real neighbor slot (not padding)
 
         Returns:
             Updated sequence representation, shape [b, n, dim_token].
@@ -210,7 +216,8 @@ class MultiHeadBiasedAttentionADALN_MM(torch.nn.Module):
         if neighbor_idx is not None:
             x = self.adaln(x, cond, mask)
             # sparse: pass sequence mask [b, n]; PairBiasAttention handles neighbor masking
-            x = self.mha(node_feats=x, pair_feats=pair_rep, mask=mask, neighbor_idx=neighbor_idx)
+            x = self.mha(node_feats=x, pair_feats=pair_rep, mask=mask,
+                         neighbor_idx=neighbor_idx, slot_valid=slot_valid)
         else:
             pair_mask = mask[:, :, None] * mask[:, None, :]  # [b, n, n]  — original order
             x = self.adaln(x, cond, mask)

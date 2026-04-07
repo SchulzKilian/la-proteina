@@ -15,17 +15,20 @@ def build_neighbor_idx(
     n_seq: int = 8,           # sequential neighbors on each side  → 2*n_seq total
     n_spatial: int = 8,       # nearest Cα neighbors (not already selected)
     n_random: int = 16,       # random neighbors ∝ 1/d³ (not already selected)
-) -> torch.Tensor:
+) -> tuple:
     """
-    Returns [b, n, K] int64 neighbor indices, K = 2*n_seq + n_spatial + n_random.
+    Returns (neighbor_idx, slot_valid), both [b, n, K], K = 2*n_seq + n_spatial + n_random.
+
+    neighbor_idx: int64 tensor of neighbor residue indices.
+    slot_valid:   bool tensor; True = real neighbor, False = padding slot.
+                  Padding only occurs when the protein is shorter than K (~48 residues).
+                  Without this guard, padding slots would point to residue 0 (which has
+                  seq_mask=True) and be incorrectly treated as real neighbors.
 
     Selection order:
       1. Sequential: n_seq nearest by |i-j| on each side of i.
       2. Spatial   : n_spatial nearest by Cα distance, excluding (1).
       3. Random    : n_random sampled without replacement ∝ 1/d_Cα³, excluding (1)+(2).
-
-    Padding (when protein is shorter than K): filled with index 0. The attention
-    mask zeroes out any contribution from invalid padding positions.
     """
     B, N, _ = ca_coors.shape
     device = ca_coors.device
@@ -97,8 +100,30 @@ def build_neighbor_idx(
         pad = t.new_zeros(*t.shape[:-1], target - t.shape[-1])
         return torch.cat([t, pad], dim=-1)
 
+    # Track actual counts before padding so we can mark padding slots invalid.
+    # _pad only adds zeros when N is very small (< 48); all padded slots point
+    # to residue 0 which has seq_mask=True, so without the slot_valid guard
+    # they would be incorrectly treated as real neighbors.
+    k_seq_actual = seq_nbrs.shape[-1]
+    k_sp_actual  = sp_nbrs.shape[-1]
+    k_rnd_actual = rnd_nbrs.shape[-1]
+
     seq_nbrs = _pad(seq_nbrs, 2 * n_seq)     # [b, n, 2*n_seq]
     sp_nbrs  = _pad(sp_nbrs,  n_spatial)      # [b, n, n_spatial]
     rnd_nbrs = _pad(rnd_nbrs, n_random)       # [b, n, n_random]
 
-    return torch.cat([seq_nbrs, sp_nbrs, rnd_nbrs], dim=-1)  # [b, n, K]
+    neighbor_idx = torch.cat([seq_nbrs, sp_nbrs, rnd_nbrs], dim=-1)  # [b, n, K]
+
+    # Build slot validity mask: True = real neighbor, False = padding slot.
+    # The counts are scalar (depend only on N, not on individual residues),
+    # so the mask is identical for every (b, i) and we broadcast via expand.
+    K_total = 2 * n_seq + n_spatial + n_random
+    slot_valid = torch.ones(B, N, K_total, dtype=torch.bool, device=device)
+    if k_seq_actual < 2 * n_seq:
+        slot_valid[:, :, k_seq_actual: 2 * n_seq] = False
+    if k_sp_actual < n_spatial:
+        slot_valid[:, :, 2 * n_seq + k_sp_actual: 2 * n_seq + n_spatial] = False
+    if k_rnd_actual < n_random:
+        slot_valid[:, :, 2 * n_seq + n_spatial + k_rnd_actual:] = False
+
+    return neighbor_idx, slot_valid  # both [b, n, K]

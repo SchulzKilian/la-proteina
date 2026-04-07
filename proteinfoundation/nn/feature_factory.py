@@ -1981,12 +1981,16 @@ class FeatureFactory(torch.nn.Module):
                 f"Wrong feature mode (pad mask): {self.mode}. Should be 'seq' or 'pair'."
             )
 
-    def forward(self, batch, neighbor_idx=None):
+    def forward(self, batch, neighbor_idx=None, slot_valid=None):
         """
         Returns masked features, shape depends on mode and neighbor_idx:
           - seq mode:                  [b, n, dim_feats_out]
           - pair mode, no neighbor_idx: [b, n, n, dim_feats_out]
           - pair mode, with neighbor_idx: [b, n, K, dim_feats_out]  (sparse)
+
+        slot_valid: optional [b, n, K] bool; True = real neighbor slot (not padding).
+                    Only used in sparse pair mode to guard against padding slots that
+                    point to residue 0 (which has seq_mask=True but is not a real neighbor).
         """
         # If no features requested just return the zero tensor of appropriate dimensions
         if self.ret_zero:
@@ -2015,7 +2019,11 @@ class FeatureFactory(torch.nn.Module):
             B_idx = torch.arange(B, device=neighbor_idx.device).view(B, 1, 1).expand(B, N, K)
             nbr_valid = batch["mask"][B_idx, neighbor_idx]        # [b, n, K]
             i_valid   = batch["mask"][:, :, None].expand(B, N, K) # [b, n, K]
-            smask = (i_valid & nbr_valid).float()                  # [b, n, K]
+            smask = i_valid & nbr_valid
+            # Guard against padding slots pointing to valid-but-spurious residue 0
+            if slot_valid is not None:
+                smask = smask & slot_valid
+            smask = smask.float()                                  # [b, n, K]
             features = features * smask[..., None]
         else:
             features = self.apply_padding_mask(features, batch["mask"])

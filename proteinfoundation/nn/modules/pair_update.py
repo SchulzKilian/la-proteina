@@ -44,13 +44,14 @@ class PairReprUpdate(torch.nn.Module):
         """
         return pair_rep * pair_mask[..., None]
 
-    def forward(self, x, pair_rep, mask, neighbor_idx=None):
+    def forward(self, x, pair_rep, mask, neighbor_idx=None, slot_valid=None):
         """
         Args:
             x: Input sequence, shape [b, n, token_dim]
             pair_rep: Input pair representation, [b, n, n, pair_dim] (dense) or [b, n, K, pair_dim] (sparse)
             mask: binary mask, shape [b, n]
             neighbor_idx: optional [b, n, K] for sparse mode
+            slot_valid: optional [b, n, K] bool; True = real neighbor slot (not padding)
 
         Returns:
             Updated pair representation, same shape as input pair_rep.
@@ -75,7 +76,11 @@ class PairReprUpdate(torch.nn.Module):
             # Build sparse pair mask [b, n, K]
             nbr_valid = mask[B_idx, neighbor_idx]
             i_valid   = mask[:, :, None].expand(B, N, K)
-            pair_mask = (i_valid & nbr_valid).float()                   # [b, n, K]
+            pair_mask = i_valid & nbr_valid
+            # Guard against padding slots pointing to valid-but-spurious residue 0
+            if slot_valid is not None:
+                pair_mask = pair_mask & slot_valid
+            pair_mask = pair_mask.float()                               # [b, n, K]
             pair_rep = pair_rep * pair_mask[..., None]
             pair_rep = pair_rep + checkpoint(self.transition_out, *(pair_rep, pair_mask))
             pair_rep = pair_rep * pair_mask[..., None]

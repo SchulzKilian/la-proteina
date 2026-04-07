@@ -58,8 +58,8 @@ class MultiheadAttnAndTransition(torch.nn.Module):
             dim=dim_token, dim_cond=dim_cond, expansion_factor=expansion_factor
         )
 
-    def _apply_mha(self, x, pair_rep, cond, mask, neighbor_idx=None):
-        x_attn = self.mhba(x, pair_rep, cond, mask, neighbor_idx=neighbor_idx)
+    def _apply_mha(self, x, pair_rep, cond, mask, neighbor_idx=None, slot_valid=None):
+        x_attn = self.mhba(x, pair_rep, cond, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
         if self.residual_mha:
             x_attn = x_attn + x
         return x_attn * mask[..., None]
@@ -70,7 +70,7 @@ class MultiheadAttnAndTransition(torch.nn.Module):
             x_tr = x_tr + x
         return x_tr * mask[..., None]
 
-    def forward(self, x, pair_rep, cond, mask, neighbor_idx=None):
+    def forward(self, x, pair_rep, cond, mask, neighbor_idx=None, slot_valid=None):
         """
         Args:
             x: Input sequence representation, shape [b, n, dim_token]
@@ -78,16 +78,17 @@ class MultiheadAttnAndTransition(torch.nn.Module):
             mask: binary mask, shape [b, n]
             pair_rep: [b, n, n, dim_pair] (dense) or [b, n, K, dim_pair] (sparse)
             neighbor_idx: optional [b, n, K] for sparse attention
+            slot_valid: optional [b, n, K] bool; True = real neighbor slot (not padding)
 
         Returns:
             Updated sequence representation, shape [b, n, dim].
         """
         x = x * mask[..., None]
         if self.parallel:
-            x = self._apply_mha(x, pair_rep, cond, mask, neighbor_idx) + self._apply_transition(
+            x = self._apply_mha(x, pair_rep, cond, mask, neighbor_idx, slot_valid) + self._apply_transition(
                 x, cond, mask
             )
         else:
-            x = self._apply_mha(x, pair_rep, cond, mask, neighbor_idx)
+            x = self._apply_mha(x, pair_rep, cond, mask, neighbor_idx, slot_valid)
             x = self._apply_transition(x, cond, mask)
         return x * mask[..., None]
