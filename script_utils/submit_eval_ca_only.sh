@@ -25,8 +25,8 @@ if [ ! -d "$PROJECT_DIR" ]; then
 fi
 
 LATEST_JOB_ID=$(ls -t "$PROJECT_DIR" | head -1)
-CKPT_PATH="${PROJECT_DIR}/${LATEST_JOB_ID}/checkpoints"
-CKPT_FILE="${CKPT_PATH}/last.ckpt"
+CKPT_PATH="${PROJECT_DIR}/${LATEST_JOB_ID}"
+CKPT_FILE="${CKPT_PATH}/hpc_ckpt_1.ckpt"
 
 if [ ! -f "$CKPT_FILE" ]; then
     echo "Error: Checkpoint not found at $CKPT_FILE"
