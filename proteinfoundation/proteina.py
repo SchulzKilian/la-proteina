@@ -18,7 +18,7 @@ from proteinfoundation.flow_matching.product_space_flow_matcher import (
 from proteinfoundation.nn.local_latents_transformer import LocalLatentsTransformer
 from proteinfoundation.nn.local_latents_transformer_unindexed import LocalLatentsTransformerMotifUidx
 from proteinfoundation.partial_autoencoder.autoencoder import AutoEncoder
-from proteinfoundation.utils.coors_utils import nm_to_ang, trans_nm_to_atom37
+from proteinfoundation.utils.coors_utils import nm_to_ang, trans_nm_to_atom37, ca_nm_to_backbone_atom37
 from proteinfoundation.utils.pdb_utils import (
     create_full_prot,
     to_pdb,
@@ -750,8 +750,8 @@ class Proteina(L.LightningModule):
 
         elif ret_mode == "coors37_n_aatype":
             coors = (
-                trans_nm_to_atom37(x["bb_ca"].float()) * mask[..., None, None]
-            )  # [b, n, 37, 3]
+                ca_nm_to_backbone_atom37(x["bb_ca"].float()) * mask[..., None, None]
+            )  # [b, n, 37, 3] — N, CA, C, O reconstructed from Cα trace
             residue_type = torch.zeros_like(coors)[..., 0, 0] * mask  # [b, n]
             return {
                 "coors": coors,  # [b, n, 37, 3]
@@ -763,11 +763,14 @@ class Proteina(L.LightningModule):
             pdb_strings = []
 
             coors = (
-                trans_nm_to_atom37(x["bb_ca"]).float().detach().cpu().numpy()
-            )  # [b, n, 37, 3]
+                ca_nm_to_backbone_atom37(x["bb_ca"].float()).detach().cpu().numpy()
+            )  # [b, n, 37, 3] — N, CA, C, O reconstructed from Cα trace
             residue_type = np.zeros_like(coors[:, :, 0, 0])  # [b, n]
             atom37_mask = np.zeros_like(coors[:, :, :, 0])  # [b, n, 37]
-            atom37_mask[:, :, 1] = 1.0  # [b, n, 37]
+            atom37_mask[:, :, 0] = 1.0  # N
+            atom37_mask[:, :, 1] = 1.0  # CA
+            atom37_mask[:, :, 2] = 1.0  # C
+            atom37_mask[:, :, 4] = 1.0  # O
             atom37_mask = atom37_mask * mask[..., None]  # [b, n, 37]
             n = coors.shape[-3]
 

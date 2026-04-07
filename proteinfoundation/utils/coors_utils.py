@@ -137,6 +137,55 @@ def trans_ang_and_rot_to_atom37(trans, rot, impute_ox=False):
     )
 
 
+def ca_to_backbone_atom37(ca_coors_ang: torch.Tensor) -> torch.Tensor:
+    """
+    Reconstruct approximate backbone atoms (N, CA, C, O) from Cα-only coordinates.
+
+    Places N and C along the local Cα-trace direction with ideal bond lengths,
+    then imputes O via adjust_oxygen_pos. This is sufficient for ProteinMPNN
+    inverse-folding, which needs N/Cα/C/O backbone geometry.
+
+    - N placed 1.459 Å from Cα in the backward direction (Ca_{i-1} → Ca_i)
+    - C placed 1.525 Å from Cα in the forward direction (Ca_i → Ca_{i+1})
+    - Boundary residues fall back to the nearest available direction.
+    - O imputed from N-C geometry.
+
+    Args:
+        ca_coors_ang: CA coordinates in Å, shape [*, N, 3]
+
+    Returns:
+        atom37 coordinates [*, N, 37, 3] with N (0), CA (1), C (2), O (4) filled.
+    """
+    *batch, N_res, _ = ca_coors_ang.shape
+    atom37_shape = [*batch, N_res, 37, 3]
+    atom37 = torch.zeros(atom37_shape, dtype=ca_coors_ang.dtype, device=ca_coors_ang.device)
+    atom37[..., 1, :] = ca_coors_ang  # CA at index 1
+
+    # Unit vectors along the Cα trace: forward[i] = unit(Ca_{i+1} - Ca_i), shape [*, N-1, 3]
+    forward = ca_coors_ang[..., 1:, :] - ca_coors_ang[..., :-1, :]
+    forward = forward / (torch.norm(forward, dim=-1, keepdim=True) + 1e-8)
+
+    # N: backward direction — pad first residue with forward[0]
+    N_dir = torch.cat([forward[..., :1, :], forward], dim=-2)  # [*, N, 3]
+    atom37[..., 0, :] = ca_coors_ang - 1.459 * N_dir
+
+    # C: forward direction — pad last residue with forward[-1]
+    C_dir = torch.cat([forward, forward[..., -1:, :]], dim=-2)  # [*, N, 3]
+    atom37[..., 2, :] = ca_coors_ang + 1.525 * C_dir
+
+    # Impute O — adjust_oxygen_pos operates on [N, 37, 3] single samples
+    flat = atom37.reshape(-1, N_res, 37, 3)
+    flat = torch.stack([adjust_oxygen_pos(flat[i]) for i in range(flat.shape[0])])
+    atom37 = flat.reshape(atom37_shape)
+
+    return atom37
+
+
+def ca_nm_to_backbone_atom37(ca_coors_nm: torch.Tensor) -> torch.Tensor:
+    """Wrapper for ca_to_backbone_atom37 that accepts nm input."""
+    return ca_to_backbone_atom37(nm_to_ang(ca_coors_nm))
+
+
 def trans_nm_to_atom37(ca_coors_nm):
     """
     Converts CA positions (in nm) into atom37 representation (in Å).

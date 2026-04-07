@@ -366,12 +366,13 @@ def scRMSD(
 
     if not use_pdb_seq:
         logger.info("Running ProteinMPNN")
-        gen_seqs = run_proteinmpnn(  # For now do not use keep ca_only=False
+        gen_seqs = run_proteinmpnn(
             pdb_file_path,
             tmp_path,
             num_seq_per_target=num_seq_per_target,
             sampling_temp=pmpnn_sampling_temp,
             fix_pos=motif_index,
+            ca_only=False,  # Use vanilla model: backbone (N/CA/C/O) is always present
         )  # List of sequences
         gen_seqs = [v["seq"] for v in gen_seqs]
         suffix = "mpnn"
@@ -550,12 +551,13 @@ def sc_sequence_recovery(
         return count / len(s1)
 
     logger.info("Running ProteinMPNN")
-    mpnn_seqs = run_proteinmpnn(  # For now do not use keep ca_only=False
+    mpnn_seqs = run_proteinmpnn(
         pdb_file_path,
         tmp_path,
         num_seq_per_target=num_seq_per_target,
         sampling_temp=pmpnn_sampling_temp,
         fix_pos=motif_index,
+        ca_only=False,  # Use vanilla model: backbone (N/CA/C/O) is always present
     )  # List of sequences
 
     pdb_seq = extract_seq_from_pdb(pdb_file_path)

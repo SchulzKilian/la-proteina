@@ -23,11 +23,13 @@ dataset:
 
 metric:
   compute_designability: True
-  designability_modes: ["ca"]           # CA-only PDBs have no backbone heavy atoms
+  designability_modes: ["ca", "bb3o"]   # backbone (N/CA/C/O) reconstructed from Cα trace
   designability_folding_models: ["esmfold"]
 
-  compute_codesignability: True
-  codesignability_modes: ["ca"]         # same reason
+  # Codesignability requires a meaningful sequence in the PDB.
+  # CA-only models write all-alanine (aatype=0) → ESMFold folds poly-A → always terrible.
+  compute_codesignability: False
+  codesignability_modes: ["ca"]
   codesignability_folding_models: ["esmfold"]
   compute_co_sequence_recovery: False
 
