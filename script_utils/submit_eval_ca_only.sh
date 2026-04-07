@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J gen_eval_ca_only
-#SBATCH -A COMPUTERLAB-SL2-GPU
+#SBATCH -A COMPUTERLAB-SL3-GPU
 #SBATCH -p ampere
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
@@ -14,7 +14,7 @@ conda activate laproteina_env
 cd $HOME/la-proteina
 
 STORE_ROOT="./store"
-PROJECT_NAME="test_ca_only_diffusion"
+PROJECT_NAME="ca_only_diffusion_70M/"
 CONFIG_NAME="inference_ucond_notri"
 
 # Find latest run for this project

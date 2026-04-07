@@ -128,34 +128,91 @@ def extract_bins(metrics: dict, dm: str, metric: str) -> tuple:
 # Plotting
 # ---------------------------------------------------------------------------
 
+def compute_euler_error_density(t_sl, sl_vals, t_lc, lc_vals):
+    """
+    Returns (t, centripetal, tangential, total) where:
+      centripetal = κ‖v‖²  ∝ lc * sl   (geometric path bending)
+      tangential  = d‖v‖/dt ∝ diff(sl) (speed ramp along path)
+      total       = ‖x''‖  = sqrt(centripetal² + tangential²)
+    All on the same grid; constant dt² factor dropped (uniform grid).
+    """
+    n = min(len(sl_vals), len(lc_vals))
+    sl = sl_vals[:n]
+    lc = lc_vals[:n]
+    t  = t_sl[:n]
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        centripetal = np.where(sl > 0, lc * sl, 0.0)
+
+    d_sl = np.empty(n)
+    d_sl[0]    = sl[1]  - sl[0]
+    d_sl[-1]   = sl[-1] - sl[-2]
+    d_sl[1:-1] = 0.5 * (sl[2:] - sl[:-2])
+
+    total = np.sqrt(centripetal**2 + d_sl**2)
+    return t, centripetal, np.abs(d_sl), total
+
+
+def _norm(arr):
+    m = arr.max()
+    return arr / m if m > 0 else arr
+
+
 def plot_curvature(ax, t_vals, lengths, dm, color="#4e79a7", title=None,
                    schedule_ts=None, schedule_label=None, bin_width=0.025):
-    """
-    Coarsen to bin_width bins, normalise both curvature and schedule step
-    counts to [0, 1], and plot on a single shared y-axis.
-    """
     centres, curv = coarsen_bins(t_vals, lengths, bin_width)
     edges = np.arange(0.0, 1.0 + bin_width, bin_width)
-
-    # Normalise curvature
-    curv_norm = curv / curv.max() if curv.max() > 0 else curv
+    curv_norm = _norm(curv)
 
     ax.fill_between(centres, curv_norm, alpha=0.40, color=color)
-    ax.plot(centres, curv_norm, color=color, linewidth=1.2, label="curvature (norm)")
+    ax.plot(centres, curv_norm, color=color, linewidth=1.2, label="field (norm)")
 
     if schedule_ts is not None:
         counts = count_steps_per_bin(edges, schedule_ts)
-        counts_norm = counts / counts.max() if counts.max() > 0 else counts
-        ax.bar(centres, counts_norm, width=bin_width * 0.85, alpha=0.35,
-               color="#555555", align="center",
-               label=schedule_label or "schedule steps / bin (norm)")
+        ax.bar(centres, _norm(counts), width=bin_width * 0.85, alpha=0.35,
+               color="#555555", align="center", label=schedule_label or "schedule")
 
-    ax.set_xlabel("t", fontsize=11)
-    ax.set_ylabel("normalised value [0, 1]", fontsize=9)
-    ax.set_title(title or dm, fontsize=12)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1.05)
-    ax.legend(fontsize=8, loc="upper right")
+    ax.set_xlabel("t", fontsize=9)
+    ax.set_title(title or dm, fontsize=10)
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1.05)
+    ax.legend(fontsize=7, loc="upper right")
+
+
+def plot_error_density(ax, t_err, centripetal, tangential, total, dm, color="#4e79a7",
+                       schedule_ts=None, schedule_label=None, bin_width=0.025):
+    """
+    Three lines: κ‖v‖² (centripetal only), d‖v‖/dt (tangential only), total ‖x''‖.
+    Plus optimal L∞ schedule density and the candidate schedule.
+    """
+    edges = np.arange(0.0, 1.0 + bin_width, bin_width)
+    _, cp  = coarsen_bins(t_err, centripetal, bin_width)
+    _, tg  = coarsen_bins(t_err, tangential,  bin_width)
+    _, tot = coarsen_bins(t_err, total,        bin_width)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+
+    # Normalise everything to the total's max so the breakdown is to-scale
+    scale = tot.max() if tot.max() > 0 else 1.0
+    ax.fill_between(centres, tot / scale, alpha=0.15, color=color)
+    ax.plot(centres, tot / scale, color=color, linewidth=1.5, label="‖x″‖ total")
+    ax.plot(centres, cp  / scale, color=color, linewidth=1.0, linestyle="--",
+            alpha=0.8, label="κ‖v‖² (centripetal)")
+    ax.plot(centres, tg  / scale, color="gray", linewidth=1.0, linestyle=":",
+            alpha=0.8, label="d‖v‖/dt (tangential)")
+
+    # Optimal L∞ step density (cube-root of total error)
+    opt = _norm(tot ** (1/3))
+    ax.plot(centres, opt, color="black", linewidth=1.2, linestyle="-.",
+            alpha=0.7, label="optimal ∝ ‖x″‖^(1/3)")
+
+    if schedule_ts is not None:
+        counts = count_steps_per_bin(edges, schedule_ts)
+        ax.bar(centres, _norm(counts), width=bin_width * 0.85, alpha=0.25,
+               color="#555555", align="center", label=schedule_label or "schedule")
+
+    ax.set_xlabel("t", fontsize=9)
+    ax.set_title(f"{dm}  —  ‖x″‖ decomposition", fontsize=10)
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1.05)
+    ax.legend(fontsize=7, loc="upper right")
 
 
 
@@ -205,34 +262,47 @@ def main():
             label = f"power(p1={args.p1_latents}) n={args.nsteps}"
         dm_schedules[dm] = (sched_ts, label)
 
-    # ---- Figure: 2 rows × n_modes cols ----
-    # Row 0: field speed (step_length)
-    # Row 1: local curvature (bend angle between consecutive steps)
-    fig, axes = plt.subplots(2, n_modes,
-                             figsize=(6 * n_modes, 8),
-                             constrained_layout=True)
-    axes = np.array(axes).reshape(2, n_modes)  # guarantee 2-D indexing
+    # Pre-compute error density per mode (needs both step_length and local_curvature)
+    error_density_per_mode = {}
+    for dm in data_modes:
+        t_sl, sl_vals = extract_bins(metrics, dm, "step_length")
+        t_lc, lc_vals = extract_bins(metrics, dm, "local_curvature")
+        if len(sl_vals) > 0 and len(lc_vals) > 0:
+            t_err, cp, tg, tot = compute_euler_error_density(t_sl, sl_vals, t_lc, lc_vals)
+            error_density_per_mode[dm] = (t_err, cp, tg, tot)
 
-    row_titles = [
-        "Field speed  (||v||·dt, normalised) — where is the field active?",
-        "Local curvature  (mean bend angle, normalised) — where does the trajectory curve?",
-    ]
+    # ---- Figure: 3 rows × n_modes cols ----
+    fig, axes = plt.subplots(3, n_modes,
+                             figsize=(6 * n_modes, 11),
+                             constrained_layout=True)
+    axes = np.array(axes).reshape(3, n_modes)
+
+    row_titles = ["‖v‖ (field speed)", "κ·‖v‖·dt (bend angle)", "‖x″‖ decomposition"]
     metrics_keys = ["step_length", "local_curvature"]
 
-    for row, (mkey, row_title) in enumerate(zip(metrics_keys, row_titles)):
+    for row, (mkey, row_title) in enumerate(zip(metrics_keys, row_titles[:2])):
         for col, dm in enumerate(data_modes):
             t_vals, values = extract_bins(metrics, dm, mkey)
             sched_ts, sched_label = dm_schedules[dm]
-            ax = axes[row, col]
-            plot_curvature(ax, t_vals, values, dm,
+            plot_curvature(axes[row, col], t_vals, values, dm,
                            color=colors[col % len(colors)],
-                           title=f"{dm}  —  {mkey.replace('_', ' ')}",
+                           title=f"{dm}  —  {row_title}",
                            schedule_ts=sched_ts,
                            schedule_label=sched_label,
                            bin_width=args.bin_width)
-        # row super-label via fig.text
-        fig.text(0.5, 0.97 - row * 0.5, row_title,
-                 ha="center", va="top", fontsize=11, style="italic")
+
+    for col, dm in enumerate(data_modes):
+        ax = axes[2, col]
+        if dm in error_density_per_mode:
+            t_err, cp, tg, tot = error_density_per_mode[dm]
+            sched_ts, sched_label = dm_schedules[dm]
+            plot_error_density(ax, t_err, cp, tg, tot, dm,
+                               color=colors[col % len(colors)],
+                               schedule_ts=sched_ts,
+                               schedule_label=sched_label,
+                               bin_width=args.bin_width)
+        else:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes)
 
     # ---- Save ----
     from matplotlib.backends.backend_pdf import PdfPages
