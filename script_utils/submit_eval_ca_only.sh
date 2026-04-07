@@ -48,7 +48,7 @@ python proteinfoundation/generate.py \
     --config-name "$CONFIG_NAME" \
     ++config_name="$CONFIG_NAME" \
     ++ckpt_path="$CKPT_PATH" \
-    ++ckpt_name="last.ckpt"
+    ++ckpt_name="hpc_ckpt_1.ckpt"
 
 # Evaluation
 echo "Starting Evaluation..."
