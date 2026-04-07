@@ -63,10 +63,11 @@ class Proteina(L.LightningModule):
         if self._ca_only_mode:
             # CA-only mode: no autoencoder, no latents
             logger.info("CA-only mode detected (no 'local_latents' in product_flowmatcher). Skipping AutoEncoder.")
-            if cfg_exp.autoencoder_ckpt_path is not None:
+            # Use .get() — CA-only training configs may not have autoencoder_ckpt_path in struct at all
+            if cfg_exp.get("autoencoder_ckpt_path", None) is not None:
+                OmegaConf.set_struct(cfg_exp, False)
                 cfg_exp.autoencoder_ckpt_path = None
-            assert "autoencoder_ckpt_path" not in cfg_exp or cfg_exp.autoencoder_ckpt_path is None, \
-                "CA-only mode active but autoencoder_ckpt_path is set. Remove it from the config."
+                OmegaConf.set_struct(cfg_exp, True)
             self.autoencoder = None
             self.latent_dim = None
         elif self.use_precomputed_latents and not DEBUG_AE:
