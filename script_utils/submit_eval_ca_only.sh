@@ -24,7 +24,8 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 1
 fi
 
-LATEST_JOB_ID=$(ls -t "$PROJECT_DIR" | head -1)
+# LATEST_JOB_ID=$(ls -t "$PROJECT_DIR" | head -1)
+LATEST_JOB_ID=1775067520
 CKPT_PATH="${PROJECT_DIR}/${LATEST_JOB_ID}"
 CKPT_FILE="${CKPT_PATH}/hpc_ckpt_1.ckpt"
 
