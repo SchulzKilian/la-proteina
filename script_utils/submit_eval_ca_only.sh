@@ -14,7 +14,7 @@ conda activate laproteina_env
 cd $HOME/la-proteina
 
 STORE_ROOT="./store"
-PROJECT_NAME="ca_only_diffusion_70M/"
+PROJECT_NAME="ca_only_diffusion_70M"
 CONFIG_NAME="inference_ucond_notri"
 
 # Find latest run for this project
