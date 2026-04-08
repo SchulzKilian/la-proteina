@@ -36,13 +36,15 @@ cd "$HOME/la-proteina"
 CONFIG_NAME="inference_ucond_ca_only_70M"
 CKPT_PATH=""
 AE_CKPT_PATH=""
+NSAMPLES=""
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --config)  CONFIG_NAME="$2";  shift 2 ;;
-        --ckpt)    CKPT_PATH="$2";    shift 2 ;;
-        --ae_ckpt) AE_CKPT_PATH="$2"; shift 2 ;;
+        --config)   CONFIG_NAME="$2";  shift 2 ;;
+        --ckpt)     CKPT_PATH="$2";    shift 2 ;;
+        --ae_ckpt)  AE_CKPT_PATH="$2"; shift 2 ;;
+        --nsamples) NSAMPLES="$2";     shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -63,6 +65,12 @@ CKPT_NAME=$(basename "$CKPT_PATH")
 AE_OVERRIDE=""
 if [[ -n "$AE_CKPT_PATH" ]]; then
     AE_OVERRIDE="++autoencoder_ckpt_path=$AE_CKPT_PATH"
+fi
+
+# nsamples override string (empty = use config default)
+NSAMPLES_OVERRIDE=""
+if [[ -n "$NSAMPLES" ]]; then
+    NSAMPLES_OVERRIDE="++generation.dataset.nsamples=$NSAMPLES"
 fi
 
 # Where the two preserved result sets will live
@@ -104,6 +112,7 @@ run_variant() {
         ++ckpt_path="$CKPT_DIR" \
         ++ckpt_name="$CKPT_NAME" \
         $AE_OVERRIDE \
+        $NSAMPLES_OVERRIDE \
         $extra_overrides
 
     echo "Evaluating..."
