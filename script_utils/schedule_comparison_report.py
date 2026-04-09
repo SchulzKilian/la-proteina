@@ -46,9 +46,7 @@ def summarize(path, label):
 
     rmsd_cols = [
         c for c in df.columns
-        if c.startswith("_res_scRMSD_")
-        and "_all_" not in c
-        and not c.startswith("_res_co_")
+        if c.startswith("_res_scRMSD_") or c.startswith("_res_co_scRMSD_")
     ]
     if not rmsd_cols:
         print(f"  [!] No scRMSD columns found in {path}.")
@@ -131,7 +129,7 @@ for key in all_keys:
 rmsd_cols = sorted({
     c for df in dfs.values()
     for c in df.columns
-    if c.startswith("_res_scRMSD_") and "_all_" not in c and not c.startswith("_res_co_")
+    if c.startswith("_res_scRMSD_") or c.startswith("_res_co_scRMSD_")
 })
 
 if not rmsd_cols:
