@@ -26,10 +26,12 @@
 #   --schedules <list>   Comma-separated schedule keys to compare. Default: baseline,power_bump_e0.1
 #
 # Available schedule keys:
-#   baseline          — bb_ca log(p=2.0)  | local_latents power(p=2.0)      [config defaults]
-#   power_0.5         — bb_ca power(p=0.5)| local_latents power(p=0.5)      [separate experiment]
-#   power_bump_e0.1   — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.1) [bump ablation]
-#   power_bump_e0.0   — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.0) [= baseline, sanity check]
+#   baseline          — bb_ca log(p=2.0)  | local_latents power(p=2.0)           [config defaults]
+#   power_0.5         — bb_ca power(p=0.5)| local_latents power(p=0.5)           [separate experiment]
+#   power_bump_e0.05  — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.05, mu=0.489)
+#   power_bump_e0.1   — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.1,  mu=0.489)
+#   power_bump_e0.14  — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.14, mu=0.489) [max monotone]
+#   power_bump_e0.0   — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.0)  [= baseline, sanity check]
 
 source "$HOME/.bashrc"
 conda activate laproteina_env
@@ -89,8 +91,14 @@ get_sched_label() {
         power_0.5)
             echo "POWER_0.5  [bb_ca power p=0.5 | local_latents power p=0.5]"
             ;;
+        power_bump_e0.05)
+            echo "POWER_BUMP_EPS0.05  [bb_ca log p=2.0 | local_latents power_bump p=2.0 eps=0.05 mu=0.489]"
+            ;;
         power_bump_e0.1)
-            echo "POWER_BUMP_EPS0.1  [bb_ca log p=2.0 | local_latents power_bump p=2.0 eps=0.1]"
+            echo "POWER_BUMP_EPS0.1  [bb_ca log p=2.0 | local_latents power_bump p=2.0 eps=0.1 mu=0.489]"
+            ;;
+        power_bump_e0.14)
+            echo "POWER_BUMP_EPS0.14  [bb_ca log p=2.0 | local_latents power_bump p=2.0 eps=0.14 mu=0.489]"
             ;;
         power_bump_e0.0)
             echo "POWER_BUMP_EPS0.0  [bb_ca log p=2.0 | local_latents power_bump p=2.0 eps=0.0 = baseline]"
@@ -113,12 +121,27 @@ get_sched_overrides() {
             echo "++generation.model.local_latents.schedule.mode=power"
             echo "++generation.model.local_latents.schedule.p=0.5"
             ;;
+        power_bump_e0.05)
+            echo "++generation.model.local_latents.schedule.mode=power_with_middle_bump"
+            echo "++generation.model.local_latents.schedule.p=2.0"
+            echo "++generation.model.local_latents.schedule.eps=0.05"
+            echo "++generation.model.local_latents.schedule.mu=0.4890"
+            echo "++generation.model.local_latents.schedule.sigma=0.08"
+            ;;
         power_bump_e0.1)
             # Clean ablation: only the bump changes vs baseline; p=2.0 matches baseline
             echo "++generation.model.local_latents.schedule.mode=power_with_middle_bump"
             echo "++generation.model.local_latents.schedule.p=2.0"
             echo "++generation.model.local_latents.schedule.eps=0.1"
-            echo "++generation.model.local_latents.schedule.mu=0.45"
+            echo "++generation.model.local_latents.schedule.mu=0.4890"
+            echo "++generation.model.local_latents.schedule.sigma=0.08"
+            ;;
+        power_bump_e0.14)
+            # Max monotone eps with sigma=0.08, mu=0.4890
+            echo "++generation.model.local_latents.schedule.mode=power_with_middle_bump"
+            echo "++generation.model.local_latents.schedule.p=2.0"
+            echo "++generation.model.local_latents.schedule.eps=0.14"
+            echo "++generation.model.local_latents.schedule.mu=0.4890"
             echo "++generation.model.local_latents.schedule.sigma=0.08"
             ;;
         power_bump_e0.0)
@@ -126,7 +149,7 @@ get_sched_overrides() {
             echo "++generation.model.local_latents.schedule.mode=power_with_middle_bump"
             echo "++generation.model.local_latents.schedule.p=2.0"
             echo "++generation.model.local_latents.schedule.eps=0.0"
-            echo "++generation.model.local_latents.schedule.mu=0.45"
+            echo "++generation.model.local_latents.schedule.mu=0.4890"
             echo "++generation.model.local_latents.schedule.sigma=0.08"
             ;;
         *)
