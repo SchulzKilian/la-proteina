@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-schedule_comparison_report.py  <baseline_csv> <proposed_csv>
+schedule_comparison_report.py  "LABEL1:path1.csv" "LABEL2:path2.csv" ...
 
 Prints a side-by-side designability table and saves bar-chart PNGs comparing
-two inference schedule runs produced by submit_schedule_comparison.sh.
+N inference schedule runs produced by submit_schedule_comparison.sh.
+
+Each argument is "LABEL:path" (colon-separated).  The first entry is treated
+as the baseline for delta calculations.
 """
 import sys
 import math
@@ -15,9 +18,23 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-csv_baseline, csv_proposed = sys.argv[1], sys.argv[2]
+# ── Parse arguments ───────────────────────────────────────────────────────────
+if len(sys.argv) < 2:
+    print("Usage: schedule_comparison_report.py 'LABEL1:path1' 'LABEL2:path2' ...")
+    sys.exit(1)
+
+entries = []
+for arg in sys.argv[1:]:
+    if ":" in arg:
+        label, path = arg.split(":", 1)
+    else:
+        label = os.path.splitext(os.path.basename(arg))[0]
+        path = arg
+    entries.append((label.strip(), path.strip()))
 
 THRESHOLD = 2.0
+
+PALETTE = ["#4e79a7", "#e05c5c", "#59a14f", "#f28e2b", "#b07aa1", "#9c755f", "#76b7b2"]
 
 
 def summarize(path, label):
@@ -50,22 +67,24 @@ def summarize(path, label):
 
 # ── Load DataFrames ───────────────────────────────────────────────────────────
 dfs = {}
-for label, path in [("BASELINE", csv_baseline), ("PROPOSED", csv_proposed)]:
+results = {}
+labels_ordered = []
+
+for label, path in entries:
     try:
-        dfs[label] = pd.read_csv(path)
+        df = pd.read_csv(path)
+        dfs[label] = df
+        labels_ordered.append(label)
     except FileNotFoundError:
         print(f"  [!] CSV not found: {path}")
+
+    r = summarize(path, label)
+    if r:
+        results[label] = r
 
 if not dfs:
     print("No results found.")
     sys.exit(0)
-
-results = {}
-for label in dfs:
-    path = csv_baseline if label == "BASELINE" else csv_proposed
-    r = summarize(path, label)
-    if r:
-        results[label] = r
 
 # ── Text table ────────────────────────────────────────────────────────────────
 all_keys = []
@@ -76,25 +95,36 @@ for r in results.values():
             all_keys.append(k)
             seen.add(k)
 
-labels_ordered = ["BASELINE", "PROPOSED"]
+present = [l for l in labels_ordered if l in results]
+baseline_label = present[0] if present else None
+
 col_w = 42
-header = f"{'Metric':<{col_w}}" + "".join(f"{k:>12}" for k in labels_ordered if k in results) + "      delta"
+val_w = 14
+header = f"{'Metric':<{col_w}}" + "".join(f"{l[:val_w]:>{val_w}}" for l in present)
+if len(present) >= 2:
+    header += "".join(f"{'Δ vs baseline':>{val_w}}" for _ in present[1:])
 print(header)
 print("-" * len(header))
 
 for key in all_keys:
     row_str = f"{key:<{col_w}}"
-    vals = [results.get(lab, {}).get(key, float("nan")) for lab in labels_ordered if lab in results]
+    vals = [results.get(lab, {}).get(key, float("nan")) for lab in present]
     for v in vals:
         if isinstance(v, int):
-            row_str += f"{v:>12d}"
-        elif math.isnan(v):
-            row_str += f"{'nan':>12}"
+            row_str += f"{v:>{val_w}d}"
+        elif isinstance(v, float) and math.isnan(v):
+            row_str += f"{'nan':>{val_w}}"
         else:
-            row_str += f"{v:>12.4f}"
-    if len(vals) == 2 and not any(math.isnan(v) for v in vals) and not isinstance(vals[0], int):
-        delta = vals[1] - vals[0]
-        row_str += f"   {'+'if delta >= 0 else ''}{delta:.4f}"
+            row_str += f"{v:>{val_w}.4f}"
+    # Delta columns (each proposed vs baseline)
+    if len(vals) >= 2 and not isinstance(vals[0], int):
+        base_val = vals[0]
+        for v in vals[1:]:
+            if not math.isnan(v) and not math.isnan(base_val):
+                delta = v - base_val
+                row_str += f"   {'+'if delta >= 0 else ''}{delta:.4f}"
+            else:
+                row_str += f"{'nan':>{val_w}}"
     print(row_str)
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
@@ -107,6 +137,9 @@ rmsd_cols = sorted({
 if not rmsd_cols:
     print("No scRMSD columns found — skipping plots.")
     sys.exit(0)
+
+# Use the path of the first entry for output dir
+first_path = entries[0][1]
 
 for rmsd_col in rmsd_cols:
     series = {}
@@ -124,9 +157,8 @@ for rmsd_col in rmsd_cols:
     all_lengths = sorted({int(l) for s in series.values() for l in s["L"].unique()})
     groups = [str(l) for l in all_lengths] + ["Overall"]
 
-    colors = {"BASELINE": "#4e79a7", "PROPOSED": "#e05c5c"}
     n_labels = len(series)
-    bar_w = 0.35
+    bar_w = 0.8 / max(n_labels, 1)
     offsets = np.linspace(-(n_labels - 1) * bar_w / 2, (n_labels - 1) * bar_w / 2, n_labels)
     x = np.arange(len(groups))
 
@@ -134,6 +166,7 @@ for rmsd_col in rmsd_cols:
                                             constrained_layout=True)
 
     for i, (label, s) in enumerate(series.items()):
+        color = PALETTE[i % len(PALETTE)]
         means_rmsd, stds_rmsd, means_frac = [], [], []
         for g in groups:
             vals = s["scRMSD"].values if g == "Overall" else s.loc[s["L"] == int(g), "scRMSD"].values
@@ -145,10 +178,12 @@ for rmsd_col in rmsd_cols:
                 means_frac.append(float(np.mean(vals < 2.0)))
 
         xs = x + offsets[i]
+        # Truncate label for legend if too long
+        legend_label = label if len(label) <= 40 else label[:37] + "..."
         ax_rmsd.bar(xs, means_rmsd, bar_w * 0.9, yerr=stds_rmsd,
-                    label=label, color=colors.get(label), capsize=4, alpha=0.85,
+                    label=legend_label, color=color, capsize=4, alpha=0.85,
                     error_kw={"elinewidth": 1.2})
-        ax_frac.bar(xs, means_frac, bar_w * 0.9, label=label, color=colors.get(label), alpha=0.85)
+        ax_frac.bar(xs, means_frac, bar_w * 0.9, label=legend_label, color=color, alpha=0.85)
 
     col_short = rmsd_col.replace("_res_scRMSD_", "").replace("_", " ")
 
@@ -157,17 +192,17 @@ for rmsd_col in rmsd_cols:
     ax_rmsd.set_xlabel("Protein length (residues)")
     ax_rmsd.set_ylabel("mean scRMSD (Å) ± std")
     ax_rmsd.set_title(f"scRMSD — {col_short}")
-    ax_rmsd.legend(fontsize=8)
+    ax_rmsd.legend(fontsize=7, loc="upper right")
 
     ax_frac.set_xticks(x); ax_frac.set_xticklabels(groups)
     ax_frac.set_xlabel("Protein length (residues)")
     ax_frac.set_ylabel("Fraction designable (scRMSD < 2Å)")
     ax_frac.set_title(f"Designability — {col_short}")
     ax_frac.set_ylim(0, 1.05)
-    ax_frac.legend(fontsize=8)
+    ax_frac.legend(fontsize=7, loc="upper right")
 
     out_png = os.path.join(
-        os.path.dirname(csv_baseline),
+        os.path.dirname(first_path),
         f"schedule_comparison_{rmsd_col.replace('_res_scRMSD_', '')}.png"
     )
     fig.savefig(out_png, dpi=150)

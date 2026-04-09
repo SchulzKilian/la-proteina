@@ -42,7 +42,9 @@ sys.path.insert(0, os.path.abspath("."))
 # ---------------------------------------------------------------------------
 
 def get_schedule(mode: str, nsteps: int, *, p1: float = None,
-                 eps: float = 1e-5) -> np.ndarray:
+                 eps: float = 1e-5,
+                 bump_eps: float = 0.10, bump_mu: float = 0.45,
+                 bump_sigma: float = 0.08) -> np.ndarray:
     """Returns t-values [nsteps+1].  Mirrors the torch implementation."""
     if mode == "uniform":
         return np.linspace(0.0, 1.0, nsteps + 1)
@@ -55,6 +57,17 @@ def get_schedule(mode: str, nsteps: int, *, p1: float = None,
         t = t - t.min()
         t = t / t.max()
         return t
+    elif mode == "power_with_middle_bump":
+        u = np.linspace(0.0, 1.0, nsteps + 1)
+        F_base = u ** p1
+        raw_bump = np.exp(-((u - bump_mu) ** 2) / (2 * bump_sigma ** 2))
+        bump = raw_bump - ((1 - u) * raw_bump[0] + u * raw_bump[-1])
+        F_unnorm = F_base + bump_eps * bump
+        assert np.all(np.diff(F_unnorm) >= -1e-12), (
+            f"power_with_middle_bump schedule not monotone; reduce eps (eps={bump_eps})"
+        )
+        F = (F_unnorm - F_unnorm[0]) / (F_unnorm[-1] - F_unnorm[0])
+        return F
     else:
         raise ValueError(f"Unknown schedule mode: {mode}")
 

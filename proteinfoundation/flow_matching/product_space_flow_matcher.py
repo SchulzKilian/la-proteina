@@ -639,14 +639,21 @@ class ProductSpaceFlowMatcher(L.LightningModule):
             # Create a list of trajectory dictionaries, one for each sample in batch
             [{} for _ in range(nsamples)]
 
-        ts = {
-            data_mode: get_schedule(
-                mode=sampling_model_args[data_mode]["schedule"]["mode"],
+        ts = {}
+        for data_mode in self.data_modes:
+            sched = sampling_model_args[data_mode]["schedule"]
+            _bump_eps = sched.get("eps");    _bump_eps   = 0.10 if _bump_eps   is None else _bump_eps
+            _bump_mu  = sched.get("mu");     _bump_mu    = 0.45 if _bump_mu    is None else _bump_mu
+            _bump_sig = sched.get("sigma");  _bump_sig   = 0.08 if _bump_sig   is None else _bump_sig
+            ts[data_mode] = get_schedule(
+                mode=sched["mode"],
                 nsteps=int(nsteps),
-                p1=sampling_model_args[data_mode]["schedule"]["p"],
+                p1=sched.get("p"),
+                bump_eps=_bump_eps,
+                bump_mu=_bump_mu,
+                bump_sigma=_bump_sig,
             )
-            for data_mode in self.data_modes
-        }  # each [nsteps + 1], first element is 0, last is 1
+        # each [nsteps + 1], first element is 0, last is 1
 
         gt = {
             data_mode: get_gt(
@@ -919,7 +926,8 @@ def get_gt(
 
 
 def get_schedule(
-    mode: str, nsteps: int, *, p1: float = None, eps: float = 1e-5
+    mode: str, nsteps: int, *, p1: float = None, eps: float = 1e-5,
+    bump_eps: float = 0.10, bump_mu: float = 0.45, bump_sigma: float = 0.08,
 ) -> Float[Tensor, "nsteps_p_one"]:
     """
     Gets the partition of the unit interval with points where we'll evaluate the vector field / score.
@@ -939,6 +947,19 @@ def get_schedule(
         t = t - torch.min(t)
         t = t / torch.max(t)
         return t
+    elif mode == "power_with_middle_bump":
+        assert p1 is not None, "p1 cannot be none for the power_with_middle_bump schedule"
+        u = torch.linspace(0.0, 1.0, nsteps + 1)
+        F_base = u ** p1
+        raw_bump = torch.exp(-((u - bump_mu) ** 2) / (2 * bump_sigma ** 2))
+        bump = raw_bump - ((1 - u) * raw_bump[0] + u * raw_bump[-1])
+        F_unnorm = F_base + bump_eps * bump
+        diffs = F_unnorm[1:] - F_unnorm[:-1]
+        assert torch.all(diffs >= -1e-12), (
+            f"power_with_middle_bump schedule is not monotone; reduce eps (eps={bump_eps})"
+        )
+        F = (F_unnorm - F_unnorm[0]) / (F_unnorm[-1] - F_unnorm[0])
+        return F
     else:
         raise IOError(f"Schedule mode not recognized {mode}")
 
