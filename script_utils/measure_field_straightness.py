@@ -152,7 +152,7 @@ def main():
     parser.add_argument("--batch_size",   type=int, default=None,
                         help="Samples per forward pass. Defaults to nsamples (single batch). "
                              "Set lower (e.g. 8) to avoid OOM on large models.")
-    parser.add_argument("--nres",         type=int, default=100,
+    parser.add_argument("--nres",         type=int, default=400,
                         help="Protein length.")
     parser.add_argument("--nsteps",       type=int, default=500,
                         help="ODE steps for the curvature profile. 500+ gives a "
@@ -176,7 +176,7 @@ def main():
 
     batch_size = args.batch_size if args.batch_size is not None else args.nsamples
     n_batches = (args.nsamples + batch_size - 1) // batch_size  # ceil division
-
+    assert args.nres > 300, "This analysis is most meaningful for large proteins where curvature matters, and where the model is trained on "
     print(f"Data modes : {model.fm.data_modes}")
     print(f"nsamples={args.nsamples}  batch_size={batch_size}  n_batches={n_batches}  nres={args.nres}  nsteps={args.nsteps}")
     print(f"NFEs (NN calls): {args.nsteps} per batch  ×  {n_batches} batches  =  {args.nsteps * n_batches} total")

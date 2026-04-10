@@ -26,12 +26,14 @@
 #   --schedules <list>   Comma-separated schedule keys to compare. Default: baseline,power_bump_e0.1
 #
 # Available schedule keys:
-#   baseline          — bb_ca log(p=2.0)  | local_latents power(p=2.0)           [config defaults]
-#   power_0.5         — bb_ca power(p=0.5)| local_latents power(p=0.5)           [separate experiment]
-#   power_bump_e0.05  — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.05, mu=0.489)
-#   power_bump_e0.1   — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.1,  mu=0.489)
-#   power_bump_e0.14  — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.14, mu=0.489) [max monotone]
-#   power_bump_e0.0   — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.0)  [= baseline, sanity check]
+#   baseline            — bb_ca log(p=2.0)  | local_latents power(p=2.0)           [config defaults]
+#   power_0.5           — bb_ca power(p=0.5)| local_latents power(p=0.5)           [separate experiment]
+#   power_bump_e0.05    — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.05, mu=0.489, sigma=0.08)
+#   power_bump_e0.1     — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.1,  mu=0.489, sigma=0.08)
+#   power_bump_e0.14    — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.14, mu=0.489, sigma=0.08) [prior best]
+#   power_bump_e0.0     — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.0,  mu=0.489, sigma=0.08) [= baseline, sanity check]
+#   power_x2_bump_e0.14 — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.14, mu=0.50,  sigma=0.10) [fit-derived sigma]
+#   power_x2_bump_e0.19 — bb_ca log(p=2.0)  | local_latents power_bump(p=2.0, eps=0.19, mu=0.50,  sigma=0.10) [fit-derived sigma, monotonicity ceiling]
 
 source "$HOME/.bashrc"
 conda activate laproteina_env
@@ -45,16 +47,20 @@ CONFIG_NAME="inference_ucond_ca_only_70M"
 CKPT_PATH=""
 AE_CKPT_PATH=""
 NSAMPLES=""
+LENGTHS=""
+GEN_CONFIG=""
 SCHEDULES="baseline,power_bump_e0.1"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --config)     CONFIG_NAME="$2";   shift 2 ;;
-        --ckpt)       CKPT_PATH="$2";     shift 2 ;;
-        --ae_ckpt)    AE_CKPT_PATH="$2";  shift 2 ;;
-        --nsamples)   NSAMPLES="$2";      shift 2 ;;
-        --schedules)  SCHEDULES="$2";     shift 2 ;;
+        --config)      CONFIG_NAME="$2";   shift 2 ;;
+        --ckpt)        CKPT_PATH="$2";     shift 2 ;;
+        --ae_ckpt)     AE_CKPT_PATH="$2";  shift 2 ;;
+        --nsamples)    NSAMPLES="$2";      shift 2 ;;
+        --lengths)     LENGTHS="$2";       shift 2 ;;
+        --gen_config)  GEN_CONFIG="$2";    shift 2 ;;
+        --schedules)   SCHEDULES="$2";     shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -81,6 +87,16 @@ if [[ -n "$NSAMPLES" ]]; then
     NSAMPLES_OVERRIDE="++generation.dataset.nsamples=$NSAMPLES"
 fi
 
+LENGTHS_OVERRIDE=""
+if [[ -n "$LENGTHS" ]]; then
+    LENGTHS_OVERRIDE="++generation.dataset.nlens_cfg.nres_lens=[${LENGTHS}]"
+fi
+
+GEN_CONFIG_OVERRIDE=""
+if [[ -n "$GEN_CONFIG" ]]; then
+    GEN_CONFIG_OVERRIDE="generation=${GEN_CONFIG}"
+fi
+
 # ── Schedule registry ─────────────────────────────────────────────────────────
 # get_sched_label <key>  → human-readable label
 get_sched_label() {
@@ -102,6 +118,12 @@ get_sched_label() {
             ;;
         power_bump_e0.0)
             echo "POWER_BUMP_EPS0.0  [bb_ca log p=2.0 | local_latents power_bump p=2.0 eps=0.0 = baseline]"
+            ;;
+        power_x2_bump_e0.14)
+            echo "POWER_X2_BUMP_EPS0.14  [local_latents power_bump p=2.0 eps=0.14 mu=0.50 sigma=0.10]"
+            ;;
+        power_x2_bump_e0.19)
+            echo "POWER_X2_BUMP_EPS0.19  [local_latents power_bump p=2.0 eps=0.19 mu=0.50 sigma=0.10 ceiling]"
             ;;
         *)
             echo "UNKNOWN[$1]"
@@ -152,6 +174,23 @@ get_sched_overrides() {
             echo "++generation.model.local_latents.schedule.mu=0.4890"
             echo "++generation.model.local_latents.schedule.sigma=0.08"
             ;;
+        power_x2_bump_e0.14)
+            # fit_bump_params.py: bend-angle gap window [0.30, 0.65] → mu=0.50, sigma=0.10
+            # Paired vs power_bump_e0.14 to isolate effect of wider sigma alone
+            echo "++generation.model.local_latents.schedule.mode=power_with_middle_bump"
+            echo "++generation.model.local_latents.schedule.p=2.0"
+            echo "++generation.model.local_latents.schedule.eps=0.14"
+            echo "++generation.model.local_latents.schedule.mu=0.50"
+            echo "++generation.model.local_latents.schedule.sigma=0.10"
+            ;;
+        power_x2_bump_e0.19)
+            # Same mu/sigma, eps at monotonicity ceiling (0.1965 → 0.19 safe)
+            echo "++generation.model.local_latents.schedule.mode=power_with_middle_bump"
+            echo "++generation.model.local_latents.schedule.p=2.0"
+            echo "++generation.model.local_latents.schedule.eps=0.19"
+            echo "++generation.model.local_latents.schedule.mu=0.50"
+            echo "++generation.model.local_latents.schedule.sigma=0.10"
+            ;;
         *)
             echo "ERROR: Unknown schedule key: $1" >&2
             exit 1
@@ -188,9 +227,11 @@ run_variant() {
         ++ckpt_path="$CKPT_DIR"
         ++ckpt_name="$CKPT_NAME"
     )
-    [[ -n "$AE_OVERRIDE" ]]       && gen_cmd+=("$AE_OVERRIDE")
-    [[ -n "$NSAMPLES_OVERRIDE" ]] && gen_cmd+=("$NSAMPLES_OVERRIDE")
-    [[ ${#overrides[@]} -gt 0 ]]  && gen_cmd+=("${overrides[@]}")
+    [[ -n "$GEN_CONFIG_OVERRIDE" ]] && gen_cmd+=("$GEN_CONFIG_OVERRIDE")
+    [[ -n "$AE_OVERRIDE" ]]        && gen_cmd+=("$AE_OVERRIDE")
+    [[ -n "$NSAMPLES_OVERRIDE" ]]  && gen_cmd+=("$NSAMPLES_OVERRIDE")
+    [[ -n "$LENGTHS_OVERRIDE" ]]   && gen_cmd+=("$LENGTHS_OVERRIDE")
+    [[ ${#overrides[@]} -gt 0 ]]   && gen_cmd+=("${overrides[@]}")
     "${gen_cmd[@]}"
 
     echo "Evaluating..."
@@ -210,6 +251,8 @@ echo "================================================================"
 echo "Schedule comparison"
 echo "Config     : $CONFIG_NAME"
 echo "Checkpoint : $CKPT_PATH"
+echo "Gen config : ${GEN_CONFIG:-default}"
+echo "Lengths    : ${LENGTHS:-default}"
 echo "Schedules  : $SCHEDULES"
 echo "================================================================"
 
