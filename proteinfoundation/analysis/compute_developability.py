@@ -117,21 +117,26 @@ SAP_SPHERE_RADIUS    = 5.0    # Å  — sphere radius for SAP neighbourhood
 # ─────────────────────────────────────────────────────────────────────────────
 # Worker-level globals (populated once per worker process in _worker_init)
 # ─────────────────────────────────────────────────────────────────────────────
-_CANYA_MODEL   = None   # loaded TF model or None if unavailable
-_IUPRED_FN     = None   # callable(sequence, mode) -> list[float] or None
+_CANYA_MODEL    = None   # loaded TF model or None if unavailable
+_CANYA_AVAILABLE = False  # set True in _worker_init if model or CLI found
+_IUPRED_FN      = None   # callable(sequence, mode) -> list[float] or None
 
 def _worker_init():
     """Called once per worker process to load heavy models."""
-    global _CANYA_MODEL, _IUPRED_FN
+    global _CANYA_MODEL, _CANYA_AVAILABLE, _IUPRED_FN
 
     # ── CANYA ─────────────────────────────────────────────────────────────────
     try:
         os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
         from canya.canya import CANYA  # type: ignore
         _CANYA_MODEL = CANYA()
-    except Exception as e:
-        sys.stderr.write(f"[worker] CANYA not available: {e}\n")
+        _CANYA_AVAILABLE = True
+    except Exception:
         _CANYA_MODEL = None
+        # Check if CLI is available as fallback
+        _CANYA_AVAILABLE = subprocess.run(
+            ["which", "canya"], capture_output=True
+        ).returncode == 0
 
     # ── IUPred3 ───────────────────────────────────────────────────────────────
     # iupred3 is a standalone download (not on PyPI).
@@ -145,7 +150,9 @@ def _worker_init():
         sys.path.insert(0, iupred3_dir)
     try:
         import iupred3_lib  # type: ignore
-        _IUPRED_FN = lambda seq: iupred3_lib.iupred(seq, "long")
+        _iupred3_raw = iupred3_lib.iupred
+        # iupred() returns (disorder_scores, binding_scores) — take only disorder
+        _IUPRED_FN = lambda seq: _iupred3_raw(seq, "long")[0]
     except ImportError:
         sys.stderr.write(
             f"[worker] iupred3 not available — check IUPRED3_DIR (tried: {iupred3_dir})\n"
@@ -289,14 +296,15 @@ def compute_tango(sequence: str, pdb_id: str) -> Tuple[float, int]:
 def compute_canya(sequence: str) -> float:
     """
     CANYA nucleation propensity (Lehner lab).
-    Uses worker-local model if available; falls back to subprocess CLI.
-    Returns max nucleation score across all windows.
+    Returns NaN silently if CANYA is not installed.
     """
+    if not _CANYA_AVAILABLE:
+        return float("nan")
+
     # Try Python API (model loaded in _worker_init)
     if _CANYA_MODEL is not None:
         try:
             result = _CANYA_MODEL.predict(sequence)
-            # result is typically a dict or array with per-position scores
             scores = result if isinstance(result, (list, np.ndarray)) else result.get("score", [])
             return float(np.max(scores)) if len(scores) > 0 else float("nan")
         except Exception as e:
@@ -309,10 +317,10 @@ def compute_canya(sequence: str) -> float:
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode == 0:
-            # Expect a single float on stdout
             return float(proc.stdout.strip().split()[-1])
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError) as e:
-        sys.stderr.write(f"[canya] subprocess failed: {e}\n")
+        sys.stderr.write(f"[canya] non-zero exit: {proc.stderr.strip()[:200]}\n")
+    except (subprocess.TimeoutExpired, ValueError) as e:
+        sys.stderr.write(f"[canya] failed: {e}\n")
 
     return float("nan")
 

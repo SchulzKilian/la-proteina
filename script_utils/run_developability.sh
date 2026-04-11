@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+#SBATCH --job-name=developability
+#SBATCH --partition=ampere
+#SBATCH --gres=gpu:1
+#SBATCH --time=04:00:00
+#SBATCH --output=logs/developability_%j.log
+#SBATCH --mail-type=END,FAIL
+#
 # run_developability.sh
 #
 # Wrapper for compute_developability.py.
@@ -7,9 +14,7 @@
 #
 # Usage:
 #   bash script_utils/run_developability.sh [--output PATH] [--limit N] [--workers N]
-#
-# SBATCH example (Ampere partition, 1 GPU node = 32 CPUs):
-#   sbatch --partition=ampere --gres=gpu:1 --time=12:00:00 script_utils/run_developability.sh
+#   sbatch script_utils/run_developability.sh
 
 set -euo pipefail
 
