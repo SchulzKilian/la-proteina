@@ -15,6 +15,7 @@ import json
 import hydra
 import lightning as L
 import torch
+from omegaconf import OmegaConf
 from dotenv import load_dotenv
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -357,6 +358,12 @@ def main(cfg: Dict) -> None:
     # 2. Setup paths and seed
     root_path = setup(cfg, create_root=True, config_name=config_name, job_id=job_id)
 
+    # 2b. Save the fully-resolved config (including CLI overrides) so that
+    #     evaluate.py can pick up the actual generation parameters.
+    resolved_cfg_path = os.path.join(root_path, "resolved_config.yaml")
+    with open(resolved_cfg_path, "w") as f:
+        OmegaConf.save(cfg, f)
+
     # 3. Check for existing results to avoid redundant work
     csv_filename = f"results_{config_name}_{job_id}.csv"
     csv_path = os.path.join(root_path, "..", csv_filename)
@@ -369,6 +376,7 @@ def main(cfg: Dict) -> None:
     cfg_gen = cfg.generation
     check_cfg_validity(cfg_gen.dataset, cfg_gen.args)
     model = load_ckpt_n_configure_inference(cfg)
+    model._generation_base_seed = cfg.seed  # Used by predict_step for per-batch seeding
 
     # 5. Handle dataset splitting and creation
     motif_cond = cfg_gen.args.get("motif_cond", False)

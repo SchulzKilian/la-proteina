@@ -655,6 +655,13 @@ class Proteina(L.LightningModule):
             List of tuples. Each tuple represents one of the generated samples, has two elements:
                 coordinates tensor of shape [n, 37, 3], and aatype tensor of shape [n].
         """
+        # Re-seed per batch so that each protein gets the same initial noise
+        # regardless of schedule (different schedules consume different amounts
+        # of random state in SDE steps, which otherwise desynchronizes the RNG).
+        if hasattr(self, "_generation_base_seed"):
+            batch_seed = self._generation_base_seed + batch_idx
+            L.seed_everything(batch_seed)
+
         self_cond = self.inf_cfg.args.self_cond
 
         nsteps = self.inf_cfg.args.nsteps

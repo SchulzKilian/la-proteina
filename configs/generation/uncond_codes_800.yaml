@@ -19,8 +19,8 @@ dataset:
   # Number of samples per protein length or per cath code
   nsamples: 100
 
-  # Maximum number of samples in each batch
-  max_nsamples_per_batch: 10
+  # Maximum number of samples in each batch (8 works well on A100 80GB)
+  max_nsamples_per_batch: 8
 
 
   # Empirical (length, cath code) distribution

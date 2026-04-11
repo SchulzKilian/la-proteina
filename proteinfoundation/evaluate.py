@@ -424,6 +424,13 @@ if __name__ == "__main__":
         cfg, create_root=False, config_name=config_name, job_id=args.job_id
     )
 
+    # If generate.py saved a resolved config (with CLI overrides), use it
+    # so the CSV columns reflect the actual generation parameters.
+    resolved_cfg_path = os.path.join(root_path, "resolved_config.yaml")
+    if os.path.exists(resolved_cfg_path):
+        cfg = OmegaConf.load(resolved_cfg_path)
+        logger.info(f"Loaded resolved config from {resolved_cfg_path}")
+
     cfg_metric = cfg.generation.metric
     
     # Code for designability
@@ -471,5 +478,4 @@ if __name__ == "__main__":
     print("="*50 + "\n")
     # <--- END BLOCK --->
     
-    df.to_csv(csv_path, index=False)
     df.to_csv(csv_path, index=False)
