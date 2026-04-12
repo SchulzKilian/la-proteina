@@ -71,20 +71,22 @@ COLUMNS = [
 IDX_TO_AA = {i: aa for i, aa in enumerate(restypes)}
 IDX_TO_AA[20] = "X"
 
-# ── SWI (Solubility-Weighted Index) per-residue propensity scores ─────────────
-# Source: Bhandari et al. 2020, Table 1
-# These are log-odds of each AA appearing in soluble vs insoluble NESG proteins.
-# *** VERIFY THESE VALUES AGAINST TABLE 1 OF THE PAPER BEFORE PUBLICATION ***
+# Solubility-Weighted Index weights — Bhandari et al. 2020
+# doi: 10.1093/bioinformatics/btaa578
+# Source: reference implementation swi.py (Gardner-BinfLab/SoDoPE_paper_2020)
+# These are optimised normalised B-factors on the absolute scale (~0.52–0.99).
+# The logistic regression P(soluble) = 1/(1+exp(-(81.06*SWI - 62.78)))
+# is calibrated to this scale.
 SWI_SCORES: Dict[str, float] = {
-    "A":  0.06, "R":  0.25, "N":  0.17, "D":  0.23, "C": -0.13,
-    "Q":  0.16, "E":  0.26, "G":  0.05, "H":  0.11, "I": -0.15,
-    "L": -0.16, "K":  0.22, "M": -0.05, "F": -0.20, "P":  0.15,
-    "S":  0.14, "T":  0.09, "W": -0.19, "Y": -0.12, "V": -0.10,
-    "X":  0.00,
+    "A": 0.8356, "C": 0.5208, "D": 0.9079, "E": 0.9877, "F": 0.5850,
+    "G": 0.7997, "H": 0.8948, "I": 0.6784, "K": 0.9267, "L": 0.6554,
+    "M": 0.6297, "N": 0.8597, "P": 0.8235, "Q": 0.7894, "R": 0.7712,
+    "S": 0.7441, "T": 0.8097, "V": 0.7358, "W": 0.6375, "Y": 0.6113,
+    "X": 0.7700,  # fallback: approximate mean of the 20 values
 }
-
 # ── hydrophobicity scale for SAP (Black & Mould 1991, normalised 0–1) ─────────
-# Source: Chennamsetty et al. 2009 (SAP paper) uses this scale.
+# Source: Chennamsetty et al. 2009 (SAP paper) uses this scale. Chemamsetty
+# Normalises glycine to 0, we keep the Black & Mould values and normalise to 0–1
 SAP_HYDROPHOBICITY: Dict[str, float] = {
     "A": 0.616, "R": 0.000, "N": 0.236, "D": 0.028, "C": 0.680,
     "Q": 0.251, "E": 0.043, "G": 0.501, "H": 0.165, "I": 0.943,
