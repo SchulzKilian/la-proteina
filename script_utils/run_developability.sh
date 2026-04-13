@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# run_developability.sh
+#SBATCH -J developability
+#SBATCH -A COMPUTERLAB-SL3-CPU
+#SBATCH -p icelake
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+#SBATCH --output=slurm_developability_%j.out
 #
 # Wrapper for compute_developability.py.
 # Activates the laproteina_env conda environment, checks required tools,
 # and runs the property panel computation.
 #
 # Usage:
+#   sbatch script_utils/run_developability.sh
 #   bash script_utils/run_developability.sh [--output PATH] [--limit N] [--workers N]
-#
-# SBATCH example (Ampere partition, 1 GPU node = 32 CPUs):
-#   sbatch --partition=ampere --gres=gpu:1 --time=12:00:00 script_utils/run_developability.sh
+
+# ── activate conda environment (before set -e, since system bashrc may error) ─
+source $HOME/.bashrc
+conda activate laproteina_env
 
 set -euo pipefail
 
@@ -53,12 +63,6 @@ echo "  Output:   $OUTPUT_CSV"
 echo "  Data dir: $DATA_DIR"
 echo "  Workers:  $WORKERS"
 echo "============================================================"
-
-# ── activate conda environment ────────────────────────────────────────────────
-CONDA_BASE="$(conda info --base 2>/dev/null || echo "${HOME}/miniconda3")"
-# shellcheck source=/dev/null
-source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate laproteina_env
 
 # ── check required tools ──────────────────────────────────────────────────────
 MISSING=()
@@ -120,8 +124,7 @@ export TANGO_EXE
 # ── run ───────────────────────────────────────────────────────────────────────
 echo "Command: ${PYTHON_CMD[*]}"
 echo ""
-"${PYTHON_CMD[@]}"
-EXIT_CODE=$?
+"${PYTHON_CMD[@]}" && EXIT_CODE=0 || EXIT_CODE=$?
 
 echo ""
 echo "Exit code: $EXIT_CODE"

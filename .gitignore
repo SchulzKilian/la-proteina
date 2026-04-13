@@ -19,7 +19,7 @@ wandb/
 **.pt
 **.ckpt
 *.fasta
-
+/checkpoints_laproteina
 /checkpoints
 /tmp
 /tmp_ae
@@ -28,3 +28,5 @@ wandb/
 /ProteinMPNN/ca_model_weights/*.pt
 /ProteinMPNN/vanilla_model_weights/*.pt
 /my_env
+checkpoints_laproteina/
+data/

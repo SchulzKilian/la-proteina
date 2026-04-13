@@ -55,6 +55,12 @@ python proteinfoundation/evaluate.py --config_name <config_name>
 bash script_utils/gen_n_eval.sh
 ```
 
+**Developability analysis:**
+```bash
+sbatch script_utils/run_developability.sh                    # full corpus, icelake CPU partition
+bash script_utils/run_developability.sh --limit 100          # local test run
+```
+
 No formal test suite. Experiment tracking via Weights & Biases.
 
 ## Architecture
@@ -92,6 +98,18 @@ Key flags:
 - `keys_to_keep = ['mean', 'log_scale', 'coords_nm', 'coord_mask', 'id', 'residue_type', 'bb_ca']`
 - AE latents are NOT rotation-invariant (`GlobalRotationTransform` must still be applied during training, not removable from baked_in_names).
 - Cambridge HPC Ampere partition: requesting 1 GPU gives full 1/4-node allocation (32 CPUs, ~250G RAM) regardless of `--cpus-per-task`. Set `NUM_WORKERS=32` to use all available CPUs.
+
+**`proteinfoundation/analysis/compute_developability.py`** — Biophysical property panel:
+- Computes 20-column CSV of per-protein properties from `.pt` files in `processed/`.
+- Reads PyG Data objects (`coords`, `coord_mask`, `residue_type`, `residues`, `id`), applies `PDB_TO_OPENFOLD_INDEX_TENSOR` reindex (same as `PDBDataset.__getitem__`), then extracts sequence and structure for property computation.
+- **Sequence-based**: SWI (mean per-residue solubility propensity), TANGO (aggregation via external binary), CANYA (nucleation via TF model, soft dep), net charge/pI (Biopython), IUPred3 (disorder, soft dep), Shannon entropy.
+- **Structure-based**: radius of gyration, hydrophobic patches (union-find on exposed hydrophobic residues), SAP (Chennamsetty 2009), SCM (spatial charge map). All share a single FreeSASA call per protein.
+- **Always NaN**: `camsol_intrinsic` (placeholder, no public binary), `canya_max_nucleation` (if not installed).
+- Resume-safe: appends to CSV, skips already-processed `pdb_id`s on restart.
+- Uses `spawn` multiprocessing context (safe with TensorFlow/PyTorch). TANGO creates temp dirs per call.
+- `.pt` files are in graphein/PDB atom order on disk; the reindex to OpenFold order happens at load time (both here and in `PDBDataset`).
+- Data: 536K `.pt` files sharded as `processed/<2-char-prefix>/<pdb_chain>.pt`. Estimated ~8-10h with 32 workers (TANGO subprocess is the bottleneck).
+- `data.id` matches `Path(filename).stem` — resume logic relies on this.
 
 ### Configuration System
 
@@ -133,6 +151,9 @@ sbatch script_utils/submit_train.sh -n training_ca_only
 - Ampere partition: 1 GPU = 32 CPUs + ~250G RAM (full 1/4-node), regardless of `--cpus-per-task` SBATCH header.
 - SLURM kills jobs at time limit without warning — use atomic writes for any file outputs.
 - Stale CSV/FASTA files cause MMseqs2 "empty FASTA" error — delete `df_pdb_..._latents.csv` and `seq_df_pdb_..._latents.fasta` if processed_latents directory was recreated.
+- SLURM prologue `mkdir /var/spool/slurm/slurmd/logs` permission error: cluster-side issue, not user script. Causes jobs to fail silently (script never executes). Workaround: ensure SBATCH headers are in the script (not just CLI flags) and use proper `#SBATCH` directives.
+- TANGO binary: extract from `tango2_3_1.linux64.zip` in repo root, `chmod +x`, place on PATH or set `TANGO_EXE=/absolute/path`. The `run_developability.sh` pre-flight check will abort if missing.
+- IUPred3: installed at `~/iupred3/` (extracted from `iupred3.tar.gz` in repo root). Script auto-discovers via `IUPRED3_DIR` env var or `~/iupred3` default.
 
 ### Known Issues / Fixes Applied
 

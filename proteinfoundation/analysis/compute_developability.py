@@ -56,14 +56,13 @@ COLUMNS = [
     "pdb_id", "sequence_length", "n_resolved_residues",
     "camsol_intrinsic",
     "swi",
-    "tango_total", "tango_n_segments",
+    "tango_total", "tango_aggregation_positions",
     "canya_max_nucleation",
     "net_charge_ph7", "pI", "pI_distance_physiological",
     "iupred3_mean", "iupred3_fraction_disordered",
     "shannon_entropy",
     "hydrophobic_patch_total_area", "hydrophobic_patch_n_large",
     "sap_total", "scm_positive", "scm_negative",
-    "developability_index",
     "radius_of_gyration",
 ]
 
@@ -83,14 +82,16 @@ SWI_SCORES: Dict[str, float] = {
     "X":  0.00,
 }
 
-# ── hydrophobicity scale for SAP (Black & Mould 1991, normalised 0–1) ─────────
-# Source: Chennamsetty et al. 2009 (SAP paper) uses this scale.
+# ── hydrophobicity scale for SAP (Black & Mould 1991, glycine-centred) ────────
+# Source: Chennamsetty et al. 2009 (SAP paper).  Black & Mould 0–1 values
+# shifted so glycine = 0: hydrophobic residues are positive, hydrophilic
+# residues are negative.  This makes the positive-only SAP filter meaningful.
 SAP_HYDROPHOBICITY: Dict[str, float] = {
-    "A": 0.616, "R": 0.000, "N": 0.236, "D": 0.028, "C": 0.680,
-    "Q": 0.251, "E": 0.043, "G": 0.501, "H": 0.165, "I": 0.943,
-    "L": 0.943, "K": 0.283, "M": 0.738, "F": 1.000, "P": 0.711,
-    "S": 0.359, "T": 0.450, "W": 0.878, "Y": 0.880, "V": 0.825,
-    "X": 0.000,
+    "A":  0.115, "R": -0.501, "N": -0.265, "D": -0.473, "C":  0.179,
+    "Q": -0.250, "E": -0.458, "G":  0.000, "H": -0.336, "I":  0.442,
+    "L":  0.442, "K": -0.218, "M":  0.237, "F":  0.499, "P":  0.210,
+    "S": -0.142, "T": -0.051, "W":  0.377, "Y":  0.379, "V":  0.324,
+    "X": -0.501,
 }
 
 # ── formal charge at pH 7.0 for SCM ──────────────────────────────────────────
@@ -145,7 +146,8 @@ def _worker_init():
         sys.path.insert(0, iupred3_dir)
     try:
         import iupred3_lib  # type: ignore
-        _IUPRED_FN = lambda seq: iupred3_lib.iupred(seq, "long")
+        _iupred3_raw = iupred3_lib.iupred
+        _IUPRED_FN = lambda seq: _iupred3_raw(seq, "long")[0]
     except ImportError:
         sys.stderr.write(
             f"[worker] iupred3 not available — check IUPRED3_DIR (tried: {iupred3_dir})\n"
@@ -265,7 +267,7 @@ def compute_tango(sequence: str, pdb_id: str) -> Tuple[float, int]:
         # This version of TANGO prints a single summary line to stdout:
         #   AGG <n_segments> AMYLO <score> TURN <score> HELIX <score> HELAGG <score> BETA <total_beta>
         # BETA = sum of per-residue beta-aggregation tendencies (our tango_total)
-        # AGG  = number of aggregation-prone segments (our tango_n_segments)
+        # AGG  = number of aggregation-prone positions (our tango_aggregation_positions)
         stdout = result.stdout.strip()
         if not stdout:
             sys.stderr.write(f"[tango] empty output for {pdb_id}\n")
@@ -454,34 +456,37 @@ def compute_hydrophobic_patches(
 def compute_sap_scm(
     ca_coords: np.ndarray,    # (L, 3)
     sequence: str,
-    per_atom_sasa: Optional[Dict[int, float]],   # res_idx → per-residue SASA
-    per_residue_sasa: Optional[np.ndarray],       # (L,)
+    per_sidechain_sasa: Optional[np.ndarray],     # (L,) side-chain SASA
 ) -> Tuple[float, float, float]:
     """
     Compute SAP (Spatial Aggregation Propensity) and SCM (Spatial Charge Map).
 
     SAP implementation (Chennamsetty et al. 2009):
       For each residue i, define a neighbourhood N(i) = { j : |CA_j - CA_i| < 5 Å }.
-      SAP_i = sum_{j in N(i)} (SASA_j / max_SASA_j) * hydrophobicity_j
+      SAP_i = sum_{j in N(i)} (sidechain_SASA_j / max_sidechain_SASA_j) * hydrophobicity_j
       Protein SAP = sum of positive SAP_i only (negative values excluded per paper).
 
     SCM: same neighbourhood but weighted by formal charge instead of hydrophobicity.
     SCM_positive = sum of positive charge contributions (ARG, LYS, HIS patches).
     SCM_negative = sum of negative charge contributions (ASP, GLU patches).
 
-    We approximate max_SASA_j with the per-residue SASA in a GXG tripeptide
-    using a lookup table from Miller et al. 1987 (standard reference values).
+    Both SAP and SCM use side-chain SASA normalised by Ala-X-Ala reference values
+    (Tien et al. 2013 / Chennamsetty et al. 2009).  Formal charges live on
+    side-chain tip atoms, so side-chain SASA is the appropriate weight for SCM.
     """
-    # Max SASA for each residue type in a GXG context (Å²), Miller et al. 1987
-    GXG_MAX_SASA: Dict[str, float] = {
-        "A": 113.0, "R": 241.0, "N": 158.0, "D": 151.0, "C": 140.0,
-        "Q": 189.0, "E": 183.0, "G":  85.0, "H": 194.0, "I": 182.0,
-        "L": 180.0, "K": 211.0, "M": 204.0, "F": 218.0, "P": 143.0,
-        "S": 122.0, "T": 146.0, "W": 259.0, "Y": 229.0, "V": 160.0,
+    # Max side-chain SASA for each residue type in an Ala-X-Ala tripeptide (Å²).
+    # Source: Tien et al. 2013 (empirical, consistent with Chennamsetty 2009).
+    # Glycine has no side chain so its reference is 0; its SAP contribution is
+    # always zero regardless of exposure.
+    AXA_SC_MAX_SASA: Dict[str, float] = {
+        "A":  75.0, "R": 256.0, "N": 160.0, "D": 155.0, "C": 142.0,
+        "Q": 189.0, "E": 187.0, "G":   0.0, "H": 194.0, "I": 185.0,
+        "L": 183.0, "K": 218.0, "M": 203.0, "F": 218.0, "P": 141.0,
+        "S": 116.0, "T": 142.0, "W": 254.0, "Y": 230.0, "V": 162.0,
         "X": 150.0,
     }
 
-    if per_residue_sasa is None:
+    if per_sidechain_sasa is None:
         return float("nan"), float("nan"), float("nan")
 
     L = len(sequence)
@@ -495,15 +500,18 @@ def compute_sap_scm(
 
         for j in neighbours:
             aa_j = sequence[j] if j < len(sequence) else "X"
-            sasa_j = float(per_residue_sasa[j]) if j < len(per_residue_sasa) else 0.0
-            max_sasa_j = GXG_MAX_SASA.get(aa_j, 150.0)
-            sasa_frac_j = min(sasa_j / max_sasa_j, 1.0) if max_sasa_j > 0 else 0.0
+
+            # SAP: side-chain SASA / AXA reference
+            sc_sasa_j = float(per_sidechain_sasa[j]) if j < len(per_sidechain_sasa) else 0.0
+            max_sc_j = AXA_SC_MAX_SASA.get(aa_j, 150.0)
+            sap_frac_j = min(sc_sasa_j / max_sc_j, 1.0) if max_sc_j > 0 else 0.0
 
             hydro_j = SAP_HYDROPHOBICITY.get(aa_j, 0.0)
-            sap_contributions[i] += sasa_frac_j * hydro_j
+            sap_contributions[i] += sap_frac_j * hydro_j
 
+            # SCM: side-chain SASA (formal charges live on side-chain atoms)
             charge_j = RESIDUE_CHARGE_PH7.get(aa_j, 0.0)
-            scm_contributions[i] += sasa_frac_j * charge_j
+            scm_contributions[i] += sap_frac_j * charge_j
 
     # SAP: sum positive contributions only
     sap_total = float(np.sum(sap_contributions[sap_contributions > 0]))
@@ -575,7 +583,7 @@ def compute_properties(pt_path: Path) -> Dict:
         sys.stderr.write(f"[swi] {pdb_id}: {e}\n")
 
     try:
-        row["tango_total"], row["tango_n_segments"] = compute_tango(sequence, pdb_id)
+        row["tango_total"], row["tango_aggregation_positions"] = compute_tango(sequence, pdb_id)
     except Exception as e:
         sys.stderr.write(f"[tango] {pdb_id}: {e}\n")
 
@@ -610,19 +618,25 @@ def compute_properties(pt_path: Path) -> Dict:
 
     # FreeSASA — shared by patches, SAP, SCM
     per_residue_sasa: Optional[np.ndarray] = None
+    per_sidechain_sasa: Optional[np.ndarray] = None
     try:
         pdb_str = build_pdb_string(coords_of, coord_mask, res_names)
         sasa_result, sasa_structure = run_freesasa(pdb_str)
 
         if sasa_result is not None:
-            # Per-residue SASA: sum over all atoms of each residue.
             # freesasa.Result.residueAreas() returns {chain: {resnum_str: Area}}
+            # Area has .total (all atoms) and .sideChain (side-chain only).
             try:
                 res_areas = sasa_result.residueAreas()
                 # chain A, residues numbered 1..L
                 chain_map = res_areas.get("A", {})
                 per_residue_sasa = np.array(
                     [chain_map[str(i + 1)].total if str(i + 1) in chain_map else 0.0
+                     for i in range(L)],
+                    dtype=float,
+                )
+                per_sidechain_sasa = np.array(
+                    [chain_map[str(i + 1)].sideChain if str(i + 1) in chain_map else 0.0
                      for i in range(L)],
                     dtype=float,
                 )
@@ -642,14 +656,11 @@ def compute_properties(pt_path: Path) -> Dict:
 
     try:
         sap, scm_pos, scm_neg = compute_sap_scm(
-            ca_coords, sequence, None, per_residue_sasa
+            ca_coords, sequence, per_sidechain_sasa
         )
         row["sap_total"]    = sap
         row["scm_positive"] = scm_pos
         row["scm_negative"] = scm_neg
-        net_charge_for_di = row.get("net_charge_ph7", float("nan"))
-        if not math.isnan(sap) and not math.isnan(net_charge_for_di):
-            row["developability_index"] = sap - 0.0815 * (net_charge_for_di ** 2)
     except Exception as e:
         sys.stderr.write(f"[sap/scm] {pdb_id}: {e}\n")
 
