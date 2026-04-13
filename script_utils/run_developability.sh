@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=developability
-#SBATCH --partition=ampere
+#SBATCH -A COMPUTERLAB-SL3-CPU
+#SBATCH --partition=icelake
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
 #SBATCH --output=logs/developability_%j.log
