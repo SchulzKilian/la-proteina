@@ -1,0 +1,34 @@
+Running on host: cpu-q-138
+Using Python: /rds/user/ks2218/hpc-work/conda_root/envs/laproteina_env/bin/python
+CPUs: 1
+2026-04-14 14:08:02.834 | INFO     | __main__:main:76 - Data dir: /home/ks2218/la-proteina/data/pdb_train
+2026-04-14 14:08:02.834 | INFO     | __main__:main:77 - Raw dir:  /home/ks2218/la-proteina/data/pdb_train/raw
+2026-04-14 14:08:02.834 | INFO     | __main__:main:78 - Processed dir: /home/ks2218/la-proteina/data/pdb_train/processed
+2026-04-14 14:08:02.834 | INFO     | __main__:main:81 - Starting prepare_data()...
+2026-04-14 14:08:02.835 | INFO     | proteinfoundation.datasets.pdb_data:prepare_data:531 - df_pdb_f1_minl300_maxl800_mtprotein_etdiffractionEM_minoNone_maxoNone_minr0.0_maxr2.0_hl_rl_rnsrTrue_rpuFalse_l_rcuFalse.csv not found, creating metadata.
+2026-04-14 14:08:02.835 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:153 - Initializing PDBManager in /home/ks2218/la-proteina/data/pdb_train...
+/rds/user/ks2218/hpc-work/conda_root/envs/laproteina_env/lib/python3.10/site-packages/graphein/ml/datasets/pdb_data.py:741: FutureWarning:
+
+Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+
+2026-04-14 14:08:24.480 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:156 - [DEBUG] Total chains in PDB indices: 1095406
+2026-04-14 14:08:24.480 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:159 - Starting with: 1095406 chains
+2026-04-14 14:08:24.480 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:167 - Removing chains that are not in: ['diffraction', 'EM']
+2026-04-14 14:08:25.002 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:171 - Removing chains longer than 800...
+2026-04-14 14:08:25.196 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:175 - Removing chains shorter than 300...
+2026-04-14 14:08:25.305 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:179 - Removing molecule types not in: protein...
+2026-04-14 14:08:25.699 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:215 - Removing excluded chains (38 gathered)
+2026-04-14 14:08:25.727 | INFO     | proteinfoundation.datasets.pdb_data:create_dataset:219 - 63178 chains remaining
+2026-04-14 14:08:28.784 | INFO     | proteinfoundation.datasets.pdb_data:prepare_data:593 - Dataset created. Downloading 36385 missing structures (skipped already processed files)...
+2026-04-14 14:08:28.784 | INFO     | proteinfoundation.datasets.pdb_data:_download_structure_data:782 - Checking local raw files...
+Error executing job with overrides: ['dataset=pdb/pdb_train_ucond_800']
+Traceback (most recent call last):
+  File "/home/ks2218/la-proteina/prepare_data_800.py", line 82, in main
+    datamodule.prepare_data()
+  File "/home/ks2218/la-proteina/proteinfoundation/datasets/pdb_data.py", line 595, in prepare_data
+    self._download_structure_data(pdbs_to_download)
+  File "/home/ks2218/la-proteina/proteinfoundation/datasets/pdb_data.py", line 784, in _download_structure_data
+    existing_files = set(os.listdir(self.raw_dir))
+FileNotFoundError: [Errno 2] No such file or directory: '/home/ks2218/la-proteina/data/pdb_train/raw'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

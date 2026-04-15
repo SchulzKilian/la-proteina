@@ -91,6 +91,8 @@ Key flags:
 - In-memory loading uses `ThreadPoolExecutor` for parallel loading — serial loading of 350K files took 40+ min.
 - Precomputed latents path: symlink `/home/ks2218/la-proteina/data/pdb_train/processed_latents` → `/rds/user/ks2218/hpc-work/processed_latents`.
 
+**`prepare_data_800.py`** — Downloads and processes PDB structures up to 800 residues (vs the default 200). Uses `configs/dataset/pdb/pdb_train_ucond_800.yaml`. The data pipeline in `pdb_data.py` (lines 569-591) scans `processed/` for existing `.pt` files and **only downloads CIF files for PDBs not already processed** — so with 536K files already in `processed/`, the delta for maxl800 is modest (~25-65K new proteins). Run via `sbatch script_utils/prepare_data_800.sh`. After completion, run `precompute_latents.py` with the new CSV.
+
 **`precompute_latents.py`** — Precomputes AE latents to disk. Key details:
 - Use atomic writes: `torch.save(data, tmp_path); os.rename(tmp_path, out_path)` — prevents corrupted files if job killed mid-write (SLURM kills jobs without warning at time limit).
 - `weights_only=False` required for PyG `Data` objects — `weights_only=True` rejects them all and causes mass deletion if used in a validation loop.
@@ -146,14 +148,92 @@ sbatch script_utils/submit_train.sh -n training_ca_only
 
 ### Cluster (Cambridge HPC) Notes
 
-- Data: `/rds/user/ks2218/hpc-work/processed` (raw PDB .pt files), `/rds/user/ks2218/hpc-work/processed_latents` (precomputed latents)
+- Data: `/rds/user/ks2218/hpc-work/processed` (raw PDB .pt files, 536K files), `/rds/user/ks2218/hpc-work/processed_latents` (precomputed latents, 355K files — currently archived, see below)
 - Checkpoints: `/rds/user/ks2218/hpc-work/checkpoints_laproteina/`
+- **RDS Inode Quota**: limit is 1,048,576 files. As of Apr 2026, ~962K used (~92%). Space quota is 1.1 TB with ~107 GB used — space is not the bottleneck, file count is.
+- **Archived precomputed latents**: `processed_latents/` was archived to free ~355K inodes for the maxl800 dataset preparation. Archives are at `/rds/user/ks2218/hpc-work/latent_shards/` (~265 `.tar` files, one per 2-char shard directory). To restore:
+  ```bash
+  mkdir -p /rds/user/ks2218/hpc-work/processed_latents && \
+  ls /rds/user/ks2218/hpc-work/latent_shards/*.tar | xargs -P 32 -I{} tar -xf {} -C /rds/user/ks2218/hpc-work/processed_latents
+  ```
+  After restoring, re-symlink if needed: `ln -sfn /rds/user/ks2218/hpc-work/processed_latents /home/ks2218/la-proteina/data/pdb_train/processed_latents`
+- **Tarring on Lustre is slow**: 355K small files takes hours on login nodes. Use compute nodes with parallel shard approach: `ls processed_latents/ | xargs -P 32 -I{} tar -cf latent_shards/{}.tar -C processed_latents {}`. Skip `-z` (gzip) — saves CPU time and the bottleneck is metadata, not disk space.
 - Ampere partition: 1 GPU = 32 CPUs + ~250G RAM (full 1/4-node), regardless of `--cpus-per-task` SBATCH header.
 - SLURM kills jobs at time limit without warning — use atomic writes for any file outputs.
 - Stale CSV/FASTA files cause MMseqs2 "empty FASTA" error — delete `df_pdb_..._latents.csv` and `seq_df_pdb_..._latents.fasta` if processed_latents directory was recreated.
-- SLURM prologue `mkdir /var/spool/slurm/slurmd/logs` permission error: cluster-side issue, not user script. Causes jobs to fail silently (script never executes). Workaround: ensure SBATCH headers are in the script (not just CLI flags) and use proper `#SBATCH` directives.
+- SLURM TaskProlog `mkdir /var/spool/slurm/slurmd/logs` permission error: the prolog runs a `mkdir` that fails. If the job script uses `set -e` (exit on error), this kills the script before it executes. **Do NOT use `set -e` in SLURM scripts on this cluster.** Use `set -uo pipefail` instead.
 - TANGO binary: extract from `tango2_3_1.linux64.zip` in repo root, `chmod +x`, place on PATH or set `TANGO_EXE=/absolute/path`. The `run_developability.sh` pre-flight check will abort if missing.
 - IUPred3: installed at `~/iupred3/` (extracted from `iupred3.tar.gz` in repo root). Script auto-discovers via `IUPRED3_DIR` env var or `~/iupred3` default.
+
+## Steerability Analysis Pipeline (`laproteina_steerability/`)
+
+Diagnostic pipeline to characterize the latent space and probe how well protein properties are encoded, before committing to steering field training. Lives in `laproteina_steerability/` with its own config, data layer, and CLI entry points.
+
+### Running
+
+All commands run from `laproteina_steerability/`:
+```bash
+# Part 1 — latent geometry (no properties needed, runs on cached encoder outputs alone)
+python -m src.part1_latent_geometry.run --config config/default.yaml
+
+# Part 2 — property probes (needs a property file)
+python -m src.part2_property_probes.run --config config/default.yaml
+
+# Smoke test on synthetic data
+python -m src.part1_latent_geometry.run --config config/default.yaml --synthetic
+python -m src.part2_property_probes.run --config config/default.yaml --synthetic
+```
+
+### Data Sources
+
+**Cached latents** (`/rds/user/ks2218/hpc-work/processed_latents`): 355K `.pt` files, sharded as `<2-char-prefix>/<pdb_chain>.pt`. Each file contains:
+- `mean` `[L, 8]` float32 — VAE encoder mean (the latent representation)
+- `log_scale` `[L, 8]` float32 — VAE encoder log-variance
+- `coords_nm` `[L, 37, 3]` float32 — full-atom coords in nm (CA is atom index 1 in OpenFold order)
+- `coord_mask` `[L, 37]` — atom mask
+- `id` string — protein identifier (e.g. `101m_A`)
+- `residue_type` `[L]` — residue type indices
+
+The field name mapping in `config/default.yaml` translates these to the loader's semantic names: `latents→mean`, `ca_coords→coords_nm` with `ca_atom_index: 1`, `protein_id→id`.
+
+**Property file** (Part 2 only): Not yet created. Needs to be a parquet or CSV at the path set in `part2.property_file` with columns: `protein_id` (matching the `id` field in `.pt` files), `residue_index` (nullable for protein-level props), and one column per property. The developability CSV from `compute_developability.py` has most properties but uses `pdb_id` as the column name and is protein-level only — needs column rename and granularity config update before use.
+
+### Config (`config/default.yaml`)
+
+Key settings to adjust before running:
+- `data.length_range`: `[50, 300]` by default. Set to `[300, 800]` for long proteins, or `null` for all lengths.
+- `data.subsample`: `null` loads all proteins. Set to e.g. `1000` for a quick test. The loader pre-subsamples files before loading when this is set (avoids scanning 355K files).
+- `part2.property_file`: Path to property table. Must be set before running Part 2.
+- `part2.property_granularity`: Maps each property to `"protein"` or `"residue"`. If the property file only has protein-level values, set all to `"protein"`.
+- `part2.decisions.*`: All steering decision thresholds (R² cutoffs, kNN gap) are config-driven for sweeping.
+
+### What Each Part Produces
+
+**Part 1** (latent geometry — outputs to `outputs/`):
+- `figures/latent_marginals` — per-dim histograms + KDE
+- `figures/latent_correlations` — Pearson + Spearman heatmaps
+- `figures/latent_mutual_information` — MI heatmap (nonlinear dependence)
+- `figures/pca_analysis` — scree plot + cumulative variance + participation ratio
+- `figures/dim_utilization` — within-protein vs between-protein variance decomposition + ratio
+- `figures/length_sensitivity` — latent norm and per-dim means vs protein length with Pearson r
+- `tables/` — CSV of every numerical result (marginal stats, correlation matrices, PCA eigenvalues, utilization, length stats)
+- `part1_summary.md` — key numbers: participation ratio, effective rank, max correlation, collapsed dim count
+
+**Part 2** (property probes — outputs to `outputs/`):
+- Probes: Ridge, MLP, kNN at noise levels t∈{0.3, 0.5, 0.8, 1.0} (code convention: t=0 noise, t=1 clean) × input variants (latent_only, latent_plus_backbone)
+- `tables/probe_results.csv` — full results, one row per (property, t, variant, probe_type)
+- `tables/steering_decisions.csv` — per-property go/no-go: steerable / nonlinear_encoded / goodhart_control / drop
+- `figures/property_correlation_clustered` — clustered property-property heatmap
+- `figures/umap_property_grid` — 3×3 UMAP grid colored by property (requires `umap-learn`)
+- `part2_summary.md` — decision counts, top probe R² values, Goodhart pairs
+
+### Architecture Notes
+
+- The loader (`src/data/loader.py`) handles both `.pt` (PyG Data objects or dicts) and `.npz` files, with configurable field name mapping and automatic CA extraction from full-atom coordinate arrays via `ca_atom_index`.
+- SE(3) normalization for `latent_plus_backbone` input variant: PCA-axis rotation with deterministic sign fix (largest |coord| per axis is positive). Known to be discontinuous for near-degenerate CA clouds — acceptable for a first pass.
+- t-convention: all code uses t=0 = pure noise, t=1 = clean data (`z_t = (1-t)*noise + t*z_clean`), matching the La-Proteina codebase. **The steering predictor's t-convention has NOT been verified** — flagged in code comments and all output summaries.
+- Grouped CV: folds are grouped by protein_id so the same protein never appears in both train and test.
+- Missing optional deps: `umap-learn` (UMAP step skipped gracefully), `pyarrow` (falls back to CSV).
 
 ### Known Issues / Fixes Applied
 

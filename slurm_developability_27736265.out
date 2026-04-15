@@ -1,0 +1,55 @@
+Log file: /home/ks2218/la-proteina/logs/developability_20260414_185157.log
+============================================================
+  Developability panel  —  Tue Apr 14 18:51:57 BST 2026
+  Output:   /rds/user/ks2218/hpc-work/developability_panel.csv
+  Data dir: /rds/user/ks2218/hpc-work
+  Workers:  31
+============================================================
+WARNING: CANYA not found — canya_max_nucleation will be NaN.
+         Install: pip install git+https://github.com/lehner-lab/canya.git
+WARNING: IUPred3 not found — iupred3_mean/fraction will be NaN.
+         Download from https://iupred.elte.hu/download_new  then:  pip install iupred3
+All required tools present. Starting computation ...
+
+Command: python /home/ks2218/la-proteina/proteinfoundation/analysis/compute_developability.py /rds/user/ks2218/hpc-work/developability_panel.csv --data-dir /rds/user/ks2218/hpc-work --workers 31 --min-length 300 --max-length 800
+
+[worker] CANYA not available: No module named 'canya'
+Discovering .pt files in /rds/user/ks2218/hpc-work/processed …
+Length filter: 300 – 800
+Found 599,553 proteins to process.
+Timing first 10 proteins serially …
+Per-protein (wall): 10.84 s  →  Estimated runtime: 58 hours 14 minutes for 599,553 proteins (31 workers)
+Resuming: 4 proteins already in output CSV.
+599,549 proteins remaining.
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+slurmstepd: error: *** JOB 27736265 ON cpu-q-374 CANCELLED AT 2026-04-14T19:48:28 ***

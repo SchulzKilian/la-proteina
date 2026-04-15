@@ -1,0 +1,95 @@
+Log file: /home/ks2218/la-proteina/logs/developability_20260414_202113.log
+============================================================
+  Developability panel  —  Tue Apr 14 20:21:13 BST 2026
+  Output:   /rds/user/ks2218/hpc-work/developability_panel.csv
+  Data dir: /rds/user/ks2218/hpc-work
+  Workers:  31
+============================================================
+WARNING: CANYA not found — canya_max_nucleation will be NaN.
+         Install: pip install git+https://github.com/lehner-lab/canya.git
+WARNING: IUPred3 not found — iupred3_mean/fraction will be NaN.
+         Download from https://iupred.elte.hu/download_new  then:  pip install iupred3
+All required tools present. Starting computation ...
+
+Command: python /home/ks2218/la-proteina/proteinfoundation/analysis/compute_developability.py /rds/user/ks2218/hpc-work/developability_panel.csv --data-dir /rds/user/ks2218/hpc-work --workers 31 --filter-csv /home/ks2218/la-proteina/data/pdb_train/df_pdb_f1_minl300_maxl800_mtprotein_etdiffractionEM_minoNone_maxoNone_minr0.0_maxr2.0_hl_rl_rnsrTrue_rpuFalse_l_rcuFalse.csv --min-length 300 --max-length 800
+
+[worker] CANYA not available: No module named 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+Discovering .pt files in /rds/user/ks2218/hpc-work/processed …
+Length filter: 300 – 800
+Found 63,178 proteins to process.
+Timing first 10 proteins serially …
+Per-protein (wall): 6.33 s  →  Estimated runtime: 3 hours 35 minutes for 63,178 proteins (31 workers)
+Resuming: 4 proteins already in output CSV.
+63,174 proteins remaining.
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[worker] CANYA not available: No module named 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+[canya] subprocess failed: [Errno 2] No such file or directory: 'canya'
+slurmstepd: error: *** JOB 27757144 ON cpu-q-19 CANCELLED AT 2026-04-15T08:21:13 DUE TO TIME LIMIT ***

@@ -1,0 +1,106 @@
+# La-Proteina Steerability Analysis Configuration
+
+seed: 42
+log_level: INFO  # DEBUG, INFO, WARNING, ERROR
+
+# --- Data ---
+data:
+  latent_dir: "/rds/user/ks2218/hpc-work/processed_latents"
+  file_format: "pt"
+  # Field names mapping: semantic name -> key in the .pt file
+  # Actual keys in processed_latents: mean, log_scale, coords_nm, coord_mask, id, residue_type
+  field_names:
+    latents: "mean"            # [L, 8] float32 — VAE encoder mean
+    ca_coords: "coords_nm"     # [L, 37, 3] float32 — full-atom coords in nm
+    ca_atom_index: 1           # index into atom dim to extract CA (OpenFold order: 0=N, 1=CA, 2=C)
+    protein_id: "id"           # string
+    # length: omitted — derived from latents.shape[0]
+  subsample: null              # null = use all; int = random subsample of proteins
+  length_range: [300, 800]     # [min, max] inclusive; null = no filter
+
+# --- Outputs ---
+outputs:
+  base_dir: "outputs"
+  figures_dir: "outputs/figures"
+  tables_dir: "outputs/tables"
+  cache_dir: "outputs/cache"
+  figure_dpi: 300
+  figure_formats: ["png", "pdf"]
+
+# --- Part 1: Latent geometry ---
+part1:
+  marginals:
+    n_bins: 50
+    shapiro_subsample: 5000
+  correlations:
+    mi_subsample: 10000
+  pca:
+    explained_variance_thresholds: [0.90, 0.95, 0.99]
+  utilization:
+    collapse_threshold: 0.01  # fraction of max variance below which a dim is "collapsed"
+
+# --- Part 2: Property probes ---
+part2:
+  property_file: "data/properties.parquet"
+
+  # Per-property granularity: "protein" or "residue"
+  property_granularity:
+    net_charge: "protein"
+    iupred3: "residue"
+    camsol_intrinsic: "residue"
+    tango: "residue"
+    canya: "residue"
+    swi: "residue"
+    sap: "residue"
+    rg: "protein"
+
+  # Property names to analyze (must match columns in property_file)
+  property_names:
+    - net_charge
+    - iupred3
+    - camsol_intrinsic
+    - tango
+    - canya
+    - swi
+    - sap
+    - rg
+
+  # Goodhart pairs: conceptually similar properties that should be checked
+  # for empirical divergence. Each pair is [prop_a, prop_b].
+  goodhart_pairs:
+    - [camsol_intrinsic, swi]
+    - [tango, canya]
+
+  # Correlation clustering threshold
+  corr_cluster_threshold: 0.8
+  goodhart_divergence_threshold: 0.5
+
+  # Noise levels (code convention: t=0 pure noise, t=1 clean)
+  noise_levels: [0.3, 0.5, 0.8, 1.0]
+  noise_samples_per_protein: 8  # independent draws per noise level (except t=1.0)
+
+  # Input variants
+  input_variants: ["latent_only", "latent_plus_backbone"]
+
+  # Probe settings
+  probes:
+    cv_folds: 5
+    ridge_alphas: [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
+    mlp_hidden: 64
+    knn_k: 10
+
+  # Decision thresholds (all config-driven for sweeping)
+  decisions:
+    steerable_r2_min: 0.5
+    steerable_knn_gap_max: 0.3
+    nonlinear_knn_r2_min: 0.5
+    nonlinear_linear_r2_max: 0.3
+    drop_r2_max: 0.3
+
+  # UMAP settings
+  umap:
+    pooling: "extended"  # "mean" for 8D, "extended" for 32D [mean,std,max,min]
+    n_neighbors: 15
+    min_dist: 0.1
+    metric: "euclidean"
+    percentile_clip: [1, 99]

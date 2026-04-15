@@ -1,0 +1,10 @@
+Running on host: cpu-q-77
+Using Python: /rds/user/ks2218/hpc-work/conda_root/envs/laproteina_env/bin/python
+CPUs: 1
+Could not override 'datamodule.num_workers'.
+To append to your config use +datamodule.num_workers=32
+Key 'datamodule' is not in struct
+    full_key: datamodule
+    object_type=dict
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

@@ -537,11 +537,12 @@ def compute_radius_of_gyration(ca_coords: np.ndarray, ca_mask: np.ndarray) -> fl
 # Main per-protein function (called in workers)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def compute_properties(pt_path: Path) -> Dict:
+def compute_properties(pt_path: Path, min_length: int = None, max_length: int = None, skip_tango: bool = False) -> Dict:
     """
     Compute all properties for one protein.
     Returns a dict with COLUMNS as keys.
     Failed properties are NaN; errors are written to stderr.
+    If min_length/max_length are set, returns None for proteins outside the range.
     """
     row: Dict = {col: float("nan") for col in COLUMNS}
 
@@ -554,6 +555,13 @@ def compute_properties(pt_path: Path) -> Dict:
 
     pdb_id = getattr(data, "id", pt_path.stem)
     row["pdb_id"] = pdb_id
+
+    # Length filter: skip proteins outside the requested range
+    L = len(data.residue_type)
+    if min_length is not None and L < min_length:
+        return None
+    if max_length is not None and L > max_length:
+        return None
 
     # ── coords and sequence ───────────────────────────────────────────────────
     coords_of  = data.coords.numpy()      # (L, 37, 3) — OpenFold order
@@ -582,10 +590,11 @@ def compute_properties(pt_path: Path) -> Dict:
     except Exception as e:
         sys.stderr.write(f"[swi] {pdb_id}: {e}\n")
 
-    try:
-        row["tango_total"], row["tango_aggregation_positions"] = compute_tango(sequence, pdb_id)
-    except Exception as e:
-        sys.stderr.write(f"[tango] {pdb_id}: {e}\n")
+    if not skip_tango:
+        try:
+            row["tango_total"], row["tango_aggregation_positions"] = compute_tango(sequence, pdb_id)
+        except Exception as e:
+            sys.stderr.write(f"[tango] {pdb_id}: {e}\n")
 
     try:
         row["canya_max_nucleation"] = compute_canya(sequence)
@@ -692,11 +701,8 @@ def discover_pt_files(
             chain = str(r.get("chain", "")).strip()
             fname = f"{pdb}_{chain}.pt" if chain and chain != "nan" else f"{pdb}.pt"
             shard = fname[:2].lower()
-            p = processed / shard / fname
-            if not p.exists():
-                p = processed / fname
-            if p.exists():
-                paths.append(p)
+            # Assume sharded layout (avoids slow per-file stat on Lustre)
+            paths.append(processed / shard / fname)
         return paths
 
     # No filter: glob everything
@@ -732,6 +738,18 @@ def main():
         "--workers", type=int, default=max(1, os.cpu_count() - 1),
         help="Number of parallel worker processes (default: nCPU - 1)",
     )
+    parser.add_argument(
+        "--min-length", type=int, default=None,
+        help="Only process proteins with at least this many residues",
+    )
+    parser.add_argument(
+        "--max-length", type=int, default=None,
+        help="Only process proteins with at most this many residues",
+    )
+    parser.add_argument(
+        "--skip-tango", action="store_true",
+        help="Skip TANGO aggregation computation (major speedup)",
+    )
     args = parser.parse_args()
 
     data_dir    = Path(args.data_dir)
@@ -749,15 +767,24 @@ def main():
     if args.limit:
         pt_files = pt_files[: args.limit]
 
+    min_len = args.min_length
+    max_len = args.max_length
+    if min_len or max_len:
+        print(f"Length filter: {min_len or 'any'} – {max_len or 'any'}")
+
     print(f"Found {len(pt_files):,} proteins to process.")
+
+    skip_tango = args.skip_tango
 
     # ── warm-up: time the first 10 serially ──────────────────────────────────
     WARMUP_N = min(10, len(pt_files))
     print(f"Timing first {WARMUP_N} proteins serially …")
+    if skip_tango:
+        print("  (TANGO skipped)")
     _worker_init()   # initialise models in main process for warmup
     t0 = time.perf_counter()
     for p in pt_files[:WARMUP_N]:
-        compute_properties(p)
+        compute_properties(p, min_length=min_len, max_length=max_len, skip_tango=skip_tango)
     warmup_elapsed = time.perf_counter() - t0
     per_protein_s  = warmup_elapsed / WARMUP_N
     total_s_est    = per_protein_s * len(pt_files) / args.workers
@@ -797,6 +824,9 @@ def main():
     processed_count = 0
     batch_buffer: List[Dict] = []
     BATCH_SIZE = 100
+    # Submit in chunks to avoid flooding the executor queue (Lustre metadata
+    # storm when 60K+ tasks all try to torch.load / write temp files at once).
+    SUBMIT_CHUNK = args.workers * 4
 
     run_start = time.perf_counter()
 
@@ -806,35 +836,61 @@ def main():
         mp_context=ctx,
         initializer=_worker_init,
     ) as pool:
-        futures = {pool.submit(compute_properties, p): p for p in pt_files}
+        skipped_count = 0
+        file_iter = iter(pt_files)
+        futures: Dict = {}
+
+        # Seed initial chunk
+        for p in __import__("itertools").islice(file_iter, SUBMIT_CHUNK):
+            fut = pool.submit(compute_properties, p, min_length=min_len, max_length=max_len, skip_tango=skip_tango)
+            futures[fut] = p
 
         with tqdm(total=len(pt_files), unit="prot", dynamic_ncols=True) as pbar:
-            for future in as_completed(futures):
-                try:
-                    row = future.result()
-                except Exception as e:
-                    pth = futures[future]
-                    sys.stderr.write(f"[worker crash] {pth}: {e}\n")
-                    row = {col: float("nan") for col in COLUMNS}
-                    row["pdb_id"] = pth.stem
+            while futures:
+                done_futures = []
+                for future in as_completed(futures):
+                    done_futures.append(future)
+                    try:
+                        row = future.result()
+                    except Exception as e:
+                        pth = futures[future]
+                        sys.stderr.write(f"[worker crash] {pth}: {e}\n")
+                        row = {col: float("nan") for col in COLUMNS}
+                        row["pdb_id"] = pth.stem
 
-                # Tally failures
-                for col in COLUMNS:
-                    val = row.get(col, float("nan"))
-                    if col != "pdb_id" and (
-                        val is None
-                        or (isinstance(val, float) and math.isnan(val))
-                    ):
-                        failures[col] += 1
+                    pbar.update(1)
 
-                batch_buffer.append(row)
-                processed_count += 1
-                pbar.update(1)
+                    # None means skipped by length filter
+                    if row is None:
+                        skipped_count += 1
+                    else:
+                        # Tally failures
+                        for col in COLUMNS:
+                            val = row.get(col, float("nan"))
+                            if col != "pdb_id" and (
+                                val is None
+                                or (isinstance(val, float) and math.isnan(val))
+                            ):
+                                failures[col] += 1
 
-                if len(batch_buffer) >= BATCH_SIZE:
-                    writer.writerows(batch_buffer)
-                    csv_file.flush()
-                    batch_buffer.clear()
+                        batch_buffer.append(row)
+                        processed_count += 1
+
+                        if len(batch_buffer) >= BATCH_SIZE:
+                            writer.writerows(batch_buffer)
+                            csv_file.flush()
+                            batch_buffer.clear()
+
+                    # Submit a new task for each completed one
+                    next_p = next(file_iter, None)
+                    if next_p is not None:
+                        new_fut = pool.submit(compute_properties, next_p, min_length=min_len, max_length=max_len, skip_tango=skip_tango)
+                        futures[new_fut] = next_p
+
+                    break  # process one at a time to keep submission steady
+
+                for f in done_futures:
+                    del futures[f]
 
     # flush remainder
     if batch_buffer:
@@ -848,6 +904,8 @@ def main():
     m2 = int((total_elapsed % 3600) // 60)
     print(f"\n{'='*60}")
     print(f"Done. Processed: {processed_count:,} proteins in {h2}h {m2}m")
+    if skipped_count:
+        print(f"Skipped (length filter): {skipped_count:,}")
     print(f"Output: {output_csv}")
     print("\nFailures per property:")
     for col, n in sorted(failures.items(), key=lambda x: -x[1]):

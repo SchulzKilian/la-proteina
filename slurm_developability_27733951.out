@@ -1,0 +1,21 @@
+mkdir: cannot create directory ‘/var/spool/slurm/slurmd/logs’: Permission denied
+Log file: /var/spool/slurm/slurmd/logs/developability_20260414_170108.log
+tee: /var/spool/slurm/slurmd/logs/developability_20260414_170108.log: No such file or directory
+============================================================
+  Developability panel  —  Tue Apr 14 17:01:08 BST 2026
+  Output:   /rds/user/ks2218/hpc-work/developability_panel.csv
+  Data dir: /rds/user/ks2218/hpc-work
+  Workers:  31
+============================================================
+WARNING: CANYA not found — canya_max_nucleation will be NaN.
+         Install: pip install git+https://github.com/lehner-lab/canya.git
+WARNING: IUPred3 not found — iupred3_mean/fraction will be NaN.
+         Download from https://iupred.elte.hu/download_new  then:  pip install iupred3
+All required tools present. Starting computation ...
+
+Command: python /var/spool/slurm/slurmd/proteinfoundation/analysis/compute_developability.py /rds/user/ks2218/hpc-work/developability_panel.csv --data-dir /rds/user/ks2218/hpc-work --workers 31 --min-length 300 --max-length 800
+
+python: can't open file '/var/spool/slurm/slurmd/proteinfoundation/analysis/compute_developability.py': [Errno 2] No such file or directory
+
+Exit code: 2
+Finished: Tue Apr 14 17:03:53 BST 2026

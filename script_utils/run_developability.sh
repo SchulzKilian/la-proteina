@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #SBATCH -J developability
 #SBATCH -A COMPUTERLAB-SL3-CPU
 #SBATCH -p icelake
@@ -21,11 +21,10 @@
 source $HOME/.bashrc
 conda activate laproteina_env
 
-set -euo pipefail
+set -uo pipefail
 
-# ── resolve repo root (script lives in script_utils/) ────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+# ── resolve repo root ────────────────────────────────────────────────────────
+REPO_ROOT="$HOME/la-proteina"
 
 # ── defaults ─────────────────────────────────────────────────────────────────
 OUTPUT_CSV="${DATA_PATH:-/rds/user/ks2218/hpc-work}/developability_panel.csv"
@@ -33,8 +32,11 @@ LIMIT=""
 WORKERS="${SLURM_CPUS_ON_NODE:-$(nproc)}"
 WORKERS="$(( WORKERS > 1 ? WORKERS - 1 : 1 ))"
 DATA_DIR="${DATA_PATH:-/rds/user/ks2218/hpc-work}"
-FILTER_CSV=""   # set to path of df_pdb_*.csv to restrict to training corpus
+FILTER_CSV="$HOME/la-proteina/data/pdb_train/df_pdb_f1_minl300_maxl800_mtprotein_etdiffractionEM_minoNone_maxoNone_minr0.0_maxr2.0_hl_rl_rnsrTrue_rpuFalse_l_rcuFalse.csv"
+MIN_LENGTH="300"
+MAX_LENGTH="800"
 TANGO_EXE="${TANGO_EXE:-tango_x86_64_release}"   # override with: export TANGO_EXE=/path/to/binary
+SKIP_TANGO=""
 
 # ── parse CLI args ────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -44,6 +46,9 @@ while [[ $# -gt 0 ]]; do
         --workers)  WORKERS="$2";     shift 2 ;;
         --data-dir) DATA_DIR="$2";    shift 2 ;;
         --filter-csv) FILTER_CSV="$2"; shift 2 ;;
+        --min-length) MIN_LENGTH="$2"; shift 2 ;;
+        --max-length) MAX_LENGTH="$2"; shift 2 ;;
+        --skip-tango) SKIP_TANGO="1"; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -75,8 +80,8 @@ python -c "import freesasa" 2>/dev/null          || MISSING+=("freesasa  →  pi
 python -c "import tqdm" 2>/dev/null              || MISSING+=("tqdm  →  pip install tqdm")
 python -c "import pandas" 2>/dev/null            || MISSING+=("pandas  →  pip install pandas")
 
-# TANGO binary
-if ! command -v "$TANGO_EXE" &>/dev/null; then
+# TANGO binary (skip check if --skip-tango)
+if [[ -z "$SKIP_TANGO" ]] && ! command -v "$TANGO_EXE" &>/dev/null; then
     MISSING+=("tango binary  →  scp tango2_3_1.linux64 to cluster, chmod +x, place on PATH or set TANGO_EXE=/path/to/tango")
 fi
 
@@ -118,6 +123,9 @@ PYTHON_CMD=(
 
 [[ -n "$LIMIT" ]]      && PYTHON_CMD+=(--limit      "$LIMIT")
 [[ -n "$FILTER_CSV" ]] && PYTHON_CMD+=(--filter-csv "$FILTER_CSV")
+[[ -n "$MIN_LENGTH" ]] && PYTHON_CMD+=(--min-length "$MIN_LENGTH")
+[[ -n "$MAX_LENGTH" ]] && PYTHON_CMD+=(--max-length "$MAX_LENGTH")
+[[ -n "$SKIP_TANGO" ]] && PYTHON_CMD+=(--skip-tango)
 
 export TANGO_EXE
 
