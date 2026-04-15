@@ -1,0 +1,133 @@
+{
+  "timestamp": "2026-04-15T07:45:45.013267+00:00",
+  "git_hash": "5ba2ce14927976e7e2baf1675d30df5c3a69e701",
+  "dataset_size": 56008,
+  "config": {
+    "seed": 42,
+    "log_level": "INFO",
+    "data": {
+      "latent_dir": "/rds/user/ks2218/hpc-work/processed_latents",
+      "file_format": "pt",
+      "field_names": {
+        "latents": "mean",
+        "ca_coords": "coords_nm",
+        "ca_atom_index": 1,
+        "protein_id": "id"
+      },
+      "subsample": null,
+      "length_range": [
+        300,
+        800
+      ]
+    },
+    "outputs": {
+      "base_dir": "outputs",
+      "figures_dir": "outputs/figures",
+      "tables_dir": "outputs/tables",
+      "cache_dir": "outputs/cache",
+      "figure_dpi": 300,
+      "figure_formats": [
+        "png",
+        "pdf"
+      ]
+    },
+    "part1": {
+      "marginals": {
+        "n_bins": 50,
+        "shapiro_subsample": 5000
+      },
+      "correlations": {
+        "mi_subsample": 10000
+      },
+      "pca": {
+        "explained_variance_thresholds": [
+          0.9,
+          0.95,
+          0.99
+        ]
+      },
+      "utilization": {
+        "collapse_threshold": 0.01
+      }
+    },
+    "part2": {
+      "property_file": "data/properties.parquet",
+      "property_granularity": {
+        "net_charge": "protein",
+        "iupred3": "residue",
+        "camsol_intrinsic": "residue",
+        "tango": "residue",
+        "canya": "residue",
+        "swi": "residue",
+        "sap": "residue",
+        "rg": "protein"
+      },
+      "property_names": [
+        "net_charge",
+        "iupred3",
+        "camsol_intrinsic",
+        "tango",
+        "canya",
+        "swi",
+        "sap",
+        "rg"
+      ],
+      "goodhart_pairs": [
+        [
+          "camsol_intrinsic",
+          "swi"
+        ],
+        [
+          "tango",
+          "canya"
+        ]
+      ],
+      "corr_cluster_threshold": 0.8,
+      "goodhart_divergence_threshold": 0.5,
+      "noise_levels": [
+        0.3,
+        0.5,
+        0.8,
+        1.0
+      ],
+      "noise_samples_per_protein": 8,
+      "input_variants": [
+        "latent_only",
+        "latent_plus_backbone"
+      ],
+      "probes": {
+        "cv_folds": 5,
+        "ridge_alphas": [
+          0.001,
+          0.01,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "mlp_hidden": 64,
+        "knn_k": 10
+      },
+      "decisions": {
+        "steerable_r2_min": 0.5,
+        "steerable_knn_gap_max": 0.3,
+        "nonlinear_knn_r2_min": 0.5,
+        "nonlinear_linear_r2_max": 0.3,
+        "drop_r2_max": 0.3
+      },
+      "umap": {
+        "pooling": "extended",
+        "n_neighbors": 15,
+        "min_dist": 0.1,
+        "metric": "euclidean",
+        "percentile_clip": [
+          1,
+          99
+        ]
+      }
+    }
+  },
+  "part": "part1_latent_geometry",
+  "n_residues": 22657969,
+  "latent_dim": 8
+}

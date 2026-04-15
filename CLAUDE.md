@@ -109,8 +109,10 @@ Key flags:
 - **Always NaN**: `camsol_intrinsic` (placeholder, no public binary), `canya_max_nucleation` (if not installed).
 - Resume-safe: appends to CSV, skips already-processed `pdb_id`s on restart.
 - Uses `spawn` multiprocessing context (safe with TensorFlow/PyTorch). TANGO creates temp dirs per call.
+- `--skip-tango` flag skips TANGO computation entirely (columns become NaN).
+- **Parallel submission**: uses batched/rolling submission (`SUBMIT_CHUNK = workers * 4`) to avoid flooding the executor. Eagerly submitting all 60K+ futures at once deadlocks on Lustre — the metadata storm from concurrent `torch.load` + temp file creation across all workers stalls the filesystem indefinitely. This is a general pattern to watch for on this cluster: never submit more than a few hundred futures at once with `ProcessPoolExecutor` + `spawn` when workers do Lustre I/O.
 - `.pt` files are in graphein/PDB atom order on disk; the reindex to OpenFold order happens at load time (both here and in `PDBDataset`).
-- Data: 536K `.pt` files sharded as `processed/<2-char-prefix>/<pdb_chain>.pt`. Estimated ~8-10h with 32 workers (TANGO subprocess is the bottleneck).
+- Data: 536K `.pt` files sharded as `processed/<2-char-prefix>/<pdb_chain>.pt`. Estimated ~4h for 63K proteins (300-800 residues) with 31 workers including TANGO.
 - `data.id` matches `Path(filename).stem` — resume logic relies on this.
 
 ### Configuration System
@@ -148,7 +150,7 @@ sbatch script_utils/submit_train.sh -n training_ca_only
 
 ### Cluster (Cambridge HPC) Notes
 
-- Data: `/rds/user/ks2218/hpc-work/processed` (raw PDB .pt files, 536K files), `/rds/user/ks2218/hpc-work/processed_latents` (precomputed latents, 355K files — currently archived, see below)
+- Data: `/rds/user/ks2218/hpc-work/processed` (raw PDB .pt files, 536K files), `/rds/user/ks2218/hpc-work/processed_latents` (precomputed latents, 63K files for 300-800 residue subset; 355K original latents archived, see below)
 - Checkpoints: `/rds/user/ks2218/hpc-work/checkpoints_laproteina/`
 - **RDS Inode Quota**: limit is 1,048,576 files. As of Apr 2026, ~962K used (~92%). Space quota is 1.1 TB with ~107 GB used — space is not the bottleneck, file count is.
 - **Archived precomputed latents**: `processed_latents/` was archived to free ~355K inodes for the maxl800 dataset preparation. Archives are at `/rds/user/ks2218/hpc-work/latent_shards/` (~265 `.tar` files, one per 2-char shard directory). To restore:
@@ -157,6 +159,7 @@ sbatch script_utils/submit_train.sh -n training_ca_only
   ls /rds/user/ks2218/hpc-work/latent_shards/*.tar | xargs -P 32 -I{} tar -xf {} -C /rds/user/ks2218/hpc-work/processed_latents
   ```
   After restoring, re-symlink if needed: `ln -sfn /rds/user/ks2218/hpc-work/processed_latents /home/ks2218/la-proteina/data/pdb_train/processed_latents`
+- **Lustre + ProcessPoolExecutor**: Never eagerly submit tens of thousands of futures when workers do Lustre I/O (torch.load, temp files). The concurrent metadata operations deadlock the filesystem. Use rolling/batched submission (submit ~`workers*4` at a time, replenish as they complete).
 - **Tarring on Lustre is slow**: 355K small files takes hours on login nodes. Use compute nodes with parallel shard approach: `ls processed_latents/ | xargs -P 32 -I{} tar -cf latent_shards/{}.tar -C processed_latents {}`. Skip `-z` (gzip) — saves CPU time and the bottleneck is metadata, not disk space.
 - Ampere partition: 1 GPU = 32 CPUs + ~250G RAM (full 1/4-node), regardless of `--cpus-per-task` SBATCH header.
 - SLURM kills jobs at time limit without warning — use atomic writes for any file outputs.
@@ -234,6 +237,12 @@ Key settings to adjust before running:
 - t-convention: all code uses t=0 = pure noise, t=1 = clean data (`z_t = (1-t)*noise + t*z_clean`), matching the La-Proteina codebase. **The steering predictor's t-convention has NOT been verified** — flagged in code comments and all output summaries.
 - Grouped CV: folds are grouped by protein_id so the same protein never appears in both train and test.
 - Missing optional deps: `umap-learn` (UMAP step skipped gracefully), `pyarrow` (falls back to CSV).
+
+### Steerability Results (Apr 2026, 56K proteins, 300-800 residues)
+
+**Part 1 — Latent geometry**: All 8 latent dims are well-utilized (participation ratio 7.69/8, no posterior collapse). Dims are well-disentangled (max off-diagonal Pearson 0.10, max MI 0.28 nats). Dims 3, 5, 6, 7 are multimodal (discrete structural clusters). Weak length sensitivity (r = -0.04). Within-protein variance dominates between-protein variance (~1.04 ratio), so protein-level steering works with averaged latents.
+
+**Part 2 — Property probes**: Not yet run on real data. Requires the developability CSV as input (rename `pdb_id` → `protein_id`, set `part2.property_granularity` to all `"protein"`).
 
 ### Known Issues / Fixes Applied
 
