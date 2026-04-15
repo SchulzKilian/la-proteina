@@ -70,16 +70,18 @@ COLUMNS = [
 IDX_TO_AA = {i: aa for i, aa in enumerate(restypes)}
 IDX_TO_AA[20] = "X"
 
-# ── SWI (Solubility-Weighted Index) per-residue propensity scores ─────────────
-# Source: Bhandari et al. 2020, Table 1
-# These are log-odds of each AA appearing in soluble vs insoluble NESG proteins.
-# *** VERIFY THESE VALUES AGAINST TABLE 1 OF THE PAPER BEFORE PUBLICATION ***
+# Solubility-Weighted Index weights — Bhandari et al. 2020
+# doi: 10.1093/bioinformatics/btaa578
+# Source: reference implementation swi.py (Gardner-BinfLab/SoDoPE_paper_2020)
+# These are optimised normalised B-factors on the absolute scale (~0.52–0.99).
+# The logistic regression P(soluble) = 1/(1+exp(-(81.06*SWI - 62.78)))
+# is calibrated to this scale.
 SWI_SCORES: Dict[str, float] = {
-    "A":  0.06, "R":  0.25, "N":  0.17, "D":  0.23, "C": -0.13,
-    "Q":  0.16, "E":  0.26, "G":  0.05, "H":  0.11, "I": -0.15,
-    "L": -0.16, "K":  0.22, "M": -0.05, "F": -0.20, "P":  0.15,
-    "S":  0.14, "T":  0.09, "W": -0.19, "Y": -0.12, "V": -0.10,
-    "X":  0.00,
+    "A": 0.8356, "C": 0.5208, "D": 0.9079, "E": 0.9877, "F": 0.5850,
+    "G": 0.7997, "H": 0.8948, "I": 0.6784, "K": 0.9267, "L": 0.6554,
+    "M": 0.6297, "N": 0.8597, "P": 0.8235, "Q": 0.7894, "R": 0.7712,
+    "S": 0.7441, "T": 0.8097, "V": 0.7358, "W": 0.6375, "Y": 0.6113,
+    "X": 0.7700,  # fallback: approximate mean of the 20 values
 }
 
 # ── hydrophobicity scale for SAP (Black & Mould 1991, glycine-centred) ────────
@@ -118,21 +120,26 @@ SAP_SPHERE_RADIUS    = 5.0    # Å  — sphere radius for SAP neighbourhood
 # ─────────────────────────────────────────────────────────────────────────────
 # Worker-level globals (populated once per worker process in _worker_init)
 # ─────────────────────────────────────────────────────────────────────────────
-_CANYA_MODEL   = None   # loaded TF model or None if unavailable
-_IUPRED_FN     = None   # callable(sequence, mode) -> list[float] or None
+_CANYA_MODEL    = None   # loaded TF model or None if unavailable
+_CANYA_AVAILABLE = False  # set True in _worker_init if model or CLI found
+_IUPRED_FN      = None   # callable(sequence, mode) -> list[float] or None
 
 def _worker_init():
     """Called once per worker process to load heavy models."""
-    global _CANYA_MODEL, _IUPRED_FN
+    global _CANYA_MODEL, _CANYA_AVAILABLE, _IUPRED_FN
 
     # ── CANYA ─────────────────────────────────────────────────────────────────
     try:
         os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
         from canya.canya import CANYA  # type: ignore
         _CANYA_MODEL = CANYA()
-    except Exception as e:
-        sys.stderr.write(f"[worker] CANYA not available: {e}\n")
+        _CANYA_AVAILABLE = True
+    except Exception:
         _CANYA_MODEL = None
+        # Check if CLI is available as fallback
+        _CANYA_AVAILABLE = subprocess.run(
+            ["which", "canya"], capture_output=True
+        ).returncode == 0
 
     # ── IUPred3 ───────────────────────────────────────────────────────────────
     # iupred3 is a standalone download (not on PyPI).
@@ -291,14 +298,15 @@ def compute_tango(sequence: str, pdb_id: str) -> Tuple[float, int]:
 def compute_canya(sequence: str) -> float:
     """
     CANYA nucleation propensity (Lehner lab).
-    Uses worker-local model if available; falls back to subprocess CLI.
-    Returns max nucleation score across all windows.
+    Returns NaN silently if CANYA is not installed.
     """
+    if not _CANYA_AVAILABLE:
+        return float("nan")
+
     # Try Python API (model loaded in _worker_init)
     if _CANYA_MODEL is not None:
         try:
             result = _CANYA_MODEL.predict(sequence)
-            # result is typically a dict or array with per-position scores
             scores = result if isinstance(result, (list, np.ndarray)) else result.get("score", [])
             return float(np.max(scores)) if len(scores) > 0 else float("nan")
         except Exception as e:
@@ -311,10 +319,10 @@ def compute_canya(sequence: str) -> float:
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode == 0:
-            # Expect a single float on stdout
             return float(proc.stdout.strip().split()[-1])
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError) as e:
-        sys.stderr.write(f"[canya] subprocess failed: {e}\n")
+        sys.stderr.write(f"[canya] non-zero exit: {proc.stderr.strip()[:200]}\n")
+    except (subprocess.TimeoutExpired, ValueError) as e:
+        sys.stderr.write(f"[canya] failed: {e}\n")
 
     return float("nan")
 
