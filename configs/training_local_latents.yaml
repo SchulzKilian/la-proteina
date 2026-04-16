@@ -75,7 +75,7 @@ lora:
 
 # Optimization
 opt:
-  lr: 0.0001  # reverted from 0.0002 — original stable value from 8f74f79
+  lr: 0.001  # sqrt-scaled for eff batch 832 (~14x over baseline's batch=4 lr=0.0001)
   max_epochs: 10000000
   accumulate_grad_batches: 8
   skip_nan_grad: False  # Skip updates with nan gradient
