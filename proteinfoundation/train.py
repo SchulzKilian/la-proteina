@@ -157,16 +157,18 @@ def handle_cath_conditioning(cfg_exp):
 def get_run_dirs(cfg_exp):
     """
     Get root directory for run and directory to store checkpoints.
-    If a previous checkpoint exists for this run_name, reuse that directory
-    so that interactive session restarts and manual SIGUSR1 saves resume correctly.
+    Resume is opt-in: set environment variable RESUME=1 (or =true) to scan for
+    an existing last.ckpt and resume from there. Default is a fresh run.
     """
     run_name = cfg_exp.run_name_
     log_info(f"Job name: {run_name}")
     store_base = os.path.join(".", "store", run_name)
 
-    # Look for the most recent timestamp subdir that contains a last.ckpt
+    resume_enabled = os.environ.get("RESUME", "").lower() in ("1", "true", "yes")
+
     root_run = None
-    if os.path.isdir(store_base):
+    if resume_enabled and os.path.isdir(store_base):
+        log_info("RESUME=1 set — scanning for existing checkpoint to resume from")
         subdirs = sorted(
             (d for d in os.listdir(store_base) if os.path.isdir(os.path.join(store_base, d))),
             reverse=True,
@@ -178,6 +180,8 @@ def get_run_dirs(cfg_exp):
                 root_run = candidate_root
                 log_info(f"Resuming from existing run directory: {root_run}")
                 break
+    elif not resume_enabled:
+        log_info("RESUME not set — starting a fresh run (set RESUME=1 to auto-resume)")
 
     if root_run is None:
         root_run = os.path.join(store_base, f"{int(time.time())}")
@@ -373,10 +377,16 @@ def main(cfg_exp) -> None:
     model, resume_ckpt_path = get_model_n_ckpt_resume(cfg_exp, ckpt_path_store)
 
     # logger
+    resume_enabled = os.environ.get("RESUME", "").lower() in ("1", "true", "yes")
+
     wandb_logger = None
     if cfg_exp.log.log_wandb and not nolog:
+        # resume="never" forces wandb to create a new run rather than resuming a
+        # prior one with matching name/id. Opt in by setting RESUME=1.
         wandb_logger = WandbLogger(
-            project=cfg_exp.log.wandb_project, name=run_name,
+            project=cfg_exp.log.wandb_project,
+            name=run_name,
+            resume="allow" if resume_enabled else "never",
         )
 
     # checkpoints
@@ -385,8 +395,9 @@ def main(cfg_exp) -> None:
         callbacks += ckpt_callbacks
         store_n_log_configs(cfg_exp, cfg_data, run_name, ckpt_path_store, wandb_logger)
 
-    # Train
-    plugins = [SLURMEnvironment(auto_requeue=True)] if is_cluster_run else []
+    # Train. SLURM auto-requeue also gated behind RESUME=1 so that an interrupted
+    # job doesn't silently resume from checkpoint.
+    plugins = [SLURMEnvironment(auto_requeue=resume_enabled)] if is_cluster_run else []
     show_prog_bar = show_prog_bar or not is_cluster_run
     trainer = L.Trainer(
         max_epochs=cfg_exp.opt.max_epochs,
