@@ -84,11 +84,21 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device: %s", device)
 
-    # Load data
-    logger.info("Loading latents from %s ...", cfg["data"]["latent_dir"])
+    # Load data — try configured path, fall back to local symlink
+    latent_dir = cfg["data"]["latent_dir"]
+    if not Path(latent_dir).is_dir():
+        fallback = Path(__file__).resolve().parents[2] / ".." / "data" / "pdb_train" / "processed_latents"
+        if fallback.is_dir():
+            latent_dir = str(fallback.resolve())
+            logger.info("Primary latent dir not found, using fallback: %s", latent_dir)
+        else:
+            raise FileNotFoundError(
+                f"Latent dir not found at {cfg['data']['latent_dir']} or {fallback}"
+            )
+    logger.info("Loading latents from %s ...", latent_dir)
     rng = np.random.default_rng(42)
     records = load_dataset(
-        latent_dir=cfg["data"]["latent_dir"],
+        latent_dir=latent_dir,
         file_format=cfg["data"]["file_format"],
         field_names=cfg["data"]["field_names"],
         load_coords=False,
