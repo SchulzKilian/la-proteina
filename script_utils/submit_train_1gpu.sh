@@ -36,11 +36,32 @@ export SLURM_NTASKS_PER_NODE=1
 #    full_training_test.sh uses `exec python ...` instead when NO_SRUN=1.
 export NO_SRUN=1
 
-# 6. Run training with 1-GPU Hydra overrides
+# 6. Stage AE checkpoint to local NVMe /tmp to avoid cold Lustre reads.
+#    torch.load on a 4GB file from RDS is the biggest cold-start bottleneck.
+#    One cp here (~30-60s) turns subsequent reads into fast local SSD reads.
+AE_SRC="/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
+AE_LOCAL="/tmp/AE1_ucond_512.ckpt"
+AE_OVERRIDE=""
+if [ -f "$AE_SRC" ]; then
+    echo "[+] Staging AE checkpoint to local /tmp..."
+    t0=$(date +%s)
+    cp "$AE_SRC" "$AE_LOCAL" && {
+        t1=$(date +%s)
+        echo "[+] Staged to $AE_LOCAL in $((t1 - t0))s"
+        AE_OVERRIDE="++autoencoder_ckpt_path=$AE_LOCAL"
+    } || {
+        echo "[!] /tmp staging failed — falling back to RDS path"
+    }
+else
+    echo "[!] Source AE ckpt not found at $AE_SRC — using config default"
+fi
+
+# 7. Run training with 1-GPU Hydra overrides
 #    lr=0.0005 is sqrt-scaled for 4x smaller effective batch vs 4-GPU default
 #    (eff batch 832 → 208 => lr 0.001 → 0.0005)
 bash script_utils/full_training_test.sh "$@" \
     hardware.ngpus_per_node_=1 \
     hardware.nnodes_=1 \
     opt.dist_strategy=auto \
-    opt.lr=0.0005
+    opt.lr=0.0005 \
+    $AE_OVERRIDE
