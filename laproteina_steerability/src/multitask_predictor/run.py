@@ -42,6 +42,10 @@ def main():
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--folds", type=str, default=None, help="Comma-separated fold indices to run (e.g. '0' or '0,1,2,3,4')")
     parser.add_argument("--smoke-test", action="store_true", help="Quick smoke test: 2 epochs, fold 0 only")
+    parser.add_argument("--length-range", type=str, default=None,
+                        help="Override length range, e.g. '50,200' or 'none' to disable")
+    parser.add_argument("--subsample", type=int, default=None,
+                        help="Override subsample count (e.g. 500 for smoke test)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -95,8 +99,24 @@ def main():
             raise FileNotFoundError(
                 f"Latent dir not found at {cfg['data']['latent_dir']} or {fallback}"
             )
+    # Apply CLI overrides
+    if args.subsample is not None:
+        cfg["data"]["subsample"] = args.subsample
+    elif args.smoke_test and cfg["data"].get("subsample") is None:
+        cfg["data"]["subsample"] = 1000
+        logger.info("Smoke test: auto-subsampling to 1000 proteins")
+
+    if args.length_range is not None:
+        if args.length_range.lower() == "none":
+            cfg["data"]["length_range"] = None
+        else:
+            lo, hi = args.length_range.split(",")
+            cfg["data"]["length_range"] = [int(lo), int(hi)]
+
     logger.info("Loading latents from %s ...", latent_dir)
     rng = np.random.default_rng(42)
+    length_range = tuple(cfg["data"]["length_range"]) if cfg["data"].get("length_range") else None
+    logger.info("Length range filter: %s", length_range)
     records = load_dataset(
         latent_dir=latent_dir,
         file_format=cfg["data"]["file_format"],
@@ -104,7 +124,7 @@ def main():
         load_coords=False,
         subsample=cfg["data"].get("subsample"),
         rng=rng,
-        length_range=tuple(cfg["data"]["length_range"]) if cfg["data"].get("length_range") else None,
+        length_range=length_range,
     )
     logger.info("Loaded %d protein records", len(records))
 
