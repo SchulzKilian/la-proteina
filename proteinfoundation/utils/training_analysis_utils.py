@@ -24,12 +24,18 @@ class UnusedParametersCallback(Callback):
 class LogEpochTimeCallback(Callback):
     """Simple callback that logs how long each epoch takes, in seconds, to a pytorch lightning log"""
 
+    def __init__(self):
+        super().__init__()
+        self.epoch_start = None
+
     def on_train_epoch_start(self, trainer, pl_module):
         self.epoch_start = time.time()
 
     def on_train_epoch_end(self, trainer, pl_module):
+        if self.epoch_start is None:
+            return
         curr_time = time.time()
-        duration = curr_time  - self.epoch_start
+        duration = curr_time - self.epoch_start
         pl_module.log(
             "train_info/epoch_duration_secs",
             duration,

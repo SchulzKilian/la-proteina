@@ -45,7 +45,7 @@ training:
   n_recycle: 0
   motif_conditioning: False
   self_cond: True
-  p_folding_n_inv_folding_iters: 0.1
+  p_folding_n_inv_folding_iters: 0.0
   use_precomputed_latents: False
 
 lora:

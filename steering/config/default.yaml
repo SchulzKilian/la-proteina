@@ -1,0 +1,32 @@
+steering:
+  enabled: false
+
+  # Path to predictor checkpoint (contains model weights + z-score stats)
+  checkpoint: null
+
+  # Which properties to steer and in which direction
+  objectives:
+    - property: net_charge
+      direction: maximize
+      target_value: null
+      weight: 1.0
+
+  # Guidance method (only reconstruction supported)
+  method: reconstruction
+
+  # Guidance weight schedule
+  schedule:
+    type: linear_ramp
+    w_max: 2.0
+    t_start: 0.3
+    t_end: 1.0
+
+  # Gradient handling
+  gradient_norm: unit     # unit = normalise to unit norm per protein; raw = use raw gradient
+  gradient_clip: 10.0     # clip gradient norm before normalisation
+
+  # Which flow channel to guide
+  channel: local_latents
+
+  # Per-step diagnostics returned alongside samples
+  log_diagnostics: true

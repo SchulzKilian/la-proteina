@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e 
+set -uo pipefail
 
 # 1. Establish the "Anchor" (Project Root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -8,7 +8,7 @@ cd "$PROJECT_DIR"
 
 
 
-export SLURM_NTASKS=4
+export SLURM_NTASKS=${SLURM_NTASKS:-4}
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export TORCH_COMPILE_DISABLE=1
 

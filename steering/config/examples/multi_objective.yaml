@@ -1,0 +1,26 @@
+steering:
+  enabled: true
+  checkpoint: logs/multitask_t1/<timestamp>/checkpoints/fold_0_best.pt
+
+  objectives:
+    - property: net_charge
+      direction: target
+      target_value: 5.0
+      weight: 1.0
+    - property: sap
+      direction: minimize
+      weight: 0.5
+    - property: rg
+      direction: minimize
+      weight: 0.3
+
+  schedule:
+    type: linear_ramp
+    w_max: 2.0
+    t_start: 0.3
+    t_end: 1.0
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

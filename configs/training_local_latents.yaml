@@ -30,14 +30,14 @@ product_flowmatcher:
     dim: null
     
 
-autoencoder_ckpt_path: ./checkpoints_laproteina/AE1_ucond_512.ckpt
+autoencoder_ckpt_path: /rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt
 
 
 dataset:
   datamodule:
     use_precomputed_latents: False
     dataselector:
-      worst_resolution: 2.0  # Only high-quality structures (≤2Å)
+      worst_resolution: 5.0  # Match default dataset selector
 
 # Loss
 loss:
@@ -75,7 +75,7 @@ lora:
 
 # Optimization
 opt:
-  lr: 0.0001
+  lr: 0.0002
   max_epochs: 10000000
   accumulate_grad_batches: 8
   skip_nan_grad: False  # Skip updates with nan gradient
