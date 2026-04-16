@@ -31,7 +31,12 @@ ulimit -n 65536 2>/dev/null || ulimit -n $(ulimit -Hn) 2>/dev/null || true
 export SLURM_NTASKS=1
 export SLURM_NTASKS_PER_NODE=1
 
-# 5. Run training with 1-GPU Hydra overrides
+# 5. Skip srun — single-GPU doesn't need multi-task orchestration, and this
+#    avoids inner-allocation hangs when running inside an interactive session.
+#    full_training_test.sh uses `exec python ...` instead when NO_SRUN=1.
+export NO_SRUN=1
+
+# 6. Run training with 1-GPU Hydra overrides
 #    lr=0.0005 is sqrt-scaled for 4x smaller effective batch vs 4-GPU default
 #    (eff batch 832 → 208 => lr 0.001 → 0.0005)
 bash script_utils/full_training_test.sh "$@" \

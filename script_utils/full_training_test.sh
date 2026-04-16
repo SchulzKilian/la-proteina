@@ -121,10 +121,22 @@ if [ -t 0 ]; then
     SAVE_TIMER_PID=$!
 fi
 
-srun --mem=0 python proteinfoundation/train.py \
-    --config-name "$CONFIG_NAME" \
-    hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
-    "$@"
+# Launcher: srun for multi-task/multi-GPU, exec for single-GPU.
+# Set NO_SRUN=1 (submit_train_1gpu.sh does this) to skip srun — signals go
+# directly to python, no inner-allocation contention in interactive sessions.
+if [ "${NO_SRUN:-0}" = "1" ]; then
+    echo "[+] Launching with exec python (NO_SRUN=1)"
+    [ -n "$SAVE_TIMER_PID" ] && kill $SAVE_TIMER_PID 2>/dev/null  # can't cancel after exec
+    exec python proteinfoundation/train.py \
+        --config-name "$CONFIG_NAME" \
+        hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
+        "$@"
+else
+    srun --mem=0 python proteinfoundation/train.py \
+        --config-name "$CONFIG_NAME" \
+        hydra.run.dir="logs/training/$(date +%Y%m%d_%H%M%S)" \
+        "$@"
+fi
 
 [ -n "$SAVE_TIMER_PID" ] && kill $SAVE_TIMER_PID 2>/dev/null  # cancel timer if training ended naturally
 echo "[+] Process Complete."
