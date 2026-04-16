@@ -451,11 +451,12 @@ class Proteina(L.LightningModule):
             "n_recycle", 0
         )
         if random.random() > 0.5 and self.cfg_exp.training.self_cond:
-            nn_out = self.call_nn(batch, n_recycle=n_recycle)
-            x_1_pred = self.fm.nn_out_to_clean_sample_prediction(
-                batch=batch, nn_out=nn_out
-            )
-            batch["x_sc"] = {k: x_1_pred[k].detach() for k in x_1_pred}
+            with torch.no_grad():
+                nn_out = self.call_nn(batch, n_recycle=n_recycle)
+                x_1_pred = self.fm.nn_out_to_clean_sample_prediction(
+                    batch=batch, nn_out=nn_out
+                )
+            batch["x_sc"] = {k: x_1_pred[k] for k in x_1_pred}
 
         return batch
 
