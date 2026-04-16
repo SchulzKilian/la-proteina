@@ -301,7 +301,7 @@ def train_fold(
     epoch_file.close()
 
     # Load best checkpoint and evaluate
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     best_val = evaluate(model, val_loader, device, stats)
     best_val["fold"] = fold_idx
