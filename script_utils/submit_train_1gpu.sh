@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=0
+#SBATCH --mem=240G
 #SBATCH --time=8:00:00
 #SBATCH --signal=SIGUSR1@300
 #SBATCH --output=slurm_train_1gpu_%j.out
