@@ -25,6 +25,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
         num_workers: int = 32,
         pin_memory: bool = False,
         prefetch_factor: int = 4,
+        max_padding_size: Optional[int] = None,
     ):
         """Initialising the base data module class.
 
@@ -64,6 +65,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.prefetch_factor = prefetch_factor
+        self.max_padding_size = max_padding_size
         self.train_ds = None
         self.val_ds = None
         self.test_ds = None
@@ -147,6 +149,10 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
 
         dataloader_class = DensePaddingDataLoader if self.batch_padding else DataLoader
 
+        extra_kwargs = {}
+        if self.batch_padding and self.max_padding_size is not None:
+            extra_kwargs["max_size"] = self.max_padding_size
+
         return dataloader_class(
             dataset,
             batch_size=self.batch_size,
@@ -157,6 +163,7 @@ class BaseLightningDataModule(L.LightningDataModule, ABC):
             drop_last=True,
             persistent_workers=True if self.num_workers > 0 else False,
             prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None,
+            **extra_kwargs,
         )
 
     def train_dataloader(self) -> DataLoader:

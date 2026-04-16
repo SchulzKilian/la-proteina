@@ -12,9 +12,7 @@ datamodule:
     - _target_: "proteinfoundation.datasets.transforms.CenterStructureTransform"
     - _target_: "proteinfoundation.datasets.transforms.GlobalRotationTransform" # Transforms to apply to dataset examples
     - _target_: "proteinfoundation.datasets.transforms.ChainBreakPerResidueTransform"
-    - _target_: "proteinfoundation.datasets.transforms.PaddingTransform"
-      max_size: 1024
-      fill_value: 0
+  max_padding_size: 1024 # Pad all batches to this length (uniform GPU memory, correct mask)
   batch_size: 26 # Batch size for dataloader
   num_workers: 24 # Number of workers for dataloader
   pin_memory: False # Pin memory for dataloader
