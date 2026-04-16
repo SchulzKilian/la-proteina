@@ -35,7 +35,10 @@ def load_properties(
         Loaded properties with columns: protein_id, residue_index,
         and one column per property.
     """
-    df = pd.read_parquet(property_file)
+    if property_file.endswith(".csv"):
+        df = pd.read_csv(property_file)
+    else:
+        df = pd.read_parquet(property_file)
 
     missing_cols = [p for p in property_names if p not in df.columns]
     if missing_cols:

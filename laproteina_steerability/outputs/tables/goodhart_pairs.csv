@@ -1,3 +1,4 @@
 prop_a,prop_b,correlation,diverges
-camsol_intrinsic,swi,0.8470796396735223,False
-tango,canya,0.7977166707886122,False
+scm_positive,scm_negative,-0.5178272916780081,False
+tango,sap,0.3631687865220455,True
+swi,sap,-0.20527057850263605,True

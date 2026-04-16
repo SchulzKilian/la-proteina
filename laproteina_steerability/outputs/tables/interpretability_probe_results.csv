@@ -1,0 +1,4 @@
+feature,metric,value,std,probe
+residue_identity,accuracy,0.9938368550125096,0.0002542669359232144,logistic_regression
+dist_to_com,R2,0.008324265480041504,0.0005151684776584132,ridge
+neighbour_count,R2,0.0355411171913147,0.00243566068885881,ridge

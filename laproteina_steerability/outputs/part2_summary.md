@@ -6,49 +6,55 @@ WARNING: Steering predictor convention has NOT been verified.
 
 ## Decision summary
 
-- Properties analyzed: 8
-- steerable: 6
+- Properties analyzed: 13
+- steerable: 0
 - nonlinear_encoded: 0
-- goodhart_control: 0
-- drop: 2
+- goodhart_control: 5
+- drop: 8
 - ambiguous: 0
 
 ## Decisions
 
-        property  decision  best_linear_r2  best_mlp_r2  best_knn_r2                                                                                                             note
-      net_charge      drop       -0.200595    -0.563253    -0.195181                                                                                                                 
-         iupred3 steerable        0.720710     0.698896     0.663555                                                                                                                 
-camsol_intrinsic steerable        0.726562     0.713791     0.675770                                                                                                                 
-           tango steerable        0.724319     0.700016     0.660703                                                                                                                 
-           canya steerable        0.720793     0.705369     0.660986                                                                                                                 
-             swi steerable        0.719575     0.701719     0.653084                                                                                                                 
-             sap steerable        0.731595     0.712318     0.670324                                                                                                                 
-              rg      drop       -0.328253    -0.658325    -0.400139 Rg is backbone-determined; latent-only probes should be near-zero unless Rg correlates with an encoded property.
+                    property         decision  best_linear_r2  best_mlp_r2  best_knn_r2                                                                                                             note
+                         swi goodhart_control       -0.603811    -1.253417    -1.093453                                                                   Flagged as Goodhart control — evaluation only.
+                       tango goodhart_control       -0.949179    -2.989719    -0.915946                                                                   Flagged as Goodhart control — evaluation only.
+                  net_charge             drop       -0.566239    -0.607116    -0.571171                                                                                                                 
+                          pI             drop       -0.106813    -0.739587    -0.142895                                                                                                                 
+                     iupred3             drop       -0.834534    -1.615833    -0.841400                                                                                                                 
+ iupred3_fraction_disordered             drop       -0.098543    -0.490921    -0.127897                                                                                                                 
+             shannon_entropy             drop       -0.126313    -0.289363    -0.175572                                                                                                                 
+hydrophobic_patch_total_area             drop       -0.131870     0.141830     0.001460                                                                                                                 
+   hydrophobic_patch_n_large             drop       -0.149905    -0.755210    -0.114321                                                                                                                 
+                         sap goodhart_control       -0.138171    -0.825749    -0.388465                                                                   Flagged as Goodhart control — evaluation only.
+                scm_positive goodhart_control       -0.363804    -1.149305    -0.465565                                                                   Flagged as Goodhart control — evaluation only.
+                scm_negative goodhart_control       -0.126374    -0.369285    -0.090511                                                                   Flagged as Goodhart control — evaluation only.
+                          rg             drop       -0.727879    -0.978387    -0.796202 Rg is backbone-determined; latent-only probes should be near-zero unless Rg correlates with an encoded property.
 
 ## Goodhart pairs
 
-          prop_a prop_b  correlation  diverges
-camsol_intrinsic    swi     0.847080     False
-           tango  canya     0.797717     False
+      prop_a       prop_b  correlation  diverges
+scm_positive scm_negative     0.132334      True
+       tango          sap     0.229854      True
+         swi          sap     0.209626      True
 
 ## Top probe results (by R²)
 
-        property   t        input_variant probe_type  r2_mean   r2_std
-             sap 1.0 latent_plus_backbone     linear 0.731595 0.024016
-             sap 1.0          latent_only     linear 0.731593 0.023984
-camsol_intrinsic 1.0          latent_only     linear 0.726562 0.038769
-camsol_intrinsic 1.0 latent_plus_backbone     linear 0.726287 0.038870
-           tango 1.0          latent_only     linear 0.724319 0.033978
-           tango 1.0 latent_plus_backbone     linear 0.723361 0.034508
-           canya 1.0          latent_only     linear 0.720793 0.037876
-         iupred3 1.0          latent_only     linear 0.720710 0.014952
-         iupred3 1.0 latent_plus_backbone     linear 0.720170 0.014806
-           canya 1.0 latent_plus_backbone     linear 0.719631 0.038284
-             swi 1.0          latent_only     linear 0.719575 0.019150
-             swi 1.0 latent_plus_backbone     linear 0.718453 0.020407
-camsol_intrinsic 1.0          latent_only        mlp 0.713791 0.035516
-             sap 1.0          latent_only        mlp 0.712318 0.017740
-           canya 1.0          latent_only        mlp 0.705369 0.037622
+                    property   t        input_variant probe_type   r2_mean   r2_std
+hydrophobic_patch_total_area 0.8          latent_only        mlp  0.141830 0.423606
+hydrophobic_patch_total_area 1.0 latent_plus_backbone        knn  0.001460 0.294348
+hydrophobic_patch_total_area 1.0          latent_only        knn -0.013750 0.337523
+hydrophobic_patch_total_area 0.8 latent_plus_backbone        knn -0.054490 0.319462
+                scm_negative 0.5          latent_only        knn -0.090511 0.218559
+ iupred3_fraction_disordered 1.0          latent_only     linear -0.098543 0.083150
+                          pI 1.0          latent_only     linear -0.106813 0.123830
+ iupred3_fraction_disordered 1.0 latent_plus_backbone     linear -0.110116 0.063880
+   hydrophobic_patch_n_large 1.0          latent_only        knn -0.114321 0.309389
+                          pI 0.5          latent_only     linear -0.124652 0.249404
+             shannon_entropy 0.3          latent_only     linear -0.126313 0.115013
+                scm_negative 0.5          latent_only     linear -0.126374 0.352461
+hydrophobic_patch_total_area 0.5 latent_plus_backbone        knn -0.126431 0.363580
+                scm_negative 0.5 latent_plus_backbone     linear -0.127373 0.266445
+                          pI 1.0 latent_plus_backbone     linear -0.127438 0.155531
 
 ## Figures
 - `figures/property_correlation_clustered.{png,pdf}` — clustered property heatmap

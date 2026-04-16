@@ -1,0 +1,6 @@
+- dataset=pdb/pdb_train_ucond
+- dataset.datamodule.data_dir=/home/ks2218/la-proteina/data/pdb_train
+- dataset.datamodule.num_workers=40
+- ++nolog=true
+- ++hardware.accelerator=cpu
+- ++hardware.ngpus_per_node_=1

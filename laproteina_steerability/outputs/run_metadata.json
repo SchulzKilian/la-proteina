@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-04-15T07:45:45.013267+00:00",
-  "git_hash": "5ba2ce14927976e7e2baf1675d30df5c3a69e701",
-  "dataset_size": 56008,
+  "timestamp": "2026-04-15T11:06:43.038552+00:00",
+  "git_hash": "36c7d82860099e167db8a4e15f269915a96c37b8",
+  "dataset_size": 500,
   "config": {
     "seed": 42,
     "log_level": "INFO",
@@ -51,35 +51,49 @@
       }
     },
     "part2": {
-      "property_file": "data/properties.parquet",
+      "property_file": "data/properties.csv",
       "property_granularity": {
+        "swi": "protein",
+        "tango": "protein",
         "net_charge": "protein",
-        "iupred3": "residue",
-        "camsol_intrinsic": "residue",
-        "tango": "residue",
-        "canya": "residue",
-        "swi": "residue",
-        "sap": "residue",
+        "pI": "protein",
+        "iupred3": "protein",
+        "iupred3_fraction_disordered": "protein",
+        "shannon_entropy": "protein",
+        "hydrophobic_patch_total_area": "protein",
+        "hydrophobic_patch_n_large": "protein",
+        "sap": "protein",
+        "scm_positive": "protein",
+        "scm_negative": "protein",
         "rg": "protein"
       },
       "property_names": [
-        "net_charge",
-        "iupred3",
-        "camsol_intrinsic",
-        "tango",
-        "canya",
         "swi",
+        "tango",
+        "net_charge",
+        "pI",
+        "iupred3",
+        "iupred3_fraction_disordered",
+        "shannon_entropy",
+        "hydrophobic_patch_total_area",
+        "hydrophobic_patch_n_large",
         "sap",
+        "scm_positive",
+        "scm_negative",
         "rg"
       ],
       "goodhart_pairs": [
         [
-          "camsol_intrinsic",
-          "swi"
+          "scm_positive",
+          "scm_negative"
         ],
         [
           "tango",
-          "canya"
+          "sap"
+        ],
+        [
+          "swi",
+          "sap"
         ]
       ],
       "corr_cluster_threshold": 0.8,
@@ -127,7 +141,12 @@
       }
     }
   },
-  "part": "part1_latent_geometry",
-  "n_residues": 22657969,
-  "latent_dim": 8
+  "part": "latent_interpretability",
+  "n_residues": 201845,
+  "latent_dim": 8,
+  "features": [
+    "residue_identity",
+    "dist_to_com",
+    "neighbour_count"
+  ]
 }

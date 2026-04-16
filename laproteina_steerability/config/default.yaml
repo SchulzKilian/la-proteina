@@ -41,35 +41,47 @@ part1:
 
 # --- Part 2: Property probes ---
 part2:
-  property_file: "data/properties.parquet"
+  property_file: "data/properties.csv"
 
   # Per-property granularity: "protein" or "residue"
+  # All properties from developability_panel.csv are protein-level aggregates
   property_granularity:
+    swi: "protein"
+    tango: "protein"
     net_charge: "protein"
-    iupred3: "residue"
-    camsol_intrinsic: "residue"
-    tango: "residue"
-    canya: "residue"
-    swi: "residue"
-    sap: "residue"
+    pI: "protein"
+    iupred3: "protein"
+    iupred3_fraction_disordered: "protein"
+    shannon_entropy: "protein"
+    hydrophobic_patch_total_area: "protein"
+    hydrophobic_patch_n_large: "protein"
+    sap: "protein"
+    scm_positive: "protein"
+    scm_negative: "protein"
     rg: "protein"
 
   # Property names to analyze (must match columns in property_file)
   property_names:
-    - net_charge
-    - iupred3
-    - camsol_intrinsic
-    - tango
-    - canya
     - swi
+    - tango
+    - net_charge
+    - pI
+    - iupred3
+    - iupred3_fraction_disordered
+    - shannon_entropy
+    - hydrophobic_patch_total_area
+    - hydrophobic_patch_n_large
     - sap
+    - scm_positive
+    - scm_negative
     - rg
 
   # Goodhart pairs: conceptually similar properties that should be checked
   # for empirical divergence. Each pair is [prop_a, prop_b].
   goodhart_pairs:
-    - [camsol_intrinsic, swi]
-    - [tango, canya]
+    - [scm_positive, scm_negative]
+    - [tango, sap]
+    - [swi, sap]
 
   # Correlation clustering threshold
   corr_cluster_threshold: 0.8
