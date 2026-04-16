@@ -1,0 +1,6 @@
+- single=true
+- ++nolog=true
+- opt.max_epochs=1
+- hardware.ncpus_per_task_train_=4
+- pretrain_ckpt_path=./checkpoints_laproteina/some_model.ckpt
+- dataset=pdb/pdb_train_ucond

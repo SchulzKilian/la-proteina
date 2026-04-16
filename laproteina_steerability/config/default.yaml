@@ -5,7 +5,7 @@ log_level: INFO  # DEBUG, INFO, WARNING, ERROR
 
 # --- Data ---
 data:
-  latent_dir: "/rds/user/ks2218/hpc-work/processed_latents"
+  latent_dir: "/home/ks2218/la-proteina/data/pdb_train/processed_latents_300_800"
   file_format: "pt"
   # Field names mapping: semantic name -> key in the .pt file
   # Actual keys in processed_latents: mean, log_scale, coords_nm, coord_mask, id, residue_type

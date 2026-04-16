@@ -1,0 +1,9 @@
+- ++config_name=inference_ucond_notri
+- ++ckpt_path=/home/ks2218/la-proteina/checkpoints_laproteina
+- ++ckpt_name=LD3_ucond_notri_800.ckpt
+- ++autoencoder_ckpt_path=/home/ks2218/la-proteina/checkpoints_laproteina/AE2_ucond_800.ckpt
+- ++generation.dataset.nsamples=47
+- ++generation.model.bb_ca.schedule.mode=power
+- ++generation.model.bb_ca.schedule.p=0.5
+- ++generation.model.local_latents.schedule.mode=power
+- ++generation.model.local_latents.schedule.p=0.5

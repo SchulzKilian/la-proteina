@@ -1,0 +1,4 @@
+- single=true
+- ++nolog=true
+- opt.max_epochs=1
+- hardware.ncpus_per_task_train_=4

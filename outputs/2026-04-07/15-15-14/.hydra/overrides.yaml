@@ -1,0 +1,3 @@
+- ++config_name=inference_ucond_notri
+- ++ckpt_path=./store/ca_only_diffusion_70M/1775264141
+- ++ckpt_name=hpc_ckpt_1.ckpt

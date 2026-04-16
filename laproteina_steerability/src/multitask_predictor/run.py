@@ -87,7 +87,7 @@ def main():
     # Load data — try configured path, fall back to local symlink
     latent_dir = cfg["data"]["latent_dir"]
     if not Path(latent_dir).is_dir():
-        fallback = Path(__file__).resolve().parents[2] / ".." / "data" / "pdb_train" / "processed_latents"
+        fallback = Path(__file__).resolve().parents[2] / ".." / "data" / "pdb_train" / "processed_latents_300_800"
         if fallback.is_dir():
             latent_dir = str(fallback.resolve())
             logger.info("Primary latent dir not found, using fallback: %s", latent_dir)

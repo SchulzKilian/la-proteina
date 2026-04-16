@@ -1,0 +1,6 @@
+- ++config_name=inference_ucond_notri
+- ++ckpt_path=/home/ks2218/la-proteina/checkpoints_laproteina
+- ++ckpt_name=LD3_ucond_notri_800.ckpt
+- generation=uncond_codes_800
+- ++autoencoder_ckpt_path=/home/ks2218/la-proteina/checkpoints_laproteina/AE2_ucond_800.ckpt
+- ++generation.dataset.nsamples=23
