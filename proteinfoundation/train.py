@@ -256,6 +256,39 @@ def load_data_module(cfg_exp, is_cluster_run):
     return cfg_data, datamodule
 
 
+def _log_resume_banner(last_ckpt_path, ckpt_path_store):
+    """Human-readable banner for easy grep/scan in slurm logs when resuming."""
+    from datetime import datetime
+    run_dir_name = os.path.basename(os.path.dirname(ckpt_path_store))
+    try:
+        start_ts = int(run_dir_name)
+        start_str = datetime.fromtimestamp(start_ts).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        start_ts, start_str = None, None
+    try:
+        save_ts = os.path.getmtime(last_ckpt_path)
+        save_str = datetime.fromtimestamp(save_ts).strftime("%Y-%m-%d %H:%M:%S")
+    except OSError:
+        save_ts, save_str = None, None
+    dur_h = (save_ts - start_ts) / 3600.0 if (start_ts and save_ts) else None
+    job_id = os.environ.get("SLURM_JOB_ID", "")
+    job_name = os.environ.get("SLURM_JOB_NAME", "")
+    log_info("=" * 70)
+    log_info("RESUMING TRAINING FROM CHECKPOINT")
+    log_info(f"  checkpoint:            {last_ckpt_path}")
+    if start_str:
+        log_info(f"  previous run started:  {start_str} (run dir: {run_dir_name})")
+    else:
+        log_info(f"  previous run dir:      {run_dir_name}")
+    if save_str:
+        log_info(f"  last checkpoint saved: {save_str}")
+    if dur_h is not None:
+        log_info(f"  previous run duration: {dur_h:.2f} h")
+    if job_id or job_name:
+        log_info(f"  resuming under SLURM:  job={job_id} name={job_name}")
+    log_info("=" * 70)
+
+
 def get_model_n_ckpt_resume(cfg_exp, ckpt_path_store):
     """
     Loads the model and the checkpoint to start training from. This could be just a set
@@ -271,6 +304,8 @@ def get_model_n_ckpt_resume(cfg_exp, ckpt_path_store):
     else:
         last_ckpt_path = None
     log_info(f"Last checkpoint: {last_ckpt_path}")
+    if last_ckpt_path is not None:
+        _log_resume_banner(last_ckpt_path, ckpt_path_store)
 
     # If LoRA is turned on, replace Linear with LoRA layers
     # Note: We do not use LoRA in the La-Proteina paper.

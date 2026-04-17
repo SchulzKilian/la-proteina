@@ -307,6 +307,9 @@ class PDBDataset(Dataset):
 
         self.sequence_id_to_idx = None
 
+        # Track file names we've already warned about so a missing file doesn't
+        # spam the log every epoch. Used only by the streaming (in_memory=False) path.
+        self._missing_warned = set()
 
         self.use_precomputed_latents = use_precomputed_latents
 
@@ -402,15 +405,36 @@ class PDBDataset(Dataset):
                 import copy
                 graph_or_dict = copy.copy(self.data[idx])
             else:
-                fname = self.file_names[idx] if self.file_names is not None else f"{self.pdb_codes[idx]}.pt"
-                if not fname.endswith(".pt"): fname += ".pt"
-                
-                shard = fname[0:2].lower()
-                file_path = self.processed_dir / shard / fname
-                if not file_path.exists():
-                    file_path = self.processed_dir / fname
+                # Graceful skip: on missing/corrupted file, warn once and advance
+                # to the next index. Prevents a single bad file from killing an
+                # epoch. Bounded by len(self) so all-missing still terminates.
+                attempts = 0
+                n = len(self)
+                while True:
+                    fname = self.file_names[idx] if self.file_names is not None else f"{self.pdb_codes[idx]}.pt"
+                    if not fname.endswith(".pt"): fname += ".pt"
 
-                graph_or_dict = torch.load(file_path, map_location='cpu', weights_only=False)
+                    shard = fname[0:2].lower()
+                    file_path = self.processed_dir / shard / fname
+                    if not file_path.exists():
+                        file_path = self.processed_dir / fname
+
+                    try:
+                        graph_or_dict = torch.load(file_path, map_location='cpu', weights_only=False)
+                        break
+                    except (FileNotFoundError, EOFError, RuntimeError) as e:
+                        if fname not in self._missing_warned:
+                            logger.warning(
+                                f"PDBDataset: skipping {fname} ({type(e).__name__}: {e}). "
+                                "Advancing to next index."
+                            )
+                            self._missing_warned.add(fname)
+                        attempts += 1
+                        if attempts >= n:
+                            raise RuntimeError(
+                                f"PDBDataset: all {n} files missing/corrupted after skip attempts."
+                            ) from e
+                        idx = (idx + 1) % n
 
             if isinstance(graph_or_dict, dict):
                 graph_or_dict = Data(**graph_or_dict)

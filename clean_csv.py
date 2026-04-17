@@ -1,21 +1,30 @@
+import argparse
 import pandas as pd
 import pathlib
 from tqdm import tqdm
 
 # CONFIG: Ensure this matches your folder name
-DATASET_NAME = "pdb_train" 
+DATASET_NAME = "pdb_train"
 
-def clean_dataset_strict():
+def clean_dataset_strict(csv_path=None):
     # 1. Setup Paths
     base_dir = pathlib.Path.cwd() / "data" / DATASET_NAME
     processed_dir = base_dir / "processed"
-    
+
     # 2. Find CSV
-    csv_files = list(base_dir.glob("df_pdb_f1*.csv"))
-    if not csv_files:
-        print(f"❌ No CSV found in {base_dir}")
-        return
-    csv_path = csv_files[0]
+    if csv_path is not None:
+        csv_path = pathlib.Path(csv_path)
+        if not csv_path.is_absolute():
+            csv_path = base_dir / csv_path
+        if not csv_path.exists():
+            print(f"❌ CSV not found: {csv_path}")
+            return
+    else:
+        csv_files = list(base_dir.glob("df_pdb_f1*.csv"))
+        if not csv_files:
+            print(f"❌ No CSV found in {base_dir}")
+            return
+        csv_path = csv_files[0]
     
     print(f"📄 Reading {csv_path.name}...")
     df = pd.read_csv(csv_path)
@@ -58,4 +67,7 @@ def clean_dataset_strict():
         print("\n✅ No strict mismatches found.")
 
 if __name__ == "__main__":
-    clean_dataset_strict()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--csv", default=None, help="CSV filename (in data/pdb_train/) or absolute path; default: first df_pdb_f1*.csv glob match")
+    args = ap.parse_args()
+    clean_dataset_strict(csv_path=args.csv)

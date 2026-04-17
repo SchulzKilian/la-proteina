@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J train_1gpu
-#SBATCH -A COMPUTERLAB-SL3-GPU
+#SBATCH -A COMPUTERLAB-SL2-GPU
 #SBATCH -p ampere
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
@@ -35,6 +35,12 @@ export SLURM_NTASKS_PER_NODE=1
 #    avoids inner-allocation hangs when running inside an interactive session.
 #    full_training_test.sh uses `exec python ...` instead when NO_SRUN=1.
 export NO_SRUN=1
+
+# 5b. wandb init needs more than 90s on Cambridge HPC compute nodes — the
+#     outbound connection is flaky on first contact. Bump both init and
+#     service-wait timeouts so training doesn't crash before it starts.
+export WANDB_INIT_TIMEOUT=600
+export WANDB__SERVICE_WAIT=300
 
 # 6. Stage AE checkpoint to local NVMe /tmp to avoid cold Lustre reads.
 #    torch.load on a 4GB file from RDS is the biggest cold-start bottleneck.
