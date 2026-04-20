@@ -111,11 +111,24 @@ def _find_pt_file(protein_id: str, pt_dir: Path) -> Path | None:
     return None
 
 
+def _read_existing_fasta_ids(fasta_path: Path) -> set[str]:
+    """Return the set of protein IDs already present in a FASTA file."""
+    if not fasta_path.exists():
+        return set()
+    ids: set[str] = set()
+    with open(fasta_path) as fa:
+        for line in fa:
+            if line.startswith(">"):
+                ids.add(line[1:].strip().split()[0])
+    return ids
+
+
 def export(
     pt_dir: str | Path,
     output_dir: str | Path,
     length_range: tuple[int, int] | None = None,
     from_properties: str | Path | None = None,
+    resume: bool = False,
 ) -> tuple[Path, Path]:
     """Export FASTA and metadata CSV from .pt files.
 
@@ -166,12 +179,22 @@ def export(
     fasta_path = output_dir / "proteins.fasta"
     csv_path = output_dir / "proteins_metadata.csv"
 
+    done_ids: set[str] = set()
+    if resume:
+        done_ids = _read_existing_fasta_ids(fasta_path)
+        logger.info("Resume mode: %d proteins already in FASTA", len(done_ids))
+        files = [(pid, p) for (pid, p) in files if pid not in done_ids]
+        logger.info("Remaining to process: %d", len(files))
+
     n_written = 0
     n_skipped_length = 0
     n_failed = 0
 
-    with open(fasta_path, "w") as fa, open(csv_path, "w") as csv_f:
-        csv_f.write("protein_id,chain,sequence_length\n")
+    fasta_mode = "a" if resume else "w"
+    csv_mode = "a" if (resume and csv_path.exists() and csv_path.stat().st_size > 0) else "w"
+    with open(fasta_path, fasta_mode) as fa, open(csv_path, csv_mode) as csv_f:
+        if csv_mode == "w":
+            csv_f.write("protein_id,chain,sequence_length\n")
 
         for expected_id, path in tqdm(files, desc="Exporting"):
             try:
@@ -226,12 +249,14 @@ def main():
                         help="Length range filter (inclusive)")
     parser.add_argument("--from-properties", type=str, default=None,
                         help="Only export proteins listed in this CSV (must have protein_id column)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip IDs already present in existing FASTA and append")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     length_range = tuple(args.length_range) if args.length_range else None
-    export(args.pt_dir, args.output_dir, length_range, args.from_properties)
+    export(args.pt_dir, args.output_dir, length_range, args.from_properties, args.resume)
 
 
 if __name__ == "__main__":
