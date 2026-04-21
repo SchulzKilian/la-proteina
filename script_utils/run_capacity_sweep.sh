@@ -13,8 +13,16 @@
 # Do NOT use set -e (SLURM TaskProlog mkdir trips it).
 set -uo pipefail
 
-# Activate env (no source ~/.bashrc — triggers unbound variable with -u)
-export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+# Activate env (no source ~/.bashrc — triggers unbound variable with -u).
+# Fallback order: HPC canonical path -> user-local ~/.conda path.
+if [ -d /home/ks2218/conda_envs/laproteina_env ]; then
+    export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+elif [ -d /home/ks2218/.conda/envs/laproteina_env ]; then
+    export LAPROTEINA_ENV=/home/ks2218/.conda/envs/laproteina_env
+else
+    echo "ERROR: could not locate laproteina_env conda env" >&2
+    exit 1
+fi
 export PATH=$LAPROTEINA_ENV/bin:$PATH
 export CONDA_PREFIX=$LAPROTEINA_ENV
 export CONDA_DEFAULT_ENV=laproteina_env
@@ -42,19 +50,23 @@ echo "Extra args: $EXTRA_ARGS"
 python -m src.capacity_probing.run_sweep --config config/default.yaml $EXTRA_ARGS
 rc=$?
 
-# Persist outputs to two durable locations, same pattern as multitask.
+# Persist outputs to durable locations. /home is always available; RDS only on HPC.
 if [ $rc -eq 0 ]; then
     RUN_DIR=$(ls -1dt logs/capacity_probing/*/ 2>/dev/null | head -1)
     if [ -n "$RUN_DIR" ]; then
         RUN_NAME=$(basename "$RUN_DIR")
         LOCAL_DST=/home/ks2218/la-proteina/checkpoints_capacity_probing/${RUN_NAME}
-        RDS_DST=/rds/user/ks2218/hpc-work/checkpoints_capacity_probing/${RUN_NAME}
-        mkdir -p "$LOCAL_DST" "$RDS_DST"
+        mkdir -p "$LOCAL_DST"
         cp -r "${RUN_DIR}." "$LOCAL_DST/"
-        cp -r "${RUN_DIR}." "$RDS_DST/"
         ln -sfn "$LOCAL_DST" /home/ks2218/la-proteina/checkpoints_capacity_probing/latest
-        ln -sfn "$RDS_DST" /rds/user/ks2218/hpc-work/checkpoints_capacity_probing/latest
-        echo "Persisted to:"; echo "  $LOCAL_DST"; echo "  $RDS_DST"
+        echo "Persisted to: $LOCAL_DST"
+        if [ -d /rds/user/ks2218/hpc-work ]; then
+            RDS_DST=/rds/user/ks2218/hpc-work/checkpoints_capacity_probing/${RUN_NAME}
+            mkdir -p "$RDS_DST"
+            cp -r "${RUN_DIR}." "$RDS_DST/"
+            ln -sfn "$RDS_DST" /rds/user/ks2218/hpc-work/checkpoints_capacity_probing/latest
+            echo "Persisted to: $RDS_DST"
+        fi
     fi
 fi
 
