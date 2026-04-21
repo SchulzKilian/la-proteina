@@ -129,6 +129,20 @@ class SteeringGuide:
                     target_z = (target_raw - self.predictor.stats.mean[idx]) / self.predictor.stats.std[idx]
                     # Negative because we maximise the objective, and want to minimise distance
                     objective = objective - weight * (preds_zscore[:, idx] - target_z) ** 2
+                elif direction == "target_range":
+                    # Squared hinge: no gradient inside [target_min, target_max];
+                    # penalty grows quadratically with distance outside.
+                    pred_z = preds_zscore[:, idx]
+                    mean_i = self.predictor.stats.mean[idx]
+                    std_i = self.predictor.stats.std[idx]
+                    penalty = torch.zeros_like(pred_z)
+                    if obj_cfg.get("target_min") is not None:
+                        tmin_z = (obj_cfg["target_min"] - mean_i) / std_i
+                        penalty = penalty + torch.relu(tmin_z - pred_z) ** 2
+                    if obj_cfg.get("target_max") is not None:
+                        tmax_z = (obj_cfg["target_max"] - mean_i) / std_i
+                        penalty = penalty + torch.relu(pred_z - tmax_z) ** 2
+                    objective = objective - weight * penalty
                 else:
                     sign = DIRECTION_SIGN[direction]
                     objective = objective + weight * sign * preds_zscore[:, idx]

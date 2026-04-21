@@ -35,7 +35,13 @@ _SCHEDULE_REGISTRY = {
 
 
 def get_schedule_fn(schedule_cfg: dict):
-    """Return a callable t -> w(t) from a schedule config block."""
+    """Return a callable t -> w(t) from a schedule config block.
+
+    Optional `t_stop`: hard-zero the weight for t >= t_stop, regardless of
+    the base schedule. Use this to leave the final fraction of sampling
+    purely Flow-Matching-driven so the model can relax back to the
+    manifold after any guided off-manifold excursions.
+    """
     stype = schedule_cfg["type"]
     if stype not in _SCHEDULE_REGISTRY:
         raise ValueError(f"Unknown schedule type '{stype}'. Valid: {list(_SCHEDULE_REGISTRY.keys())}")
@@ -43,4 +49,8 @@ def get_schedule_fn(schedule_cfg: dict):
     t_start = schedule_cfg.get("t_start", 0.3)
     t_end = schedule_cfg.get("t_end", 1.0)
     w_max = schedule_cfg.get("w_max", 2.0)
-    return lambda t: fn(t, t_start, t_end, w_max)
+    t_stop = schedule_cfg.get("t_stop", None)
+    base = lambda t: fn(t, t_start, t_end, w_max)
+    if t_stop is None:
+        return base
+    return lambda t: 0.0 if t >= t_stop else base(t)

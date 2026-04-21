@@ -44,7 +44,12 @@ while true; do
         --signal=SIGUSR1@300 \
         bash -c "
             source \$HOME/.bashrc
-            conda activate laproteina_env
+            # Activate /home env via PATH prepend (NOT `conda activate`).
+# /rds-based env hangs Python startup when any Lustre OST is evicted/disconn.
+export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+export PATH=$LAPROTEINA_ENV/bin:$PATH
+export CONDA_PREFIX=$LAPROTEINA_ENV
+export CONDA_DEFAULT_ENV=laproteina_env
             cd '$PROJECT_DIR'
             bash script_utils/full_training_test.sh -n '$CONFIG_NAME'
         " || true  # swallow non-zero exit so the loop continues

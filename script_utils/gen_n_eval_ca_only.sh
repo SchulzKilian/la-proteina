@@ -10,7 +10,12 @@
 #SBATCH --time=2:00:00
 
 source $HOME/.bashrc
-conda activate laproteina_env
+# Activate /home env via PATH prepend (NOT `conda activate`).
+# /rds-based env hangs Python startup when any Lustre OST is evicted/disconn.
+export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+export PATH=$LAPROTEINA_ENV/bin:$PATH
+export CONDA_PREFIX=$LAPROTEINA_ENV
+export CONDA_DEFAULT_ENV=laproteina_env
 
 # gen_n_eval_ca_only.sh
 # Generate structures and run designability evaluation for a CA-only 70M checkpoint.

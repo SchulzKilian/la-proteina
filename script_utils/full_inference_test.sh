@@ -29,7 +29,12 @@ else
 
 fi
 
-conda activate laproteina_env
+# Activate /home env via PATH prepend (NOT `conda activate`).
+# /rds-based env hangs Python startup when any Lustre OST is evicted/disconn.
+export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+export PATH=$LAPROTEINA_ENV/bin:$PATH
+export CONDA_PREFIX=$LAPROTEINA_ENV
+export CONDA_DEFAULT_ENV=laproteina_env
 
 # 4. DOWNLOAD OR SETUP CHECKPOINTS LOCALLY
 echo "Setting up checkpoints..."

@@ -11,7 +11,12 @@
 
 # 1. Load shell config and activate environment
 source $HOME/.bashrc
-conda activate laproteina_env
+# Activate /home env via PATH prepend (NOT `conda activate`).
+# /rds-based env hangs Python startup when any Lustre OST is evicted/disconn.
+export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+export PATH=$LAPROTEINA_ENV/bin:$PATH
+export CONDA_PREFIX=$LAPROTEINA_ENV
+export CONDA_DEFAULT_ENV=laproteina_env
 
 # 2. Determine Checkpoint Path
 # If an argument is provided ($1), use it. Otherwise, find the latest.

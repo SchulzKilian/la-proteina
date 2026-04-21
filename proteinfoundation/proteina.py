@@ -218,10 +218,35 @@ class Proteina(L.LightningModule):
         return autoencoder, autoencoder.latent_dim
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(
-            [p for p in self.parameters() if p.requires_grad], lr=self.cfg_exp.opt.lr
+        opt_cfg = self.cfg_exp.opt
+        weight_decay = float(opt_cfg.get("weight_decay", 0.0) or 0.0)
+        optimizer = torch.optim.AdamW(
+            [p for p in self.parameters() if p.requires_grad],
+            lr=opt_cfg.lr,
+            weight_decay=weight_decay,
         )
-        return optimizer
+        sched_cfg = opt_cfg.get("scheduler", None)
+        if sched_cfg is None or sched_cfg.get("name", None) in (None, "none"):
+            return optimizer
+        name = sched_cfg.name
+        if name != "cosine_with_warmup":
+            raise ValueError(f"Unknown opt.scheduler.name: {name}")
+        warmup = int(sched_cfg.get("warmup_steps", 0))
+        total = int(sched_cfg.get("total_steps", 30000))
+        min_ratio = float(sched_cfg.get("min_lr_ratio", 0.1))
+        import math
+        def lr_lambda(step):
+            if warmup > 0 and step < warmup:
+                return float(step) / float(max(1, warmup))
+            progress = (step - warmup) / max(1, total - warmup)
+            progress = min(max(progress, 0.0), 1.0)
+            cos = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_ratio + (1.0 - min_ratio) * cos
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "interval": "step", "frequency": 1},
+        }
 
     def on_save_checkpoint(self, checkpoint):
         """Adds additional variables to checkpoint."""
@@ -685,6 +710,7 @@ class Proteina(L.LightningModule):
             save_trajectory_every=save_trajectory_every,
             guidance_w=guidance_w,
             ag_ratio=ag_ratio,
+            steering_guide=getattr(self, "steering_guide", None),
         )
         # Dict with the data_modes as keys, and values with batch shape b
         # extra_info is a dict with additional things, including

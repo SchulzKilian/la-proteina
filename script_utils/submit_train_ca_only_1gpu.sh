@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J train_1gpu
+#SBATCH -J ca_1gpu
 #SBATCH -A COMPUTERLAB-SL2-GPU
 #SBATCH -p ampere
 #SBATCH --gres=gpu:1
@@ -7,12 +7,20 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=240G
-#SBATCH --time=8:00:00
+#SBATCH --time=4:00:00
 #SBATCH --signal=SIGUSR1@300
 #SBATCH --requeue
-#SBATCH --output=slurm_train_1gpu_%j.out
+#SBATCH --output=slurm_ca_1gpu_%j.out
 
-# 1. Load your personal shell config (env vars like WANDB_API_KEY)
+# CA-only training on a single Ampere A100 (80GB).
+# Same env / RDS-fallback machinery as submit_train_1gpu.sh, but:
+#   - default config is training_ca_only (no AE, no latents)
+#   - no AE checkpoint staging (CA-only skips the AE via _ca_only_mode)
+#   - lr is sqrt-scaled from the 4-GPU baseline (0.000415 -> 0.0002)
+#   - accumulate_grad_batches=32 holds the 4-GPU effective batch on 1 GPU
+#     (config batch_size=6, max_padding_size=512 → eff. batch ≈ 192)
+
+# 1. Load personal shell config (env vars like WANDB_API_KEY).
 source $HOME/.bashrc
 
 # 2. Activate the env via PATH prepend (NOT `conda activate`).
@@ -28,7 +36,7 @@ export CONDA_DEFAULT_ENV=laproteina_env
 
 DATA_PATH="/home/ks2218/la-proteina/data"
 
-# 3. Verify Environment
+# 3. Verify environment.
 echo "Running on node: $(hostname)"
 echo "Using Python: $(which python)"
 echo "GPUs available: $CUDA_VISIBLE_DEVICES"
@@ -36,8 +44,8 @@ echo "GPUs available: $CUDA_VISIBLE_DEVICES"
 ulimit -n 65536 2>/dev/null || ulimit -n $(ulimit -Hn) 2>/dev/null || true
 
 # 3b. Pre-flight: RDS sometimes mounts read-only on individual compute nodes.
-#     Instead of requeueing, fall back to /home for this job's checkpoint
-#     writes. Sync back to RDS at job end if it becomes writable again.
+#     Instead of requeueing, fall back to /home for this job's checkpoint writes.
+#     Sync back to RDS at job end if it becomes writable again.
 RDS_STORE="/rds/user/ks2218/hpc-work/store"
 HOME_STORE="/home/ks2218/la-proteina/store_home_fallback"
 STORE_LINK="/home/ks2218/la-proteina/store"
@@ -55,7 +63,6 @@ else
     mkdir -p "$HOME_STORE"
     echo "[+] Staging last-*.ckpt from RDS -> /home (read should still work)..."
     t0=$(date +%s)
-    # Only stage the last-* checkpoints (not chk_epoch_step_*). Saves ~5-15GB.
     rsync -a --prune-empty-dirs \
         --include='*/' --include='last.ckpt' --include='last-EMA.ckpt' \
         --include='last-v*.ckpt' --include='last-v*-EMA.ckpt' \
@@ -70,7 +77,6 @@ fi
 
 cleanup_store() {
     if [ "$STORE_MODE" = "home" ]; then
-        # If RDS is writable again, sync new ckpts back so next job sees them.
         if touch "$RDS_STORE/.post_run_probe" 2>/dev/null; then
             rm -f "$RDS_STORE/.post_run_probe"
             echo "[cleanup] RDS writable again — syncing /home -> RDS..."
@@ -82,13 +88,12 @@ cleanup_store() {
             echo "[cleanup] Sync manually when RDS recovers: rsync -a $HOME_STORE/ $RDS_STORE/"
         fi
     fi
-    # Restore RDS symlink so the next job starts with the normal layout.
     ln -sfn "$RDS_STORE" "$STORE_LINK" 2>/dev/null || true
 }
 trap cleanup_store EXIT
 
-# 4. Override SLURM_NTASKS to match 1-GPU allocation
-#    full_training_test.sh hardcodes SLURM_NTASKS=4; override it here.
+# 4. Override SLURM_NTASKS to match 1-GPU allocation.
+#    full_training_test.sh defaults to SLURM_NTASKS=4; override it here.
 export SLURM_NTASKS=1
 export SLURM_NTASKS_PER_NODE=1
 
@@ -103,33 +108,34 @@ export NO_SRUN=1
 export WANDB_INIT_TIMEOUT=600
 export WANDB__SERVICE_WAIT=300
 
-# 6. Stage AE checkpoint to local NVMe /tmp to avoid cold Lustre reads.
-#    torch.load on a 4GB file from RDS is the biggest cold-start bottleneck.
-#    One cp here (~30-60s) turns subsequent reads into fast local SSD reads.
-AE_SRC="/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
-AE_LOCAL="/tmp/AE1_ucond_512.ckpt"
-AE_OVERRIDE=""
-if [ -f "$AE_SRC" ]; then
-    echo "[+] Staging AE checkpoint to local /tmp..."
-    t0=$(date +%s)
-    cp "$AE_SRC" "$AE_LOCAL" && {
-        t1=$(date +%s)
-        echo "[+] Staged to $AE_LOCAL in $((t1 - t0))s"
-        AE_OVERRIDE="++autoencoder_ckpt_path=$AE_LOCAL"
-    } || {
-        echo "[!] /tmp staging failed — falling back to RDS path"
-    }
-else
-    echo "[!] Source AE ckpt not found at $AE_SRC — using config default"
+# 6. Default config = training_ca_only. The user can still override with
+#    `-n some_other_config` when invoking this script.
+DEFAULT_CONFIG="training_ca_only"
+has_n_flag=0
+for arg in "$@"; do
+    if [ "$arg" = "-n" ]; then has_n_flag=1; break; fi
+done
+if [ "$has_n_flag" -eq 0 ]; then
+    set -- -n "$DEFAULT_CONFIG" "$@"
 fi
 
-# 7. Run training with 1-GPU Hydra overrides
-#    lr=0.0003 + weight_decay=0.1 for 1-GPU: sqrt-scaled lr 0.0005 was overfitting;
-#    dropping lr further and raising wd fights the smaller-effective-batch regime.
+# 7. Run training with 1-GPU Hydra overrides tuned for CA-only:
+#    - lr=0.0002  : sqrt-scaled from 4-GPU baseline 0.000415.
+#    - accumulate_grad_batches=32 : holds the 4-GPU effective batch
+#      (4 * 8 * batch_size == 1 * 32 * batch_size).
+#    - weight_decay=0.05 : mild regularisation against the smaller-eff-batch
+#      overfit regime we saw on the full model at 1-GPU.
+#    - dist_strategy=auto : Lightning picks single-device, no DDP overhead.
+#    - log.last_ckpt_every_n_steps=500 : more frequent last.ckpt writes
+#      (~12-15 min apart on this setup). Caps worst-case progress loss if
+#      SIGUSR1 save-on-preempt doesn't fire cleanly (auto_requeue is off
+#      when RESUME is unset, so the Lightning SLURMEnvironment save path
+#      is less reliable).
 bash script_utils/full_training_test.sh "$@" \
     hardware.ngpus_per_node_=1 \
     hardware.nnodes_=1 \
     opt.dist_strategy=auto \
-    opt.lr=0.0003 \
-    +opt.weight_decay=0.1 \
-    $AE_OVERRIDE
+    opt.lr=0.0002 \
+    +opt.weight_decay=0.05 \
+    opt.accumulate_grad_batches=32 \
+    log.last_ckpt_every_n_steps=500

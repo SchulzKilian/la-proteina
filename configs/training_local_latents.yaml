@@ -63,7 +63,7 @@ training:
   n_recycle: 0
   motif_conditioning: False
   self_cond: True
-  p_folding_n_inv_folding_iters: 0.1
+  p_folding_n_inv_folding_iters: 0.0  # off: not used at inference for ucond/motif/steering
   use_precomputed_latents: False
 
 # LoRA
@@ -77,11 +77,16 @@ lora:
 opt:
   lr: 0.001  # sqrt-scaled for eff batch 832 (~14x over baseline's batch=4 lr=0.0001)
   max_epochs: 10000000
-  accumulate_grad_batches: 8
+  accumulate_grad_batches: 35  # paired with batch_size=6 → effective batch ≈ 210, similar to old (26*8=208)
   skip_nan_grad: False  # Skip updates with nan gradient
   grad_and_weight_analysis: False  # Log some statistics of gradients and weights
   dist_strategy: ddp  # For multi GPU training, do not change
   val_check_interval: 100  # Number of training steps after which we check validation loss
+  scheduler:
+    name: cosine_with_warmup    # set to null to disable scheduler
+    warmup_steps: 1000           # linear warmup from 0 to lr over this many optimizer steps
+    total_steps: 30000           # cosine decay reaches min_lr at this many optimizer steps; flat min_lr after
+    min_lr_ratio: 0.1            # cosine bottom = lr * min_lr_ratio
 
 # wandb logging and checkpoints
 log:

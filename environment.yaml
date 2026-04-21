@@ -7,7 +7,7 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - python=3.11
+  - python=3.10  # NOT 3.11: pyg cp311 wheels for torch 2.7.0+cu118 require GLIBC 2.32, but Cambridge HPC nodes have GLIBC 2.28. cp310 wheels work.
   - pip
   - conda-forge::transformers=4.48.3
   - bioconda::mmseqs2=17.b804f

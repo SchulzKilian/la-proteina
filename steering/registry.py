@@ -16,7 +16,8 @@ PROPERTY_TO_INDEX = {name: i for i, name in enumerate(PROPERTY_NAMES)}
 DIRECTION_SIGN = {
     "maximize": 1.0,
     "minimize": -1.0,
-    "target": 0.0,  # handled specially in guide.py
+    "target": 0.0,        # handled specially in guide.py (squared distance)
+    "target_range": 0.0,  # handled specially in guide.py (squared hinge)
 }
 
 
@@ -34,3 +35,13 @@ def validate_objective(obj: dict) -> None:
         )
     if direction == "target" and obj.get("target_value") is None:
         raise ValueError("direction='target' requires 'target_value' to be set")
+    if direction == "target_range":
+        tmin, tmax = obj.get("target_min"), obj.get("target_max")
+        if tmin is None and tmax is None:
+            raise ValueError(
+                "direction='target_range' requires at least one of 'target_min' / 'target_max'"
+            )
+        if tmin is not None and tmax is not None and tmin > tmax:
+            raise ValueError(
+                f"direction='target_range' requires target_min <= target_max, got {tmin} > {tmax}"
+            )

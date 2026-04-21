@@ -2,19 +2,46 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Paper-Relevant Findings Log
+
+Every time we run an experiment (new or re-run) and find something that could plausibly be a finding for the Masterarbeit paper, evaluate:
+1. Is this reportable as a paper claim, a negative result, or a methodological observation?
+2. If yes, append it to `content_masterarbeit.md` at the repo root.
+
+Each finding entry must have:
+- **Experiment:** Exact setup (config, data, architecture, hyperparams, run directory). Enough that someone could re-run it.
+- **Numbers:** All quantitative results, per-fold if CV was used.
+- **Narrow claim:** The strictest, fully defensible statement the data supports. Avoid overclaiming.
+- **Implikation:** Cautiously-phrased broader significance, explicitly separated from the narrow claim.
+- **Methodische Einschränkungen:** What the data does *not* support.
+
+Also maintain a `Future Experiment Ideas` section at the bottom of that file — as we discuss experiments not yet run, add them there.
+
+Write in English (the Masterarbeit/paper is in English). Keep code/config names as they appear in the codebase.
+
 ## Project Overview
 
 **La Proteina** is a deep learning research codebase for atomistic protein generation via partially latent flow matching. It trains generative models to design protein structures (backbone + side chains) and sequences.
 
 ## Environment Setup
 
+**Canonical env on Cambridge HPC: `/home/ks2218/conda_envs/laproteina_env`** (NOT `/rds/.../conda_root/...`). Reason: putting the env on RDS/Lustre makes Python `import` hang for ~minutes-to-hours when even one OST is evicted/disconn (Python's stdlib `.pyc` files get sharded across OSTs; one stuck `fstat` blocks every job's startup). /home is on a different (more reliable) filesystem.
+
+To rebuild:
+```bash
+script_utils/build_env.sh   # auto-installs micromamba, mvs old env aside, builds in /home
+```
+The script pins **python=3.10** (NOT 3.11 as `environment.yaml` originally suggested) because pyg's cp311 wheels for `torch 2.7.0+cu118` require GLIBC 2.32, but Cambridge HPC nodes are on GLIBC 2.28. cp310 wheels work.
+
+For first-time/manual install (matches what `build_env.sh` does):
 ```bash
 mamba env create -f environment.yaml
 mamba activate laproteina_env
-pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu118
 pip install graphein==1.7.7 --no-deps
-pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
+pip install torch_geometric torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.5.0+cu118.html
 ```
+**Why torch 2.5.1 and not 2.7.0**: pyg-team's `torch_scatter`/`sparse`/`cluster` wheels for `pt27+cu118` were rebuilt against GLIBC 2.32, but Cambridge HPC nodes are GLIBC 2.28. The `pt25+cu118` wheels link against max GLIBC 2.14 and load fine. The actually-working /rds env uses torch 2.5.1.
 
 Requires a `.env` file with:
 ```
@@ -40,6 +67,7 @@ bash script_utils/full_training_test.sh -n training_local_latents
 ```bash
 sbatch script_utils/compute_latents.sh
 ```
+**User preference: do NOT use precomputed latents for training.** Past experience indicated that switching to precomputed latents removed the per-epoch augmentation diversity ("multiple sides of the same protein") that the on-the-fly AE encoder produces. Default to `use_precomputed_latents: False` and run the AE encoder live each step, even though the throughput is slower. Don't suggest precomputing latents as an optimization without explicit confirmation.
 
 **Sampling:**
 ```bash
@@ -243,6 +271,107 @@ Key settings to adjust before running:
 **Part 1 — Latent geometry**: All 8 latent dims are well-utilized (participation ratio 7.69/8, no posterior collapse). Dims are well-disentangled (max off-diagonal Pearson 0.10, max MI 0.28 nats). Dims 3, 5, 6, 7 are multimodal (discrete structural clusters). Weak length sensitivity (r = -0.04). Within-protein variance dominates between-protein variance (~1.04 ratio), so protein-level steering works with averaged latents.
 
 **Part 2 — Property probes**: Not yet run on real data. Requires the developability CSV as input (rename `pdb_id` → `protein_id`, set `part2.property_granularity` to all `"protein"`).
+
+## Gradient-Based Steering (`steering/`)
+
+Modular guidance system that steers the generative model toward desired biophysical properties during sampling, without retraining. Works by nudging the latent velocity field at each ODE step using gradients from a trained property predictor.
+
+### How It Works (Intuition)
+
+La-Proteina generates proteins by simulating a flow ODE from noise (t=0) to data (t=1). At each step, the flow model predicts a velocity `v` and updates the latent state: `z_{t+dt} = z_t + dt * v`. The velocity points toward "some protein" — but not necessarily one with the properties you want.
+
+Steering adds a correction to that velocity. At each step:
+
+1. **Estimate the final protein**: From the current state `z_t` and velocity `v`, compute where the trajectory would end up if it went straight: `z_1_est = z_t + (1-t) * v`. This is the flow's "clean estimate" of the final latent.
+
+2. **Ask the predictor**: Feed `z_1_est` to a trained property predictor (a small transformer, ~350K params) that maps latent vectors to 13 biophysical properties (net charge, SAP, Rg, etc.). This predictor was trained on real protein latents paired with computed properties.
+
+3. **Compute a gradient**: Backpropagate through the predictor to get `d(property) / d(z_t)` — the direction in latent space that increases (or decreases) the target property. Crucially, this gradient only flows through the predictor, never through the flow model's weights (v is detached).
+
+4. **Add to velocity**: Scale the gradient by a schedule weight `w(t)` and add it to `v`. The modified velocity now points toward a protein with slightly more of the desired property.
+
+The schedule `w(t)` is zero early in sampling (when the estimate is noisy and gradients are unreliable) and ramps up as the trajectory approaches clean data. This prevents the guidance from fighting the flow model during the critical early structure-forming phase.
+
+Because the predictor operates in z-score space and the gradient is unit-normalised per protein, the guidance magnitude is controlled entirely by `w_max` — making it easy to sweep without worrying about property-specific scales.
+
+### Architecture
+
+```
+steering/
+├── __init__.py
+├── config/
+│   ├── default.yaml              # master switch: enabled: false
+│   └── examples/
+│       ├── net_charge_up.yaml
+│       ├── sap_down.yaml
+│       └── multi_objective.yaml
+├── guide.py                      # SteeringGuide — core class
+├── predictor.py                  # SteeringPredictor — loads checkpoint + z-score stats
+├── schedules.py                  # w(t) functions: linear_ramp, cosine_ramp, constant
+├── registry.py                   # property name <-> head index mapping (13 properties)
+└── test_steering.py              # standalone tests (runs without flow model)
+```
+
+**Integration point**: A single `steering_guide=None` parameter on `ProductSpaceFlowMatcher.full_simulation()`. When `None`, zero new code executes inside the loop. When set, a 10-line if-block between `nn_out` computation and `simulation_step` calls `steering_guide.guide()` and adds the returned gradient to `nn_out["local_latents"]["v"]` (or `"v_guided"` if CFG is active). The guidance tensor is always `.detach()`'d before addition — safe inside the `torch.no_grad()` simulation context.
+
+### Key Design Decisions
+
+- **Reconstruction guidance only**: Feeds the flow's clean estimate `z_1_est` to the predictor at `t=1`. Simpler and more stable than noise-aware guidance (which would need the predictor to handle arbitrary noise levels).
+- **Gradient through z_t, not through the flow model**: `v_theta` is detached in the guidance computation. Only the path `z_t -> x1_est -> predictor` carries gradients. This means guidance never interferes with the flow model's internal representations.
+- **Z-score space for objectives**: The predictor outputs z-scored predictions. Gradients are computed in z-score space so that multi-objective weighting is scale-invariant across properties (net charge in [-20, 20] vs SAP in [0, 500]).
+- **Unit normalisation**: After clipping, the gradient is normalised to unit norm per protein. `w_max` then directly controls the step size in latent space, independent of how sharp or flat the predictor's landscape is.
+- **Latent channel only**: Guidance only modifies `local_latents`, never `bb_ca`. Backbone structure is determined by the flow model; side-chain/sequence properties are steered through the latent channel.
+
+### Property-to-Head-Index Mapping
+
+| Index | Property | Index | Property |
+|-------|----------|-------|----------|
+| 0 | swi | 7 | hydrophobic_patch_total_area |
+| 1 | tango | 8 | hydrophobic_patch_n_large |
+| 2 | net_charge | 9 | sap |
+| 3 | pI | 10 | scm_positive |
+| 4 | iupred3 | 11 | scm_negative |
+| 5 | iupred3_fraction_disordered | 12 | rg |
+| 6 | shannon_entropy | | |
+
+### Running
+
+```bash
+# Standalone test (creates dummy checkpoint if none provided)
+python -m steering.test_steering
+python -m steering.test_steering --checkpoint path/to/fold_0_best.pt
+
+# Integration: pass steering_guide to full_simulation()
+from steering import SteeringGuide
+guide = SteeringGuide({"enabled": True, "checkpoint": "...", "objectives": [...]})
+x, info = flow_matcher.full_simulation(..., steering_guide=guide)
+diagnostics = info["steering_diagnostics"]  # list of per-step dicts
+```
+
+### Diagnostics
+
+When `log_diagnostics: true` (default), each step appends a dict to `steering_guide.diagnostics`:
+- `t`: local_latents schedule time
+- `w`: guidance weight after schedule
+- `grad_norm_raw`: gradient norm before normalisation
+- `grad_norm_final`: gradient norm after normalisation and scaling
+- `predicted_properties`: dict of all 13 de-normalised property predictions on the clean estimate
+
+Returned in `additional_info["steering_diagnostics"]` from `full_simulation()`. Diagnostics are reset at the start of each `full_simulation()` call.
+
+### Predictor Checkpoint Format
+
+The steering predictor loads from the same checkpoint format produced by `laproteina_steerability/src/multitask_predictor/train.py`. Contains:
+- `model_state_dict`: PropertyTransformer weights (128-dim, 3 layers, 4 heads)
+- `stats_mean`, `stats_std`: numpy arrays `[13]` for z-score de/normalisation
+
+No separate normalisation stats file — everything is in the checkpoint.
+
+### Known Limitations
+
+- Diagnostics only log batch element 0 (sufficient for debugging, not for per-sample analysis in large batches).
+- Predictor architecture is hardcoded (128-dim, 3 layers) — must match the training config. If the architecture changes, `steering/predictor.py` needs updating.
+- `direction: target` uses L2 loss in z-score space, which may not behave well for properties with skewed distributions.
 
 ### Known Issues / Fixes Applied
 

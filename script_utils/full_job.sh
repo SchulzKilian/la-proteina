@@ -14,7 +14,12 @@ module load rhel8/default-amp
 module load miniconda/3
 
 source $(conda info --base)/etc/profile.d/conda.sh
-conda activate laproteina_env
+# Activate /home env via PATH prepend (NOT `conda activate`).
+# /rds-based env hangs Python startup when any Lustre OST is evicted/disconn.
+export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
+export PATH=$LAPROTEINA_ENV/bin:$PATH
+export CONDA_PREFIX=$LAPROTEINA_ENV
+export CONDA_DEFAULT_ENV=laproteina_env
 
 # 1. Wake up the shared storage
 echo "Mounting shared PDB..."

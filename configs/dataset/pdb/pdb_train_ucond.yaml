@@ -12,8 +12,8 @@ datamodule:
     - _target_: "proteinfoundation.datasets.transforms.CenterStructureTransform"
     - _target_: "proteinfoundation.datasets.transforms.GlobalRotationTransform" # Transforms to apply to dataset examples
     - _target_: "proteinfoundation.datasets.transforms.ChainBreakPerResidueTransform"
-  max_padding_size: 256 # Pad all batches to this length (uniform GPU memory, correct mask)
-  batch_size: 26 # Batch size for dataloader
+  max_padding_size: 512 # Pad all batches to this length (uniform GPU memory, correct mask)
+  batch_size: 6 # Batch size for dataloader (sized for 1xA100@80GB at seq=512; pair with accumulate_grad_batches: 35)
   num_workers: 24 # Number of workers for dataloader
   pin_memory: False # Pin memory for dataloader
 
@@ -24,8 +24,8 @@ datamodule:
     molecule_type: "protein" # Type of molecule for which to select
     experiment_types: ["diffraction", "EM"] # other options are "NMR" and "other"
     labels: []
-    min_length: 50 # Exclude peptides of length 50
-    max_length: 200 # Exclude polypeptides greater than length 256
+    min_length: 50 # Exclude peptides of length < 50
+    max_length: 512 # Exclude polypeptides greater than length 512 (covers ~85% of 50-800 set, fits 1xA100 with batch=6 padding=512)
     oligomeric_min: null 
     oligomeric_max: null 
     best_resolution: 0.0  # Include only proteins with resolution >= 0.0

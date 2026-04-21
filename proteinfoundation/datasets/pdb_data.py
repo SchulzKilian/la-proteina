@@ -656,6 +656,7 @@ class PDBLightningDataModule(BaseLightningDataModule):
     def _process_structure_data(self, pdb_codes, chains):
         import os
         import glob
+        from itertools import islice
         from joblib import Parallel, delayed
         from tqdm import tqdm
 
@@ -681,22 +682,31 @@ class PDBLightningDataModule(BaseLightningDataModule):
                     )
 
         file_names = []
-        
-        # 3. Use the Generator in Parallel
+
+        # 3. Consume the generator in chunks so loky workers are torn down
+        # and respawned between batches. This releases memory leaked by
+        # per-item graphein/biopython parsing and prevents OOM over long runs.
+        BATCH_SIZE = 5000
         if self.num_workers > 0:
-            logger.info(f"Processing with {self.num_workers} workers (Generator Mode)...")
+            logger.info(f"Processing with {self.num_workers} workers (batched, size={BATCH_SIZE})...")
+            gen = task_generator()
+            pbar = tqdm(total=len(pdb_codes), desc="Processing")
             try:
-                # joblib.Parallel can consume a generator. 
-                # We wrap it in tqdm to show progress. 
-                # Note: tqdm needs an 'estimated' total because generators don't have a length.
-                results = Parallel(n_jobs=self.num_workers)(
-                    delayed(process_single_pdb_file)(task) 
-                    for task in tqdm(task_generator(), total=len(pdb_codes), desc="Processing")
-                )
-                file_names = [r for r in results if r is not None]
+                while True:
+                    batch = list(islice(gen, BATCH_SIZE))
+                    if not batch:
+                        break
+                    with Parallel(n_jobs=self.num_workers) as parallel:
+                        results = parallel(
+                            delayed(process_single_pdb_file)(task) for task in batch
+                        )
+                    file_names.extend(r for r in results if r is not None)
+                    pbar.update(len(batch))
             except Exception as e:
                 logger.error(f"Parallel processing failed: {e}")
                 raise e
+            finally:
+                pbar.close()
         else:
             # Serial fallback
             for task in tqdm(task_generator(), total=len(pdb_codes), desc="Serial"):

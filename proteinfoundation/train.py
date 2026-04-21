@@ -257,7 +257,13 @@ def load_data_module(cfg_exp, is_cluster_run):
 
 
 def _log_resume_banner(last_ckpt_path, ckpt_path_store):
-    """Human-readable banner for easy grep/scan in slurm logs when resuming."""
+    """Human-readable banner for easy grep/scan in slurm logs when resuming.
+
+    Note: the 'wall clock since run dir created' number includes queue/startup
+    time from every prior SLURM job in this run dir and idle time between jobs;
+    it is NOT the actual training wall time. For accurate training time, read
+    global_step from the checkpoint after Lightning loads it.
+    """
     from datetime import datetime
     run_dir_name = os.path.basename(os.path.dirname(ckpt_path_store))
     try:
@@ -277,13 +283,13 @@ def _log_resume_banner(last_ckpt_path, ckpt_path_store):
     log_info("RESUMING TRAINING FROM CHECKPOINT")
     log_info(f"  checkpoint:            {last_ckpt_path}")
     if start_str:
-        log_info(f"  previous run started:  {start_str} (run dir: {run_dir_name})")
+        log_info(f"  run dir created:       {start_str} (run dir: {run_dir_name})")
     else:
         log_info(f"  previous run dir:      {run_dir_name}")
     if save_str:
         log_info(f"  last checkpoint saved: {save_str}")
     if dur_h is not None:
-        log_info(f"  previous run duration: {dur_h:.2f} h")
+        log_info(f"  wall clock since dir:  {dur_h:.2f} h (INCLUDES startup+queue+idle, not just training)")
     if job_id or job_name:
         log_info(f"  resuming under SLURM:  job={job_id} name={job_name}")
     log_info("=" * 70)
@@ -351,11 +357,22 @@ def setup_ckpt(cfg_exp, ckpt_path_store):
         "save_top_k": 10000,
         "mode": "min",
     }
+    args_ckpt_best = {
+        "dirpath": ckpt_path_store,
+        "save_last": False,
+        "save_weights_only": False,
+        "filename": "best_val_{epoch:08d}_{step:012d}",
+        "monitor": "validation_loss/loss_epoch",
+        "mode": "min",
+        "save_top_k": 3,
+        "auto_insert_metric_name": False,
+    }
     checkpoint_callback = EmaModelCheckpoint(**args_ckpt)
     checkpoint_callback_last = EmaModelCheckpoint(**args_ckpt_last)
+    checkpoint_callback_best = EmaModelCheckpoint(**args_ckpt_best)
 
     create_dir(ckpt_path_store, parents=True, exist_ok=True)
-    return [checkpoint_callback, checkpoint_callback_last]
+    return [checkpoint_callback, checkpoint_callback_last, checkpoint_callback_best]
 
 
 @rank_zero_only
@@ -365,14 +382,24 @@ def store_n_log_configs(cfg_exp, cfg_data, run_name, ckpt_path_store, wandb_logg
     """
 
     def store_n_log_config(cfg, cfg_path, wandb_logger):
-        with open(cfg_path, "w") as f:
-            cfg_aux = OmegaConf.to_container(cfg, resolve=True)
-            json.dump(cfg_aux, f, indent=4, sort_keys=True)
+        # Config dump is metadata — never fatal. On Cambridge HPC the RDS mount
+        # can transiently go read-only on individual compute nodes; we don't
+        # want to kill a training job because we couldn't write a JSON snapshot.
+        try:
+            with open(cfg_path, "w") as f:
+                cfg_aux = OmegaConf.to_container(cfg, resolve=True)
+                json.dump(cfg_aux, f, indent=4, sort_keys=True)
+        except OSError as e:
+            logger.warning(f"Could not write config snapshot to {cfg_path}: {e}. Continuing.")
+            return
 
         if wandb_logger is not None:
-            artifact = wandb.Artifact(f"config_files_{run_name}", type="config")
-            artifact.add_file(cfg_path)
-            wandb_logger.experiment.log_artifact(artifact)
+            try:
+                artifact = wandb.Artifact(f"config_files_{run_name}", type="config")
+                artifact.add_file(cfg_path)
+                wandb_logger.experiment.log_artifact(artifact)
+            except Exception as e:
+                logger.warning(f"Could not log config artifact to wandb: {e}. Continuing.")
 
     cfg_exp_file = os.path.join(ckpt_path_store, f"exp_config_{run_name}.json")
     cfg_data_file = os.path.join(ckpt_path_store, f"data_config_{run_name}.json")

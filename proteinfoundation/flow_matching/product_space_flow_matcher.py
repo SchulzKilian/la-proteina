@@ -578,6 +578,7 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         guidance_w: float = 1.0,
         ag_ratio: float = 0.0,
         measure_straightness: bool = False,
+        steering_guide=None,
     ) -> Dict[str, Tensor]:
         """
         Generates samples by simulating the
@@ -666,6 +667,9 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         }
 
         with torch.no_grad():
+            if steering_guide is not None:
+                steering_guide.reset_diagnostics()
+
             x = self.sample_noise(
                 n,
                 shape=(nsamples,),
@@ -720,6 +724,17 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 )
                 # Dict[data_mode, torch.Tensor]
 
+                # --- Steering guidance injection ---
+                if steering_guide is not None and "local_latents" in nn_out:
+                    _v_key = "v_guided" if "v_guided" in nn_out["local_latents"] else "v"
+                    _t_ll = t["local_latents"].flatten()[0].item()
+                    _guidance, _ = steering_guide.guide(
+                        z_t=x["local_latents"], v_theta=nn_out["local_latents"][_v_key],
+                        t_scalar=_t_ll, mask=mask,
+                    )
+                    nn_out["local_latents"][_v_key] = nn_out["local_latents"][_v_key] + _guidance
+                # --- End steering ---
+
                 simulation_step_params = {
                     data_mode: sampling_model_args[data_mode]["simulation_step_params"]
                     for data_mode in self.data_modes
@@ -743,6 +758,8 @@ class ProductSpaceFlowMatcher(L.LightningModule):
             additional_info = {
                 "mask": mask,
             }
+            if steering_guide is not None:
+                additional_info["steering_diagnostics"] = steering_guide.diagnostics
             if measure_straightness:
                 additional_info["straightness"] = compute_straightness_metrics(
                     x_0=x_0_saved,

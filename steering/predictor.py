@@ -60,12 +60,15 @@ class SteeringPredictor(nn.Module):
             max_len=1024,
         )
         self.model.load_state_dict(ckpt["model_state_dict"])
-        self.model.to(self.device)
         self.model.eval()
 
         # Freeze all parameters — we never train this
         for p in self.model.parameters():
             p.requires_grad_(False)
+
+        # Move whole module (incl. stats buffers) to device together.
+        # (model.to() alone leaves _stats_mean/_std on CPU → device mismatch.)
+        self.to(self.device)
 
     @torch.no_grad()
     def predict(
