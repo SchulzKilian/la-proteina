@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Useful Info
+
+**Pulling a checkpoint from Cambridge HPC (run from repo root, `~/la-proteina`):**
+```bash
+rsync -avhP ks2218@login.hpc.cam.ac.uk:/rds/user/ks2218/hpc-work/store/test_ca_only_diffusion/<RUN_ID>/checkpoints/<CKPT_NAME>.ckpt ./
+```
+The trailing `./` (destination) is mandatory — without it, rsync only lists the remote file and transfers nothing (`sent 20 bytes received 89 bytes`, huge "speedup" ratio). Example that actually downloads:
+```bash
+rsync -avhP ks2218@login.hpc.cam.ac.uk:/rds/user/ks2218/hpc-work/store/test_ca_only_diffusion/1776805213/checkpoints/best_val_00000006_000000000692.ckpt ./
+```
+
 ## Paper-Relevant Findings Log
 
 Every time we run an experiment (new or re-run) and find something that could plausibly be a finding for the Masterarbeit paper, evaluate:

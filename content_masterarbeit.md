@@ -319,7 +319,51 @@ The overall latent L2 norm is essentially length-invariant (r = +0.04). Dim 3 ca
 
 ---
 
-## Finding 5 — Negative result: stronger weight decay improves validation loss but collapses sample quality, traced to AdamW crushing AdaLN-Zero output gates (2026-04-25)
+## Finding 5 — Very-early-training CA-only diffusion snapshots are far from designable (2026-04-22)
+
+> **Caveat — these are pre-convergence baselines, not results.** Both checkpoints below are taken well inside the undertrained regime (692 and 881 optimizer steps, corresponding to ~0.5–1 full gradient passes over the training set when `accumulate_grad_batches=8` and `batch_size=26` are accounted for). They are logged here only as anchoring points for later-step comparisons, not as scientific claims about the trained model's capability.
+
+**Experiment:**
+- Run: `test_ca_only_diffusion/1776805213` on Cambridge HPC (`/rds/user/ks2218/hpc-work/store/...`).
+- Architecture: CA-only (no AE, no local_latents head), `local_latents_transformer` backbone, `nlayers=14, token_dim=768, nheads=12` → ~158 M parameters. Naming in `configs/inference_ucond_ca_only_70M.yaml` is a misnomer — the "70M" tag refers only to sampling hyperparameters; the architecture comes from the checkpoint and is 158 M here.
+- Sampling config: `inference_ucond_ca_only_70M.yaml` (nsteps=400, `sampling_mode=sc`, `sc_scale_noise=0.1`, `t_lim_ode=0.98`, `center_every_step=true`, log schedule `p=2.0` on bb_ca).
+- Generation: 3 samples each at lengths 50 and 100 (6 total per ckpt).
+- Evaluation: `compute_designability: True` only (NOT codesignability — CA-only writes all-Ala, so codesignability would be meaningless). Pipeline = vanilla ProteinMPNN (8 seqs per PDB, `ca_only=False` because the writer reconstructs N/C/O from the Cα trace via `ca_nm_to_backbone_atom37`) → ESMFold → min scRMSD over the 8 seqs, reported for modes `ca` and `bb3o`.
+- Hardware: single NVIDIA L4 (23 GB), generation ≈ 15–25 s, evaluation ≈ 2–3 min total.
+
+**Numbers (per-length, min scRMSD_ca / mean / max, Å; designable = scRMSD_ca < 2 Å):**
+
+| ckpt | epoch | optimizer step | L=50 min / mean / max | L=50 designable | L=100 min / mean / max | L=100 designable |
+|---|---|---|---|---|---|---|
+| `best_val_00000006_000000000692.ckpt` | 6 | 692 | 4.29 / 6.65 / 8.61 | 0/3 | 7.86 / 9.15 / 9.85 | 0/3 |
+| `best_val_00000008_000000000881.ckpt` | 8 | 881 | 4.33 / 9.72 / 12.94 | 0/3 | 7.51 / 13.42 / 17.65 | 0/3 |
+
+`scRMSD_bb3o` tracks `scRMSD_ca` to within 0.2 Å for all samples (the backbone is reconstructed idealized from the Cα trace, so this is by construction).
+
+**Evaluated weights:** live (non-EMA) training weights. EMA weights at this stage are unusable: with `decay=0.999, every_n_steps=5` and only 692–881 optimizer steps, the EMA has had 138–176 updates, so `~0.999^138 ≈ 0.87` of the EMA parameters are still initialization noise. EMA half-life here is ≈ 3,465 optimizer steps — nothing below that yields a meaningful EMA comparison.
+
+**Narrow claim:** At 692 and 881 optimizer steps, the CA-only 158 M diffusion model on `test_ca_only_diffusion/1776805213` produces no samples that meet the standard self-consistency designability threshold (scRMSD < 2 Å) at L ∈ {50, 100}. Best-per-structure scRMSD_ca across both snapshots is 4.29 Å (L=50) / 7.51 Å (L=100).
+
+**Implikation (cautious):** The model has learned non-trivial structure — the best samples (~4 Å at L=50) are well below what an untrained CA trace would produce (random/init models typically score in the 20–40 Å range on this same pipeline, as evidenced by worst-case seqs in the 8-seq lists hitting 32–33 Å). However, it is nowhere near designable performance. This is consistent with being in the pre-convergence regime: a 158 M transformer at ≤881 optimizer steps has seen only ≤~183 k samples in gradient terms (`881 × 8 × 26`), which is well below the point where CA-only structure generators in the literature typically start hitting designable (usually ≥10 k optimizer steps on comparable data).
+
+**Methodische Einschränkungen:**
+- n=3 per length is too small to infer a training curve — the mean is dominated by a single unlucky draw (see the L=100 step-881 outlier at 17.65 Å pulling the mean from ~9 Å to ~13 Å).
+- Only one sampling seed (`seed=5`) was used, so all spread observed is within-sampler noise rather than cross-seed variability.
+- Only L∈{50, 100} was tested. Behavior at longer lengths (150–300) is not characterized.
+- `sampling_mode=sc` with `sc_scale_noise=0.1` is a single point in the sampling hyperparameter space — no ablation of `nsteps`, `sc_scale_noise`, or ODE/SDE switch point.
+- Evaluation uses a single folding model (ESMFold) and a single PMPNN temperature / sample count (8 seqs at default temperature). Designability numbers depend on these.
+- Codesignability is not computed at all (by design, the CA-only model has no sequence head), so this finding says nothing about joint structure-sequence quality — only about whether *some* sequence can refold the generated backbone.
+- The "epoch" counter (Lightning's accounting, 6 and 8 here) does not cleanly map to data passes when `accumulate_grad_batches=8` and multi-worker loaders are involved; only `global_step` is the reliable progress measure.
+
+**Artifacts:**
+- PDBs + ESMFold outputs: `./inference/inference_ucond_ca_only_70M/job_0_n_{50,100}_id_{0,1,2}/` (overwritten per run — not preserved across the two snapshots).
+- Per-sample CSV: `./inference/results_inference_ucond_ca_only_70M_0.csv` (also overwritten; numbers above are captured here).
+- Resolved generation config: `./inference/inference_ucond_ca_only_70M/resolved_config.yaml`.
+- Side-fix recorded for reproducibility: `ProteinMPNN/protein_mpnn_run.py` + `protein_mpnn_utils.py` + `helper_scripts/` had to be cloned from the pinned commit `8907e66…` of github.com/dauparas/ProteinMPNN — the repo's `script_utils/download_pmpnn_weights.sh` only pulls weights, not code.
+
+---
+
+## Finding 6 — Negative result: stronger weight decay improves validation loss but collapses sample quality, traced to AdamW crushing AdaLN-Zero output gates (2026-04-25)
 
 **Experiment:**
 
@@ -439,7 +483,7 @@ Standard fix in DiT/SiT/SD3 codebases: parameter groups in AdamW that exclude (a
 
 ## Baseline reference — canonical CA-only run (for all architectural-variant comparisons)
 
-This is the run that the sparse-attention and conv-downsampling variants must be compared against. It is **not** a standalone finding — Finding 5 already covered the val-vs-sample-quality analysis. The purpose of this entry is to lock in the baseline's exact configuration so any later "the variant beat the baseline" claim has a single, citable reference point on disk.
+This is the run that the sparse-attention and conv-downsampling variants must be compared against. It is **not** a standalone finding — Finding 6 already covered the val-vs-sample-quality analysis. The purpose of this entry is to lock in the baseline's exact configuration so any later "the variant beat the baseline" claim has a single, citable reference point on disk.
 
 **Run identity:**
 - **Store dir:** `/home/ks2218/la-proteina/store/test_ca_only_diffusion/1776805213/`
@@ -471,15 +515,15 @@ This is the run that the sparse-attention and conv-downsampling variants must be
 - Designability (ESMFold scRMSD < 2 Å, 200 ODE steps, N=3 per length):
   - step 1889: 1/3 at L=50, 2/3 at L=100, (L=200 not tested).
   - step 2457 (post-uptick): 1/3 at L=50, 2/3 at L=100, 0/3 at L=200.
-- These numbers are the bar a variant must clear. They come from Finding 5's table; full per-length scRMSD distributions are tabulated there.
+- These numbers are the bar a variant must clear. They come from Finding 6's table; full per-length scRMSD distributions are tabulated there.
 
 **Decisions encoded in this run (do not silently revisit them in variants):**
-- wd is held at 0.05 because higher wd collapses AdaLN-Zero output gates and destroys designability while *improving* val loss (Finding 5). Raising wd requires restructuring `configure_optimizers` first.
+- wd is held at 0.05 because higher wd collapses AdaLN-Zero output gates and destroys designability while *improving* val loss (Finding 6). Raising wd requires restructuring `configure_optimizers` first.
 - LR schedule is constant because cosine_with_warmup did not help in v2 (it co-occurred with the wd=0.1 collapse and was not isolated; in absence of evidence it improves things on its own, the simpler constant schedule is the canonical choice).
 - `update_pair_repr=False` — we have no evidence the pair-update layer helps the CA-only task, and it adds compute. Keeping it off keeps variants cheap.
 - `use_tri_mult=False` — was already off in the baseline; doubly required because triangular multiplicative updates need the full n×n pair grid and are incompatible with the planned sparse-attention variant (`pair_update.py:65` raises).
 - 1-GPU configuration with `accumulate_grad_batches=32` is the deliberate match to the original 4-GPU effective batch (`4 × 8 × 6` = `1 × 32 × 6`), so the variant's batch dynamics are not a confounder.
-- N=3 designability checks per length at 2-3 lengths is the cheap proxy for sample quality. This is required as a stopping rule for any variant — see Finding 5 implication: val loss alone is insufficient.
+- N=3 designability checks per length at 2-3 lengths is the cheap proxy for sample quality. This is required as a stopping rule for any variant — see Finding 6 implication: val loss alone is insufficient.
 
 **How to use this entry:**
 
@@ -507,11 +551,11 @@ Sidechain conformational constraints are predominantly local (rotamer preference
 
 **Caveat to record with results:** AE1 was trained on ≤ 512 residue proteins, so 50–300 is fully in-distribution for the encoder. A positive result for AE1 in 50–300 does not transfer mechanically to AE2 / 300–800 — that requires the follow-up.
 
-### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 5, 2026-04-25)
+### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 6, 2026-04-25)
 
-**Motivation and literature gap (why this is worth running, despite Finding 5 already documenting the correlational result):**
+**Motivation and literature gap (why this is worth running, despite Finding 6 already documenting the correlational result):**
 
-Finding 5 established a strong correlational case that uniform AdamW weight decay applied to the La-Proteina CA-only baseline crushes AdaLN-Zero output gates in the upper transformer blocks (gates at 26–60% of baseline magnitude in v2 vs old) and that this co-occurs with a categorical sample-quality collapse (0/9 designable samples) despite a 0.33 best-validation-loss improvement. The mechanism — uniform AdamW weight decay applied to zero-initialised gates suppresses their growth, which weakens the time-conditioning signal at the velocity output and causes integrated trajectories to fail even though averaged velocity-MSE looks better — is mechanistically coherent and consistent with the per-layer weight evidence. However, no causal experiment has been run; an examiner could legitimately argue that the cosine LR decay (which co-occurred with wd=0.1 in v2 and was not isolated) is the actual cause, or that the collapse is a generic effect of stronger regularisation rather than the specific gate-suppression mechanism we propose.
+Finding 6 established a strong correlational case that uniform AdamW weight decay applied to the La-Proteina CA-only baseline crushes AdaLN-Zero output gates in the upper transformer blocks (gates at 26–60% of baseline magnitude in v2 vs old) and that this co-occurs with a categorical sample-quality collapse (0/9 designable samples) despite a 0.33 best-validation-loss improvement. The mechanism — uniform AdamW weight decay applied to zero-initialised gates suppresses their growth, which weakens the time-conditioning signal at the velocity output and causes integrated trajectories to fail even though averaged velocity-MSE looks better — is mechanistically coherent and consistent with the per-layer weight evidence. However, no causal experiment has been run; an examiner could legitimately argue that the cosine LR decay (which co-occurred with wd=0.1 in v2 and was not isolated) is the actual cause, or that the collapse is a generic effect of stronger regularisation rather than the specific gate-suppression mechanism we propose.
 
 A targeted literature survey (DiT, SiT, SD3 / MMDiT, PixArt-α, "Unveiling the Secret of AdaLN-Zero", ReZero, the diffusers SD3 reference, and the AdamW paper itself; full source list in CLAUDE-session notes) found that:
 - **The dominant DiT-family training recipe is `weight_decay=0` everywhere.** DiT's official `train.py` uses literally `torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)`; SiT's `train.py` uses the same line. SD3's paper does not discuss weight decay at all and emphasises QK-normalisation and ε=1e-15 in AdamW for stability. PixArt-α has a configurable `zero_weight_decay` attribute but does not apply it to AdaLN by default.
@@ -523,7 +567,7 @@ The literature gap is therefore real: the AdaLN-Zero × uniform-AdamW-wd interac
 
 **Hypothesis (mechanistic, to be falsified):**
 
-Restoring growth capacity to the AdaLN-Zero output gates (either by removing weight decay entirely from those parameters, or by removing weight decay altogether and accepting the loss of regularisation) recovers sample quality on the v2 model **without** giving up the validation-loss improvement that wd+cosine bought. If this prediction is wrong — i.e. samples remain bad even after the gates are unconstrained — then the mechanism we proposed in Finding 5 is wrong (or at least incomplete) and the v2 collapse must be attributed to something else (cosine LR-decay shrinking the effective LR to a non-sampling-friendly regime; an interaction with self-conditioning; etc.).
+Restoring growth capacity to the AdaLN-Zero output gates (either by removing weight decay entirely from those parameters, or by removing weight decay altogether and accepting the loss of regularisation) recovers sample quality on the v2 model **without** giving up the validation-loss improvement that wd+cosine bought. If this prediction is wrong — i.e. samples remain bad even after the gates are unconstrained — then the mechanism we proposed in Finding 6 is wrong (or at least incomplete) and the v2 collapse must be attributed to something else (cosine LR-decay shrinking the effective LR to a non-sampling-friendly regime; an interaction with self-conditioning; etc.).
 
 **Experimental design — three variants in increasing scope:**
 
@@ -534,14 +578,14 @@ The three variants below trade off compute against the strength of the causal cl
 - Resume from the v2 best raw checkpoint (`store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/best_val_00000020_000000002078.ckpt`).
 - Modify `proteinfoundation/proteina.py:configure_optimizers` to split parameters into two groups: (i) all `*.scale_output.to_adaln_zero_gamma.0.weight` parameters get `weight_decay=0`; (ii) everything else keeps the current `weight_decay` value (= 0.1). No other config change.
 - Continue training for ≈ 200–500 optimizer steps. Log: `train/grad_norm`, `train/param_norm`, the per-layer L2 norm of each AdaLN-Zero gate (new logging — needs a small addition to `on_before_optimizer_step` that walks `[p for n,p in self.named_parameters() if "to_adaln_zero" in n]` and logs each `‖p‖`).
-- Stopping rule: continue until either (a) the upper-layer gates (layers 7–13) recover to ≥ 80% of the old-recipe norms documented in Finding 5, or (b) 500 optimizer steps have elapsed without recovery.
-- Save the resulting checkpoint, run the same eval as Finding 5 (`inference_ucond_notri_ca_only_v2_quick.yaml` config, lengths [50, 150, 300, 450], N=10 samples per length, 200 ODE steps, ESMFold designability).
+- Stopping rule: continue until either (a) the upper-layer gates (layers 7–13) recover to ≥ 80% of the old-recipe norms documented in Finding 6, or (b) 500 optimizer steps have elapsed without recovery.
+- Save the resulting checkpoint, run the same eval as Finding 6 (`inference_ucond_notri_ca_only_v2_quick.yaml` config, lengths [50, 150, 300, 450], N=10 samples per length, 200 ODE steps, ESMFold designability).
 
 **B. Cleanest — retrain v2 from scratch with the proper param-group split (~16 h on 1 A100, chained):**
 
 - Modify `configure_optimizers` to split parameters into (i) bias / LayerNorm γ,β / embedding / `to_adaln_zero` parameters → `weight_decay=0`; (ii) everything else → `weight_decay=0.1`. This is the canonical DiT/SiT/SD3-style split (~15 lines).
-- Train from scratch with the v2 schedule (cosine_with_warmup, peak 2e-4, total 6000 opt steps, min ratio 0.1) for the same ~2100–2300 optimizer steps where Finding 5 v2 best was reached. Use the same seed (42), same data, same batch size, same EMA settings.
-- Compare against (i) the old recipe baseline checkpoint at its best (~step 2204, val 4.71–4.77, designability per Finding 5) and (ii) the v2 broken checkpoint (val 4.437, 0/9 designable).
+- Train from scratch with the v2 schedule (cosine_with_warmup, peak 2e-4, total 6000 opt steps, min ratio 0.1) for the same ~2100–2300 optimizer steps where Finding 6 v2 best was reached. Use the same seed (42), same data, same batch size, same EMA settings.
+- Compare against (i) the old recipe baseline checkpoint at its best (~step 2204, val 4.71–4.77, designability per Finding 6) and (ii) the v2 broken checkpoint (val 4.437, 0/9 designable).
 - This is the "right" ablation because it isolates the param-group fix as the only difference from v2 — same LR schedule, same wd value, same everything else.
 
 **C. Wd-isolation arm (add to either A or B if budget allows; ~16 h):**
@@ -580,7 +624,7 @@ for n, v in gate_norms.items():
 This logging is independently valuable for any future training on this codebase.
 
 **What the writeup would contain (target structure for the resulting Finding):**
-1. Background: brief restatement of Finding 5 and the literature-gap motivation above.
+1. Background: brief restatement of Finding 6 and the literature-gap motivation above.
 2. Methods: the param-group split (~15 line code change), the variants run, the eval protocol.
 3. Results: per-gate-layer norm trajectories during the experiment (do they regrow?), val-loss curve, designability table at matched lengths.
 4. Discussion: which outcome of the matrix above was observed, and what it pins down about the mechanism.
@@ -589,7 +633,7 @@ This logging is independently valuable for any future training on this codebase.
 **Risks and confounders to record with results:**
 - Variant A's resume from v2-2078 carries forward whatever non-gate weights the v2 training shaped under wd=0.1; even if gates regrow, the *rest* of the model has been trained against suppressed gates and may have compensated in ways that don't undo cleanly. A failure in A is therefore not a failure of the mechanism — it could be a failure of the recovery procedure. Variant B (clean retrain) is needed to definitively rule this out.
 - The eval is N=10 samples per length × 4 lengths = 40 samples. ESMFold scRMSD has known sensitivity to short-protein folding accuracy; if the recovered model is still marginal at L=50 but improves at L=300/450, that's still a positive result for the mechanism (the original v2 collapse was uniform across lengths, so partial recovery at any length is informative).
-- The mechanism predicts that *if* the gates regrow, the val loss may regress (because the model goes back to predicting time-conditioned velocities, which are higher-MSE than the smoothed-out averages it was predicting before). Do not interpret a val-loss regression as a failure of the experiment — Finding 5's central claim is precisely that val loss is a misleading proxy in this setting.
+- The mechanism predicts that *if* the gates regrow, the val loss may regress (because the model goes back to predicting time-conditioned velocities, which are higher-MSE than the smoothed-out averages it was predicting before). Do not interpret a val-loss regression as a failure of the experiment — Finding 6's central claim is precisely that val loss is a misleading proxy in this setting.
 
 ### Capacity probing — remaining pieces (Finding 4 covers the core)
 - 5-fold repeat of the full ladder to confirm the h128→h256 saturation and the Class A vs Class B boundary.

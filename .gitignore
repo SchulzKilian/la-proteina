@@ -23,12 +23,14 @@ wandb/
 *.fasta
 /checkpoints_laproteina
 /checkpoints
+/checkpoints_capacity_probing
 /tmp
 /tmp_ae
 /store
 /inference
-/ProteinMPNN/ca_model_weights/*.pt
-/ProteinMPNN/vanilla_model_weights/*.pt
+/ProteinMPNN
+/ca_only_step881
+/outputs
 /my_env
 checkpoints_laproteina/
 data/
