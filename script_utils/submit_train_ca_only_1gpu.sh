@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=240G
-#SBATCH --time=4:00:00
+#SBATCH --time=6:00:00
 #SBATCH --signal=SIGUSR1@300
 #SBATCH --requeue
 #SBATCH --output=slurm_ca_1gpu_%j.out
@@ -102,6 +102,11 @@ export SLURM_NTASKS_PER_NODE=1
 #    full_training_test.sh uses `exec python ...` instead when NO_SRUN=1.
 export NO_SRUN=1
 
+# Auto-resume from the most recent run under ./store/<run_name>/. Requires a
+# last.ckpt (or last-v<N>.ckpt) in that run's checkpoints/ dir — the resume
+# logic in train.py:get_run_dirs keys off that filename, not best_val_*.
+export RESUME=1
+
 # 5b. wandb init needs more than 90s on Cambridge HPC compute nodes — the
 #     outbound connection is flaky on first contact. Bump both init and
 #     service-wait timeouts so training doesn't crash before it starts.
@@ -120,22 +125,23 @@ if [ "$has_n_flag" -eq 0 ]; then
 fi
 
 # 7. Run training with 1-GPU Hydra overrides tuned for CA-only:
-#    - lr=0.0002  : sqrt-scaled from 4-GPU baseline 0.000415.
+#    - lr=0.0002  : sqrt-scaled from 4-GPU baseline 0.000415. Peak LR only;
+#      the cosine schedule (defined in YAML) decays to min_lr_ratio * peak.
 #    - accumulate_grad_batches=32 : holds the 4-GPU effective batch
 #      (4 * 8 * batch_size == 1 * 32 * batch_size).
-#    - weight_decay=0.05 : mild regularisation against the smaller-eff-batch
-#      overfit regime we saw on the full model at 1-GPU.
 #    - dist_strategy=auto : Lightning picks single-device, no DDP overhead.
 #    - log.last_ckpt_every_n_steps=500 : more frequent last.ckpt writes
 #      (~12-15 min apart on this setup). Caps worst-case progress loss if
 #      SIGUSR1 save-on-preempt doesn't fire cleanly (auto_requeue is off
 #      when RESUME is unset, so the Lightning SLURMEnvironment save path
 #      is less reliable).
+# Weight decay (0.1) and cosine_with_warmup scheduler live in the YAML now
+# so the recipe is self-documenting and reproducible for the sparse-attention
+# and conv-downsample variants that will reuse this config.
 bash script_utils/full_training_test.sh "$@" \
     hardware.ngpus_per_node_=1 \
     hardware.nnodes_=1 \
     opt.dist_strategy=auto \
     opt.lr=0.0002 \
-    +opt.weight_decay=0.05 \
     opt.accumulate_grad_batches=32 \
     log.last_ckpt_every_n_steps=500

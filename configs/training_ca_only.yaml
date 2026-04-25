@@ -1,4 +1,12 @@
-run_name_: test_ca_only_diffusion
+# Canonical CA-only baseline (post-mortem of v2 attempt — see Finding 5 in
+# content_masterarbeit.md and the CA-only baseline section of CLAUDE.md).
+# Recipe: AdamW(wd=0.05) + constant LR=2e-4, no scheduler.
+# DO NOT raise wd above 0.05 in this codebase without first restructuring
+# `configure_optimizers` to exclude AdaLN-Zero gates / LayerNorm / biases /
+# embeddings from weight decay — uniform wd≥0.1 collapses sample quality.
+# When training a new architectural variant, change run_name_ to a fresh value
+# so the new run goes to a clean store dir.
+run_name_: ca_only_diffusion_baseline
 
 hardware:
   ncpus_per_task_train_: 24
@@ -61,7 +69,13 @@ opt:
   skip_nan_grad: False
   grad_and_weight_analysis: False
   dist_strategy: ddp
-  val_check_interval: 100
+  val_check_interval: 2000
+  weight_decay: 0.1
+  scheduler:
+    name: cosine_with_warmup
+    warmup_steps: 200
+    total_steps: 6000
+    min_lr_ratio: 0.1
 
 log:
   wandb_project: laproteina

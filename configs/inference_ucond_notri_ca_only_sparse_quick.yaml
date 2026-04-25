@@ -1,0 +1,34 @@
+# Quick-eval inference config for the sparse-attention variant.
+# Mirrors `inference_ucond_notri_ca_only_baseline_quick.yaml` byte-for-byte
+# (same lengths, same nsteps, same nsamples) so the designability comparison
+# is apples-to-apples. The ONLY difference between the two configs is the
+# checkpoint pointer.
+#
+# IMPORTANT: ckpt_path is a placeholder. After training, fill in the actual
+# best_val_*.ckpt path (or pass --ckpt to gen_n_eval_ca_only.sh to override).
+#
+# Output dir: ./inference/inference_ucond_notri_ca_only_sparse_quick/
+# Results CSV: ./results_inference_ucond_notri_ca_only_sparse_quick_0.csv
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_ucond_notri_ca_only_sparse_quick
+config_name: inference_ucond_notri_ca_only_sparse_quick
+
+# TODO: replace with the actual sparse run dir + best_val_* ckpt after training.
+# Default points at where ca_only_sparse_K40's checkpoints will land; the
+# concrete <timestamp> subdir and ckpt filename are filled in via --ckpt.
+ckpt_path: /home/ks2218/la-proteina/store/ca_only_sparse_K40
+ckpt_name: PLACEHOLDER_best_val.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 200
+  dataset:
+    nsamples: 10
+    max_nsamples_per_batch: 10
+    nlens_cfg:
+      nres_lens: [50, 150, 300, 450]

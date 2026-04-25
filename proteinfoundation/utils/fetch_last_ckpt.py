@@ -1,48 +1,37 @@
 import os
-import re
 from typing import Union
-
-
-def get_version_number(fname: str) -> Union[int, None]:
-    """
-    Gets version numnber of a last checkpoint, or None if not a last checkpoint.
-
-    Args:
-        fname: name of the file
-
-    Returns:
-        version number if in the format last-v<X>.ckpt, with X and integer > 0,
-        or last.ckpt yields 0. If not the right naming returns None.
-    """
-    match = re.search(r"last-v(\d+).ckpt", fname)
-    if match:
-        return int(match.group(1))
-    elif fname == "last.ckpt":
-        return 0  # last.ckpt is base version
-    return None  # ignore if does not match
 
 
 def fetch_last_ckpt(ckpt_dir: str) -> Union[str, None]:
     """
-    Returns the name of the latest last-v<X>.ckpt where X is an integer. Defaults to last.ckpt if just that's the only one.
-    If no last ckpt then returns None.
+    Returns the filename of the most recently written resumable checkpoint in
+    ``ckpt_dir`` (picked by mtime). Considers both ``last*.ckpt`` (periodic
+    snapshots controlled by ``last_ckpt_every_n_steps``) and ``best_val_*.ckpt``
+    (end-of-validation top-k snapshots) — whichever is newest on disk.
 
-    Args:
-        ckpt_dir: directory where checkpoints are stored.
+    Rationale: picking the highest-numbered ``last-v<N>.ckpt`` can silently
+    skip past newer ``best_val_*.ckpt`` files if a run is killed between
+    ``last_ckpt_every_n_steps`` saves (see job 28260296 which lost ~450 steps
+    by resuming from a ``last-v1.ckpt`` that was 3+ hours older than the
+    newest ``best_val`` ckpt).
 
-    Returns:
-        Name of the latest checkpoint, None if no such checkpoint present.
+    Excludes ``-EMA.ckpt`` companions (loaded automatically by the EMA
+    callback once the main ckpt is picked) and any ``ignore*.ckpt`` files
+    produced by the periodic ``checkpoint_every_n_steps`` callback.
     """
     if not os.path.exists(ckpt_dir):
         return None
-    last_ckpts = [
+    candidates = [
         f
         for f in os.listdir(ckpt_dir)
-        if "last" in f and f.endswith(".ckpt") and get_version_number(f) is not None
+        if f.endswith(".ckpt")
+        and not f.endswith("-EMA.ckpt")
+        and (f.startswith("last") or f.startswith("best_val_"))
     ]
-    if len(last_ckpts) == 0:
+    if not candidates:
         return None
-    sorted_files = sorted(
-        last_ckpts, key=get_version_number, reverse=True
-    )  # fort by version #, highest first
-    return sorted_files[0]
+    candidates.sort(
+        key=lambda f: os.path.getmtime(os.path.join(ckpt_dir, f)),
+        reverse=True,
+    )
+    return candidates[0]

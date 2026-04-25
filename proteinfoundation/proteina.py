@@ -263,6 +263,33 @@ class Proteina(L.LightningModule):
             self.nflops = 0
             self.nsamples_processed = 0
 
+    def on_before_optimizer_step(self, optimizer):
+        # Logged before grad clipping. Lets us see norm spikes at SLURM
+        # restarts, instabilities at LR changes, and the steady-state magnitude.
+        grad_sq = torch.tensor(0.0, device=self.device)
+        param_sq = torch.tensor(0.0, device=self.device)
+        for p in self.parameters():
+            if p.grad is not None:
+                grad_sq = grad_sq + p.grad.detach().pow(2).sum()
+            if p.requires_grad:
+                param_sq = param_sq + p.detach().pow(2).sum()
+        self.log(
+            "train/grad_norm",
+            grad_sq.sqrt(),
+            on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True,
+        )
+        self.log(
+            "train/param_norm",
+            param_sq.sqrt(),
+            on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True,
+        )
+        for i, pg in enumerate(optimizer.param_groups):
+            if "lr" in pg:
+                self.log(
+                    f"train/lr_pg{i}", float(pg["lr"]),
+                    on_step=True, on_epoch=False, prog_bar=False, logger=True, sync_dist=True,
+                )
+
     def call_nn(
         self,
         batch: Dict[str, torch.Tensor],
@@ -382,6 +409,25 @@ class Proteina(L.LightningModule):
 
             self.log_losses(bs=bs, losses=losses, log_prefix=log_prefix, batch=batch, val_step=val_step)
             train_loss = sum([torch.mean(losses[k]) for k in losses if "_justlog" not in k])
+
+            # Per-length val loss split — distinguishes genuine overfitting from
+            # length-specialisation (model fitting one length regime while getting
+            # worse elsewhere). losses[k] is shape [b], batch["mask"].sum(-1) is [b].
+            if val_step:
+                per_protein_loss = sum(
+                    losses[k] for k in losses if "_justlog" not in k
+                )  # [b]
+                lengths = batch["mask"].sum(dim=-1)  # [b]
+                for lo, hi in [(50, 175), (175, 300), (300, 425), (425, 513)]:
+                    sel = (lengths >= lo) & (lengths < hi)
+                    if sel.any():
+                        self.log(
+                            f"validation_loss_by_len/len_{lo:03d}_{hi:03d}",
+                            per_protein_loss[sel].mean(),
+                            on_step=False, on_epoch=True, prog_bar=False,
+                            logger=True, batch_size=int(sel.sum()),
+                            sync_dist=True, add_dataloader_idx=False,
+                        )
 
             self.log(
                 f"{log_prefix}/loss",

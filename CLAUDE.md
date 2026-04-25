@@ -176,6 +176,98 @@ sbatch script_utils/submit_train.sh -n training_ca_only
 - CA-only vs full model: similar wall-clock time per step (same transformer backbone). CA-only advantage is faster validation loss convergence per epoch (simpler task, all gradient signal on bb_ca).
 - For real speedup: use 70M model instead of 160M (~2x faster per step).
 
+### CA-only baseline recipe — current canonical (use this)
+
+Canonical training recipe for the 160M CA-only diffusion baseline. **This is the OLD recipe (wd=0.05, constant LR=2e-4). Use it for any architectural variant (sparse attention, conv downsampling) so the comparison stays clean.** The newer "v2" recipe (wd=0.1 + cosine LR) was attempted on 2026-04-24 and is documented in the next subsection as a failed experiment — do not use it.
+
+- **Config:** `configs/training_ca_only.yaml` — but with `weight_decay: 0.05` (not 0.1) and the `scheduler:` block removed (constant LR). The current YAML on disk after the v2 attempt may still have the v2 values in it; restore them before training a new variant.
+- **Submit script:** `script_utils/submit_train_ca_only_1gpu.sh` (1× A100 ampere; chain via `--dependency=afterany:$prev` for multi-slot training; **always pass `--exclude=gpu-q-43`** — that node has a broken GPU and `afterany` re-routes the chain back to it).
+- **Optimizer:** `torch.optim.AdamW`. β1=0.9, β2=0.999, ε=1e-8 (PyTorch defaults). **Weight decay = 0.05** (uniform across all parameters — the codebase's `configure_optimizers` does not split into wd/no-wd parameter groups; see "Why wd ≤ 0.05" below).
+- **LR schedule:** constant LR = 2e-4 (sqrt-scaled from the 4-GPU 4.15e-4 baseline). No warmup, no decay.
+- **Effective batch:** `batch_size=6 × max_padding_size=512 × accumulate_grad_batches=32 = ~192 proteins/optimizer step`. Equivalent to the 4-GPU baseline.
+- **EMA:** decay 0.999, every 5 steps (every-step EMA is too slow). Companion `-EMA.ckpt` written for every checkpoint event by `EmaModelCheckpoint`.
+- **Training-step logging** (added in `proteina.py:on_before_optimizer_step` and `training_step` during the v2 attempt — kept because they're useful regardless of recipe): `train/grad_norm` (pre-clip), `train/param_norm` (global L2 over trainable params), `train/lr_pg0`, `validation_loss_by_len/len_<lo>_<hi>` for bins 50-175, 175-300, 300-425, 425-513.
+- **Validation cadence:** `val_check_interval=2000` mini-batches → ~63 optimizer steps between val evals at `accumulate_grad_batches=32`. Val set has 4058 proteins. `validation_loss/loss_epoch` is the headline scalar, **but it is a misleading proxy for sample quality on this codebase under uniform-wd AdamW** — see Finding 5 and the v2 post-mortem subsection below. Always confirm a candidate "good" checkpoint with a cheap designability check (N=3-10 samples per length at 2-3 lengths) before believing the val number.
+- **Convergence:** old runs reached best val ≈ 4.71-4.77 around opt step 1800-2200, then overfit (val rises to 5+ within 200-700 more steps). Best old raw checkpoint currently on disk: `store/test_ca_only_diffusion/1776805213/checkpoints/best_val_00000026_000000002646.ckpt` (the originally-cited step-2204 best from `jeponiu5` was overwritten by later `best_val_*` saves under `save_top_k=1`). If you need the exact-step-2204 ckpt back, you'd have to retrain.
+- **Wall-clock:** ~131 opt-steps/hour on a single A100 with the current logging (the two full-parameter L2 traversals per step in `on_before_optimizer_step` are the bottleneck; the old runs that hit ~300/hr did not have this logging). Best is reachable in ~16 h of chained slots.
+
+#### Canonical baseline run (the reference for variants)
+
+The "old recipe" baseline that all architectural variants must match has its
+saved exp-config on disk at
+`store/test_ca_only_diffusion/1776805213/checkpoints/exp_config_test_ca_only_diffusion.json`.
+Treat that JSON as the source of truth — when starting a new variant, diff
+its NN block against your variant's resolved Hydra config and assert that
+nothing other than the variant-specific keys differs.
+
+The exact NN architecture (matches `configs/nn/ca_only_score_nn_160M.yaml`):
+- `name: local_latents_transformer`, `output_parameterization: {bb_ca: v}` (CA-only — no `local_latents` head; `latent_dim=None` triggers the no-AE path in `proteina.py`)
+- `nlayers: 14`, `token_dim: 768`, `nheads: 12`, `parallel_mha_transition: False`, `use_qkln: True`
+- `feats_seq: [xt_bb_ca, x_sc_bb_ca, optional_ca_coors_nm_seq_feat, optional_res_type_seq_feat]`
+- `feats_cond_seq: [time_emb_bb_ca]`
+- `feats_pair_repr: [rel_seq_sep, xt_bb_ca_pair_dists, x_sc_bb_ca_pair_dists, optional_ca_pair_dist]`
+- `feats_pair_cond: [time_emb_bb_ca]`
+- `dim_cond=256`, `idx_emb_dim=256`, `t_emb_dim=256`, `pair_repr_dim=256`, `seq_sep_dim=127`
+- `xt_pair_dist_dim=30, min=0.1, max=3` (nm); same for `x_sc`
+- `update_pair_repr: False` (so `update_pair_repr_every_n` is dead code in the baseline)
+- `use_tri_mult: False`, `use_downsampling: False`
+- `strict_feats: False`
+
+What the baseline run did NOT use (deliberate negatives — keep them off in variants unless the variant *is* one of these):
+- No triangular multiplicative updates (would also be sparse-incompatible — `pair_update.py:65` raises if `use_tri_mult=True` with sparse attention).
+- No pair-rep update layer (`update_pair_repr=False`).
+- No conv downsample/upsample (`use_downsampling=False`).
+- No LoRA (`lora.r: null`).
+- No motif conditioning, no folding/inv-folding iters (`p_folding_n_inv_folding_iters: 0.0`), no recycling (`n_recycle: 0`).
+- Self-conditioning IS on (`self_cond: True`).
+- No precomputed latents (CA-only mode is AE-free anyway, but worth noting that the user preference applies: never enable `use_precomputed_latents` for any related run).
+
+Recipe values (the canonical settings, copy verbatim into any variant's training config):
+- `opt.lr: 0.0002` (constant — no scheduler block, or set `scheduler.name` to a no-op).
+- `opt.weight_decay: 0.05`.
+- `opt.accumulate_grad_batches: 32` (with `dataset.datamodule.batch_size: 6` and `max_padding_size: 512` → effective batch ≈ 192).
+- `opt.dist_strategy: auto` for 1-GPU runs.
+- `opt.val_check_interval: 2000`.
+- `ema: { decay: 0.999, every_n_steps: 5, validate_original_weights: False, cpu_offload: False }`.
+- `seed: 42`.
+- `force_precision_f32: False` (bf16-mixed).
+- `dataset.datamodule.dataselector.worst_resolution: 2.0`, `min_length: 50`, `max_length: 512`.
+- `hardware.ngpus_per_node_: 1`, `hardware.nnodes_: 1`.
+
+Reference results:
+- Best val loss: ≈ 4.71-4.77 around opt step 1800-2200, then overfits.
+- Sample quality: 1-2/3 designable at L=50 and L=100 (scRMSD < 2 Å threshold) at the best checkpoints; not all lengths are designable simultaneously. This is the bar variants must clear.
+- Wandb runs in the chain: `d1k1587u` (best val 4.765 at step 1827), `jeponiu5` (best 4.712 at step 2204, ckpt overwritten), `0fnyfbi9` (latest, contains step 2646 ckpt currently on disk).
+
+Checklist for training an architectural variant (sparse attention, conv downsampling, etc.):
+1. Make a NEW NN config file under `configs/nn/` (e.g. `ca_only_sparse_160M.yaml`). Copy `ca_only_score_nn_160M.yaml` verbatim, change ONLY the keys the variant needs. Do not silently retune unrelated keys.
+2. Make a NEW training config under `configs/` (e.g. `training_ca_only_sparse.yaml`) with `defaults: - nn: <your_new_nn_config>` and a fresh `run_name_:` so the new run goes to its own store dir.
+3. In the training config, lock the recipe to the canonical values above (wd=0.05, constant LR=2e-4, accumulate_grad_batches=32, ema every_n_steps=5).
+4. Submit with `script_utils/submit_train_ca_only_1gpu.sh -n <your_training_config>` and `--exclude=gpu-q-43`.
+5. After ~1000 opt steps, run a designability probe (N=3 per length at L ∈ {50, 100, 200}). If 0/9 designable, the variant has the v2-style collapse and chasing val loss further is wasted compute — debug instead.
+
+#### Why wd ≤ 0.05 — the AdaLN-Zero × AdamW interaction (mechanism)
+
+The `LocalLatentsTransformer` uses DiT-style **AdaLN-Zero** conditioning blocks (`*.scale_output.to_adaln_zero_gamma` in `state_dict()`). These output gates are zero-initialised and need to *grow* during training to let conditioning influence each block's residual contribution. `configure_optimizers` in `proteinfoundation/proteina.py` applies a single `weight_decay` value to *all* parameters, including the AdaLN-Zero gates. Weight decay continuously pulls these gates back toward zero, which is in direct tension with the gradient signal trying to grow them. At wd=0.05 the gates win; at wd=0.1 the gates lose, especially in deeper transformer layers where gradient signal is weaker. The result is a model where conditioning is suppressed, validation MSE looks great (smoother, lower-variance velocity prediction), but generated samples collapse (no time-conditioning to push integrated trajectories onto the data manifold). See Finding 5 for the per-layer evidence (upper-layer gates at 26-60% of old-recipe magnitude in v2).
+
+**To safely raise wd above 0.05 in this codebase you must first restructure `configure_optimizers` to split parameters into wd / no-wd groups** (the standard DiT/SiT/SD3 pattern: exclude biases, LayerNorm γ/β, embeddings, and AdaLN-Zero gate weights from wd). Roughly 15 lines. Until that change is in, treat wd=0.05 as a hard upper bound.
+
+### v2 recipe attempt — failed experiment, kept for reference (2026-04-24)
+
+The v2 attempt at improving the baseline used `weight_decay=0.1` + cosine_with_warmup LR schedule (peak 2e-4 at step 200, decay to 2e-5 at step 6000). It reduced best val loss from 4.765 → 4.437 (Δ -0.328), but produced **0/3 designable samples at every tested length** (L=50, 100, 200), with mean scRMSD 9-11 Å vs the old recipe's 2-8 Å. Per-layer weight diff confirmed the cause: the AdaLN-Zero output gates in transformer layers 7-13 had collapsed to 26-60% of their old-recipe magnitudes (see the mechanism subsection above and the full numbers in Finding 5).
+
+- v2 store dir (preserved): `store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/`
+- v2 wandb runs: `9jp15of2` → `5rftn43a` → `43xxlbzt`
+- **Do not use the v2 checkpoint for sampling, evaluation, or as a starting point for any architectural variant.**
+
+Lesson encoded in this section: any future weight-decay tuning in this codebase requires restructuring `configure_optimizers` first.
+
+#### Operational notes from the v2 run (kept because they apply to any chained training)
+
+- **Resume gotcha:** `fetch_last_ckpt` (in `proteinfoundation/utils/fetch_last_ckpt.py`) picks the file with the most recent mtime. If the most recent file is a `best_val_*.ckpt` (saved on a val-improvement event after `last.ckpt`), the chain resumes from that, not from `last.ckpt`. Cost: up to ~`val_check_interval / accumulate_grad_batches` lost steps. Not a correctness bug but worth knowing — the v2 chain lost 63 steps this way at the slot-2 → slot-3 handoff.
+- **Broken node:** `gpu-q-43` has a broken GPU. The v2 chain hit it three slots in a row because Slurm `--dependency=afterany` re-routes the next slot to the same node. Always include `--exclude=gpu-q-43` on `sbatch` for chained training.
+- **Wandb run-ID across slots:** `RESUME=1` triggers `WandbLogger(resume="allow")` but the run ID isn't carried across slots, so each chained slot creates a *new* wandb run with the same run name. To trace v2 you have to follow the chain `9jp15of2 → 5rftn43a → 43xxlbzt` in the dashboard.
+
 ### Cluster (Cambridge HPC) Notes
 
 - Data: `/rds/user/ks2218/hpc-work/processed` (raw PDB .pt files, 536K files), `/rds/user/ks2218/hpc-work/processed_latents` (precomputed latents, 63K files for 300-800 residue subset; 355K original latents archived, see below)

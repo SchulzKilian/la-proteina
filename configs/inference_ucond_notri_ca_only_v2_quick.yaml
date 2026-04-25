@@ -1,0 +1,28 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_ucond_notri_ca_only_v2_quick
+# config_name is read by generate.py main() to label the output dir.
+# generate.py uses @hydra.main, which doesn't accept --config_name CLI;
+# the only way to set it for that path is via the YAML.
+config_name: inference_ucond_notri_ca_only_v2_quick
+ckpt_path: /home/ks2218/la-proteina/store/ca_only_diffusion_baseline_v2/1776975226/checkpoints
+ckpt_name: best_val_00000020_000000002078.ckpt
+autoencoder_ckpt_path:
+
+# Quick eval: 4 lengths × 10 samples × 200 ODE steps = 40 samples.
+# One length per per-length val-loss bin from training:
+#   50  ∈ 50-175,  150 ∈ 175-300 (lower edge),  300 ∈ 300-425,  450 ∈ 425-513.
+# This matches the same length granularity the v2 training run logged val on,
+# so designability per length lines up directly with the val curves.
+# Time budget on 1 A100: ~14 min generation + ~29 min ESMFold = ~43 min total.
+generation:
+  args:
+    nsteps: 200
+  dataset:
+    nsamples: 10
+    max_nsamples_per_batch: 10
+    nlens_cfg:
+      nres_lens: [50, 150, 300, 450]

@@ -1,0 +1,21 @@
+steering:
+  enabled: true
+  # Real predictor from the 5-fold run (fold 0 is fine for net_charge; val R² = 0.972)
+  checkpoint: /rds/user/ks2218/hpc-work/checkpoints_multitask_predictor/latest/checkpoints/fold_0_best.pt
+
+  objectives:
+    - property: net_charge
+      direction: maximize     # "make the protein more positively charged"
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 2.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9               # last 10% is pure flow, lets the model relax back to manifold
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

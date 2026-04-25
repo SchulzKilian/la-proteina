@@ -1,0 +1,30 @@
+# Quick-eval inference config for the canonical CA-only baseline checkpoint.
+# Mirrors `inference_ucond_notri_ca_only_v2_quick.yaml` byte-for-byte except
+# for the ckpt path/name and the run/config name. Used as the CONTROL in the
+# sparse-attention vs baseline designability comparison.
+#
+# Output dir: ./inference/inference_ucond_notri_ca_only_baseline_quick/
+# Results CSV: ./results_inference_ucond_notri_ca_only_baseline_quick_0.csv
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_ucond_notri_ca_only_baseline_quick
+config_name: inference_ucond_notri_ca_only_baseline_quick
+
+ckpt_path: /home/ks2218/la-proteina/store/test_ca_only_diffusion/1776805213/checkpoints
+ckpt_name: best_val_00000026_000000002646.ckpt
+autoencoder_ckpt_path:
+
+# Same workload as v2_quick: 4 lengths × 10 samples × 200 ODE steps.
+# Lengths chosen to match the per-length val-loss bins (50-175, 175-300,
+# 300-425, 425-513) so designability lines up with training-time val curves.
+generation:
+  args:
+    nsteps: 200
+  dataset:
+    nsamples: 10
+    max_nsamples_per_batch: 10
+    nlens_cfg:
+      nres_lens: [50, 150, 300, 450]

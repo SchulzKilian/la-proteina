@@ -364,7 +364,7 @@ def setup_ckpt(cfg_exp, ckpt_path_store):
         "filename": "best_val_{epoch:08d}_{step:012d}",
         "monitor": "validation_loss/loss_epoch",
         "mode": "min",
-        "save_top_k": 3,
+        "save_top_k": 1,
         "auto_insert_metric_name": False,
     }
     checkpoint_callback = EmaModelCheckpoint(**args_ckpt)
@@ -475,7 +475,7 @@ def main(cfg_exp) -> None:
         strategy=cfg_exp.opt.dist_strategy,
         enable_progress_bar=show_prog_bar,
         plugins=plugins,
-        limit_val_batches=100,
+        limit_val_batches=50,
         accumulate_grad_batches=cfg_exp.opt.accumulate_grad_batches,
         num_sanity_val_steps=1,
         precision=get_training_precision(cfg_exp, is_cluster_run),

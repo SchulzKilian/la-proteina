@@ -1,0 +1,93 @@
+# Sparse-attention variant of the CA-only baseline.
+#
+# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4).
+# See CLAUDE.md "Canonical baseline run" and content_masterarbeit.md
+# "Baseline reference" for why these values are non-negotiable.
+#
+# The only difference from the baseline at the architecture level is the NN
+# config (`ca_only_sparse_160M` vs `ca_only_score_nn_160M`); the NN config
+# itself only differs from the baseline by adding the four sparse_* keys.
+# Everything else here mirrors the baseline run's saved exp_config.
+run_name_: ca_only_sparse_K40
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block.
+# Constant LR=2e-4 is achieved by omitting `scheduler:` entirely.
+# See proteina.py:228 — sched_cfg=None → returns optimizer alone (no LR schedule).
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

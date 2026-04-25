@@ -1,0 +1,21 @@
+# Hydra config for the sidechain-manifold perturbation experiment.
+#
+# Used with: python proteinfoundation/evaluate.py --config_name eval_manifold_perturbation --job_id <0..9>
+# Cells: job_id = k_idx*2 + space_idx where k_idx in 0..4 indexes
+#        NOISE_SCALES = (0.1, 0.3, 0.5, 1.0, 2.0) and space_idx in {0:coord, 1:latent}.
+# evaluate.py walks ./inference/eval_manifold_perturbation/ for job_<id>_*.pdb files.
+
+defaults:
+  - inference_base
+  - generation: eval_manifold_codesign_only
+  - _self_
+
+run_name_: manifold_perturbation_eval
+
+# We don't load the LD checkpoint for this experiment — only AE1 is used
+# (offline, by analysis_manifold/perturbation_experiment.py). evaluate.py
+# itself doesn't load the flow model at all; these fields are required by
+# inference_base but the flow model isn't instantiated for evaluate.py.
+ckpt_path: ./inference/eval_manifold_perturbation
+ckpt_name: NOT_USED.ckpt
+autoencoder_ckpt_path: /rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt

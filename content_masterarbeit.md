@@ -319,7 +319,277 @@ The overall latent L2 norm is essentially length-invariant (r = +0.04). Dim 3 ca
 
 ---
 
+## Finding 5 — Negative result: stronger weight decay improves validation loss but collapses sample quality, traced to AdamW crushing AdaLN-Zero output gates (2026-04-25)
+
+**Experiment:**
+
+Two CA-only diffusion training recipes compared on the same architecture, data, batch size, and validation set; only the optimizer/regularization differs.
+
+- Architecture: `nn/ca_only_score_nn_160M.yaml` (160M-parameter `LocalLatentsTransformer`, output_parameterization `bb_ca: v`, no `local_latents` head, no autoencoder, no triangular multiplicative updates, no downsampling). Uses DiT-style **AdaLN-Zero** conditioning blocks (the `*.scale_output.to_adaln_zero_gamma` output gates seen in `state_dict()`).
+- Data: `dataset/pdb/pdb_train_ucond.yaml` (PDB train, min_length=50, max_length=512, worst_resolution ≤ 2.0 Å). Sequence-similarity 0.5 split. Val set size = 4058 proteins.
+- Validation cadence: `val_check_interval=2000` mini-batches → ~1 val eval per 63 optimizer steps (with `accumulate_grad_batches=32`).
+- Single A100 (Cambridge HPC ampere partition); `dist_strategy=auto`; `accumulate_grad_batches=32`; `batch_size=6`; `max_padding_size=512`; effective batch ≈ 192 proteins. EMA decay 0.999, every 5 steps. Seed 42. bf16-mixed precision. `gradient_clip_val=1.0` (norm).
+- **Old recipe (control):** `torch.optim.AdamW` with `weight_decay=0.05`, constant LR `2e-4`, no scheduler.
+- **New recipe (v2):** `torch.optim.AdamW` with `weight_decay=0.1`, cosine_with_warmup schedule (linear warmup 0 → `2e-4` over 200 optimizer steps, cosine decay to `min_lr_ratio * peak = 2e-5` at `total_steps=6000`).
+- Both recipes apply weight decay uniformly to all parameters — `configure_optimizers` in `proteinfoundation/proteina.py` does not split parameters into wd/no-wd groups.
+- Run directories: old = many chained runs under `store/test_ca_only_diffusion/`; v2 = `store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/`.
+- Wandb runs (v2): `9jp15of2` (slot 1), `5rftn43a` (slot 2), `43xxlbzt` (slot 3 = continuation after a chain failure on a broken GPU node).
+- v2 wall-clock: ~18 hours on a single A100 (3 chained 6h SLURM slots) to reach optimizer step 2294; chain cancelled after a confirmed two-eval val uptick.
+- Best v2 checkpoint (preserved on disk for the post-mortem analysis):
+  - Raw: `/home/ks2218/la-proteina/store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/best_val_00000020_000000002078.ckpt`
+  - EMA: same path with `-EMA.ckpt` suffix.
+- Reference old checkpoint used in the post-mortem comparison: `store/test_ca_only_diffusion/1776805213/checkpoints/best_val_00000026_000000002646.ckpt` (the original step-2204 best from `jeponiu5` was overwritten by later `best_val_*` saves under `save_top_k=1`; step 2646 from `0fnyfbi9` was the latest available raw old-recipe checkpoint at the time of the comparison).
+
+**Numbers — validation loss:**
+
+Best validation loss (`validation_loss/loss_epoch`, single Monte-Carlo estimate per eval):
+
+| Recipe | Best val | At opt step | Behaviour past best |
+|---|---|---|---|
+| Old (wd=0.05 + constant LR=2e-4) | **4.765** | 1827 (run `d1k1587u`); 4.712 in `jeponiu5` at step 2204 | rises to 4.79–5.39 within 250–700 steps |
+| New v2 (wd=0.1 + cosine_with_warmup) | **4.437** | 2078 (run `43xxlbzt`) | rises to 4.78 by step 2267 |
+| **Δ (v2 − old)** | **−0.328** | +251 steps | — |
+
+Head-to-head v2 vs old run `d1k1587u` at matched optimizer steps (val_loss):
+
+| step | v2 | d1k1587u | Δ |
+|---|---|---|---|
+| 1448 | 5.543 | 5.085 | +0.458 |
+| 1511 | 5.216 | 5.063 | +0.154 |
+| 1637 | 5.093 | 5.042 | +0.052 |
+| 1700 | 5.029 | 4.866 | +0.163 |
+| 1763 | 4.875 | 4.786 | +0.089 |
+| **1827** | **4.724** | 4.765 (old's best) | **−0.041** ← v2 crosses under |
+| 1889 | 4.671 | 4.792 (old's uptick begins) | −0.121 |
+| 1952 | 4.506 | 4.787 | −0.282 |
+| 2078 | **4.437** (v2 best) | — | — |
+| 2267 | 4.781 (uptick) | — | — |
+
+Per-length val (v2 only, around the uptick, from the new `validation_loss_by_len/len_<lo>_<hi>` logging):
+
+| length bin | step 2015 | step 2078 | step 2142 | step 2204 | step 2267 |
+|---|---|---|---|---|---|
+| 50–175  | 4.244 | 4.316 | 4.078 | 4.283 | 4.344 |
+| 175–300 | 4.508 | 4.300 | 4.548 | 4.915 | 5.022 |
+| 300–425 | 4.945 | 4.775 | 4.957 | 4.924 | 5.292 |
+| 425–513 | 5.180 | 4.916 | 5.102 | 5.396 | 5.097 |
+
+**Numbers — sample quality (designability via ESMFold scRMSD):**
+
+After observing the val improvement, samples were generated from both recipes' raw checkpoints under matching inference configs (200 ODE steps, generation/uncond_codes_ca_only, designability_modes=[ca, bb3o], folding_models=[esmfold]). N=3 per length, designability threshold scRMSD < 2 Å:
+
+| Run / step | L=50 (min/mean/max scRMSD Å) | L=50 designable | L=100 | L=100 des | L=200 | L=200 des |
+|---|---|---|---|---|---|---|
+| `test_ca_only_diffusion/1776805213` step 1889 (old)        | 1.56 / 3.00 / 4.07  | 1/3 | 1.66 / 2.01 / 2.56  | 2/3 | — | — |
+| `test_ca_only_diffusion/1776805213` step 2457 (old, post-uptick) | 1.29 / 2.40 / 3.59 | 1/3 | 1.54 / 5.10 / 12.03 | 2/3 | 4.04 / 7.91 / 11.45 | 0/3 |
+| `ca_only_diffusion_baseline_v2/1776975226` step 2078 (v2 best) | 4.22 / 9.10 / 14.83 | **0/3** | 8.00 / 11.28 / 13.41 | **0/3** | 7.96 / 9.60 / 11.03 | **0/3** |
+
+v2 produces **zero designable samples at any tested length**, with mean scRMSD 9–11 Å vs the old recipe's 2–8 Å. N is small (3/length) but the gap is categorical, not noise: even at the easiest length (L=50) the v2 *minimum* scRMSD across 3 samples (4.22 Å) is worse than the old recipe's *maximum* (4.07 Å, step 1889).
+
+**Numbers — per-layer weight diff (the post-mortem):**
+
+Loaded both raw checkpoints on CPU and computed L2 norm per parameter tensor in `state_dict()`:
+
+- Global weight L2 norm: v2 = 430.33, old = 438.73 → ratio 0.981 (v2 only 1.9% smaller globally; cannot account for the sample collapse on its own).
+- Layer-wise ratio (v2/old) over 164 layers ≥ 10k params: mean = 0.920, median = 0.967, stdev = 0.148, **min = 0.260, max = 1.376**.
+- The 10 layers with the largest |ratio − 1| are **all** `transformer_layers.{7..13}.{mhba,transition}.scale_output.to_adaln_zero_gamma.0.weight` — the AdaLN-Zero output gates of the upper transformer blocks:
+
+| layer | old norm | v2 norm | ratio v2/old |
+|---|---|---|---|
+| `nn.transformer_layers.10.mhba.scale_output.to_adaln_zero_gamma.0.weight`       | 1.815 | 0.471 | **0.260** |
+| `nn.transformer_layers.9.transition.scale_output.to_adaln_zero_gamma.0.weight`  | 0.988 | 0.280 | **0.283** |
+| `nn.transformer_layers.9.mhba.scale_output.to_adaln_zero_gamma.0.weight`        | 1.527 | 0.456 | **0.299** |
+| `nn.transformer_layers.10.transition.scale_output.to_adaln_zero_gamma.0.weight` | 0.576 | 0.260 | 0.451 |
+| `nn.transformer_layers.8.transition.scale_output.to_adaln_zero_gamma.0.weight`  | 0.625 | 0.283 | 0.453 |
+| `nn.transformer_layers.7.mhba.scale_output.to_adaln_zero_gamma.0.weight`        | 1.765 | 0.801 | 0.454 |
+| `nn.transformer_layers.13.transition.scale_output.to_adaln_zero_gamma.0.weight` | 0.534 | 0.263 | 0.493 |
+| `nn.transformer_layers.11.transition.scale_output.to_adaln_zero_gamma.0.weight` | 0.563 | 0.302 | 0.536 |
+| `nn.transformer_layers.13.mhba.scale_output.to_adaln_zero_gamma.0.weight`       | 1.454 | 0.801 | 0.551 |
+| `nn.transformer_layers.12.transition.scale_output.to_adaln_zero_gamma.0.weight` | 0.557 | 0.331 | 0.595 |
+
+The 10 most-similar layers (ratio 0.99–1.00) are all AdaLN modulation γ/β weights — those are essentially unchanged.
+
+**Mechanism (DiT/SiT-style AdaLN-Zero × naive AdamW):**
+
+AdaLN-Zero (introduced in DiT, Peebles & Xie 2023, also in SiT, SD3, FLUX) adds a per-block output gate `α(c)` modulating each residual contribution: `x ← x + α(c)·Block(AdaLN(x, c))`. The linear layer producing α is **zero-initialized**, so the network behaves as identity at the start of training; the gates then *grow* as gradient signal makes block contributions useful.
+
+Weight decay's mathematical job is to push weights toward zero on every step. AdaLN-Zero gate weights start at zero and need to grow. With a uniform wd applied to all parameters, the gradient signal is in continuous tension with the wd pull. At wd=0.05 the gates grow (slowly) to useful magnitudes; at wd=0.1 — and especially in deeper layers where gradient signal is weaker — the wd pull dominates and the gates stay near zero. Because conditioning influence at each block is multiplied by α(c), suppressed gates mean the time-conditioning signal barely reaches the velocity output. Predicted velocities become roughly t-independent → predicting the *average* velocity over t is a much easier objective (lower MSE on val) → integrated trajectories at inference time have no coherent time-conditioning to push noise onto the data manifold → samples collapse.
+
+Standard fix in DiT/SiT/SD3 codebases: parameter groups in AdamW that exclude (a) AdaLN-Zero gate parameters, (b) biases, (c) LayerNorm γ/β, (d) embeddings from weight decay. La-Proteina's `configure_optimizers` does not implement this split — it passes all parameters to a single AdamW instance with one `weight_decay` value. With that codebase as-is, **wd is bounded above by what AdaLN-Zero gates can tolerate**, which experimentally is somewhere ≤ 0.05.
+
+**Narrow claim (defensible):**
+
+> On the 160M CA-only diffusion baseline, replacing AdamW(wd=0.05) + constant LR=2e-4 with AdamW(wd=0.1) + cosine_with_warmup LR (peak 2e-4, decay to 2e-5 over 6000 steps) reduces the best validation loss from 4.765 to 4.437 (Δ = −0.328) on the same dataset, batch size, and val set, but produces categorically worse samples (0/3 designable at L ∈ {50, 100, 200} for v2 vs 1–2/3 for the old recipe at comparable training points), with v2 mean scRMSD 9–11 Å vs old 2–8 Å. Per-layer L2 weight analysis attributes the regression to a 40–74% reduction of the AdaLN-Zero output-gate weights in transformer layers 7–13 in v2 relative to old, while non-gate parameters are within ~3% of their old-recipe magnitudes. Validation loss is therefore not a reliable proxy for sample quality on this codebase under uniform-wd AdamW.
+
+**Implication (cautious, forward-looking):**
+
+- For the architectural-variant comparisons planned next (sparse attention, conv downsampling), the **old recipe (AdamW wd=0.05, constant LR=2e-4) remains the canonical CA-only baseline.** The v2 recipe must not be used as a baseline because it does not produce designable samples. Variants should be trained with the same old recipe so the comparison stays clean.
+- Any future hyperparameter search over weight decay in this codebase should *first* restructure `configure_optimizers` to exclude bias / LayerNorm / embedding / AdaLN-Zero-gate parameters from weight decay (the standard DiT param-group split, ~15 lines). Without that change, increasing wd above ~0.05 is unsafe for sample quality regardless of how good val loss looks.
+- Validation loss (velocity-MSE averaged over random (x_t, t)) is a misleading proxy for sample quality in this codebase because it is dominated by easy-to-predict regions of the (x_t, t) space; suppressing the conditioning signal makes predictions smoother and lowers the proxy without improving the *integrated* sampling trajectory. Future training experiments should pair val-loss tracking with cheap sample-quality probes (e.g. designability on N=10 samples per length at a few representative lengths) at a small number of checkpoints, not rely on val loss alone.
+
+**Methodological caveats:**
+
+- The sample-quality comparison used N=3 samples per length per checkpoint. This is small for fine-grained scRMSD distribution claims, but the gap (every v2 sample worse than the worst old sample at every length tested) is wide enough that the categorical conclusion (v2 samples are not designable) holds without needing larger N.
+- The two old-recipe checkpoints in the sample-quality table (`step 1889`, `step 2457`) were the labels used in the user-supplied evaluation table at the time of analysis. The exact `best_val_*_1889.ckpt` and `best_val_*_2457.ckpt` files in `1776805213/checkpoints/` are not present on disk — they were overwritten by later `best_val_*` saves under `save_top_k=1`. The post-mortem per-layer weight diff therefore used `best_val_00000026_000000002646.ckpt` from the same store dir as the old reference (the latest available raw old-recipe ckpt), which is post-uptick from a chained continuation. Despite being a *worse* old checkpoint by val-loss, it still produces dramatically better samples than v2-2078, so the v2 collapse cannot be explained by checkpoint selection.
+- The mechanism (wd crushing AdaLN-Zero gates) is consistent with the per-layer weight evidence and with published behaviour of DiT-style architectures under naive AdamW, but has not been formally verified by an ablation (e.g., training v2 with the param-group fix and confirming gates grow + samples become designable). That ablation would cost ~16h on a single A100 and was not run because compute was unavailable; recording the mechanism here on the strength of the weight-diff evidence and the literature.
+- The val-loss numbers themselves (Δ = −0.328 in best-val) are real and reproducible; they are not retracted. What is retracted is the original (now-deleted) framing of v2 as "a strict improvement to the baseline". The improvement is in val loss only; on the actual deliverable (sample quality), v2 is strictly worse.
+- The chain was cancelled at step 2294 with cosine LR still at 1.48e-4 (out of 6000 scheduled steps). It is therefore not formally proven that the v2 sample-quality collapse would not have recovered with further training. However, the mechanism (zero-initialised gates pulled toward zero by wd) predicts that further training under the same recipe would *worsen* the gate suppression, not recover it — so this is not considered a meaningful caveat against the conclusion.
+
+---
+
+## Baseline reference — canonical CA-only run (for all architectural-variant comparisons)
+
+This is the run that the sparse-attention and conv-downsampling variants must be compared against. It is **not** a standalone finding — Finding 5 already covered the val-vs-sample-quality analysis. The purpose of this entry is to lock in the baseline's exact configuration so any later "the variant beat the baseline" claim has a single, citable reference point on disk.
+
+**Run identity:**
+- **Store dir:** `/home/ks2218/la-proteina/store/test_ca_only_diffusion/1776805213/`
+- **Saved exp-config:** `…/checkpoints/exp_config_test_ca_only_diffusion.json` — this JSON is the source of truth; future variants should diff their resolved Hydra config against it.
+- **Wandb run chain:** `d1k1587u` (best val 4.765 at step 1827) → `jeponiu5` (best 4.712 at step 2204, since-overwritten by `save_top_k=1`) → `0fnyfbi9` (latest; contains the step-2646 ckpt currently on disk).
+- **Best raw checkpoint on disk:** `…/checkpoints/best_val_00000026_000000002646.ckpt` (post-uptick — the older step-2204 ckpt was overwritten). Use this when you need the canonical baseline weights.
+- **Hardware:** 1× A100 (Cambridge HPC ampere), `ngpus_per_node_=1`, `nnodes_=1`.
+
+**Architecture (NN config — exact match to `configs/nn/ca_only_score_nn_160M.yaml`):**
+- 160M-parameter `LocalLatentsTransformer`. `nlayers=14`, `token_dim=768`, `nheads=12`, `parallel_mha_transition=False`, `use_qkln=True`.
+- Output: `output_parameterization: {bb_ca: v}`. No `local_latents` head, no autoencoder, `latent_dim=None`.
+- Pair representation: `pair_repr_dim=256`, `seq_sep_dim=127`, `xt_pair_dist_dim=30 (0.1–3 nm)`, `x_sc_pair_dist_dim=30 (0.1–3 nm)`.
+- Conditioning: `dim_cond=256`, `t_emb_dim=256`, `idx_emb_dim=256`.
+- Features: seq = `[xt_bb_ca, x_sc_bb_ca, optional_ca_coors_nm_seq_feat, optional_res_type_seq_feat]`; pair = `[rel_seq_sep, xt_bb_ca_pair_dists, x_sc_bb_ca_pair_dists, optional_ca_pair_dist]`; pair-cond = `[time_emb_bb_ca]`.
+- **Deliberately off:** `update_pair_repr=False`, `use_tri_mult=False`, `use_downsampling=False`, `parallel_mha_transition=False`, `strict_feats=False`, no LoRA (`lora.r: null`). Variants must keep these off too unless the variant *is* one of these toggles.
+
+**Recipe (the "old recipe" — locked-in canonical for variants):**
+- `torch.optim.AdamW`, `weight_decay=0.05` uniform, `lr=2e-4` constant (no scheduler, no warmup, no decay). β1=0.9, β2=0.999, ε=1e-8 (PyTorch defaults).
+- `accumulate_grad_batches=32`, `dataset.datamodule.batch_size=6`, `max_padding_size=512` → effective batch ≈ 192 proteins/optimizer step.
+- bf16-mixed precision (`force_precision_f32: False`), `gradient_clip_val=1.0` norm.
+- EMA: `decay=0.999`, `every_n_steps=5`, `validate_original_weights=False`, `cpu_offload=False`.
+- `val_check_interval=2000` mini-batches → ~63 optimizer steps between val evals.
+- Self-conditioning on (`self_cond=True`), `n_recycle=0`, `motif_conditioning=False`, `p_folding_n_inv_folding_iters=0.0`, `use_precomputed_latents=False`.
+- Data filter: `worst_resolution ≤ 2.0 Å`, `min_length=50`, `max_length=512`. Sequence-similarity 0.5 split, val set size = 4058 proteins.
+- `seed=42`, `dist_strategy=auto`.
+
+**Reference results:**
+- Best validation loss ≈ 4.71–4.77 around opt step 1800–2200, then overfits (val rises to 5+ within 200–700 more steps).
+- Designability (ESMFold scRMSD < 2 Å, 200 ODE steps, N=3 per length):
+  - step 1889: 1/3 at L=50, 2/3 at L=100, (L=200 not tested).
+  - step 2457 (post-uptick): 1/3 at L=50, 2/3 at L=100, 0/3 at L=200.
+- These numbers are the bar a variant must clear. They come from Finding 5's table; full per-length scRMSD distributions are tabulated there.
+
+**Decisions encoded in this run (do not silently revisit them in variants):**
+- wd is held at 0.05 because higher wd collapses AdaLN-Zero output gates and destroys designability while *improving* val loss (Finding 5). Raising wd requires restructuring `configure_optimizers` first.
+- LR schedule is constant because cosine_with_warmup did not help in v2 (it co-occurred with the wd=0.1 collapse and was not isolated; in absence of evidence it improves things on its own, the simpler constant schedule is the canonical choice).
+- `update_pair_repr=False` — we have no evidence the pair-update layer helps the CA-only task, and it adds compute. Keeping it off keeps variants cheap.
+- `use_tri_mult=False` — was already off in the baseline; doubly required because triangular multiplicative updates need the full n×n pair grid and are incompatible with the planned sparse-attention variant (`pair_update.py:65` raises).
+- 1-GPU configuration with `accumulate_grad_batches=32` is the deliberate match to the original 4-GPU effective batch (`4 × 8 × 6` = `1 × 32 × 6`), so the variant's batch dynamics are not a confounder.
+- N=3 designability checks per length at 2-3 lengths is the cheap proxy for sample quality. This is required as a stopping rule for any variant — see Finding 5 implication: val loss alone is insufficient.
+
+**How to use this entry:**
+
+When proposing or evaluating a variant (sparse attention, conv downsampling, anything else): cite this section in the variant's "control" column, point to `1776805213` as the run dir, and verify that the variant's resolved Hydra config matches the JSON above on every key the variant doesn't claim to be changing.
+
+---
+
 ## Future experiment ideas
+
+### Sidechain manifold comparison: coordinate-space vs. latent-space perturbations (pre-registered, 2026-04-25)
+
+**Question:** Given the partial autoencoder (CA backbone passed through, sidechains compressed to an 8-dim per-residue latent), is the latent representation more "manifold-aligned" than raw sidechain coordinates? Operationalised as: at matched percentile-scaled noise levels (k · σ for both spaces), which space produces sidechain placements that ESMFold (conditioned on the original sequence) is closer to?
+
+**Setup (locked in):**
+- **Autoencoder:** `AE1_ucond_512.ckpt` (the 512-residue AE used for the original 355K precomputed latents, paired with LD1 in the original release).
+- **Diffusion (LD) checkpoint:** *not used.* This experiment touches only the AE encode/decode round-trip; the flow model is irrelevant.
+- **Eval set:** length-stratified subset of 50–300 residue proteins from `/rds/user/ks2218/hpc-work/processed/`, seed-fixed.
+- **Noise levels:** k ∈ {0.1, 0.3, 0.5, 1.0, 2.0}.
+- **Coord arm:** Gaussian noise added to sidechain atoms (atom37 indices ∉ {0:N, 1:CA, 2:C, 4:O}) only; backbone untouched. σ is the empirical per-(residue_type, atom_idx) std of the atom's offset from CA in the residue-local (N,CA,C) frame, computed across the eval set.
+- **Latent arm:** Gaussian noise added to encoder `mean` with σ = empirical per-dim std on the eval set (≈ 1, since latents are KL-regularised toward N(0,1)). Decode with original CA coords; splice the original N/CA/C/O back so the *only* difference between conditions is sidechain placement.
+- **Metric:** `proteinfoundation/evaluate.py` with `compute_codesignability=True`, `codesignability_modes=["all_atom"]`, `codesignability_folding_models=["esmfold"]` — i.e. ESMFold on the *original* sequence vs. the perturbed structure, all-atom RMSD. Lower = closer to ESMFold's manifold of plausible all-atom placements for that sequence.
+
+**Why short proteins (50–300) — explicit compute-saving choice (DEFENSIBLE PROOF-OF-CONCEPT):**
+Sidechain conformational constraints are predominantly local (rotamer preferences, immediate neighbour packing, ~5–8 Å context). The processes the experiment is probing — whether the AE latent encodes sidechain placement in a way that respects local stereochemistry better than raw Cartesian coordinates — are intrinsically short-range. Long proteins add ESMFold compute that scales as O(L²) and global topology that does not change the local sidechain manifold question. Restricting to 50–300 residues therefore loses no power on the central claim and makes the experiment tractable on a single A100. If the result is positive on short proteins, scaling to 300–800 with the AE2/LD3 stack becomes the natural follow-up; if it is negative, the result already disconfirms the hypothesis at the regime where it is most likely to hold (small, locally-dominated sidechain neighbourhoods).
+
+**Caveat to record with results:** AE1 was trained on ≤ 512 residue proteins, so 50–300 is fully in-distribution for the encoder. A positive result for AE1 in 50–300 does not transfer mechanically to AE2 / 300–800 — that requires the follow-up.
+
+### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 5, 2026-04-25)
+
+**Motivation and literature gap (why this is worth running, despite Finding 5 already documenting the correlational result):**
+
+Finding 5 established a strong correlational case that uniform AdamW weight decay applied to the La-Proteina CA-only baseline crushes AdaLN-Zero output gates in the upper transformer blocks (gates at 26–60% of baseline magnitude in v2 vs old) and that this co-occurs with a categorical sample-quality collapse (0/9 designable samples) despite a 0.33 best-validation-loss improvement. The mechanism — uniform AdamW weight decay applied to zero-initialised gates suppresses their growth, which weakens the time-conditioning signal at the velocity output and causes integrated trajectories to fail even though averaged velocity-MSE looks better — is mechanistically coherent and consistent with the per-layer weight evidence. However, no causal experiment has been run; an examiner could legitimately argue that the cosine LR decay (which co-occurred with wd=0.1 in v2 and was not isolated) is the actual cause, or that the collapse is a generic effect of stronger regularisation rather than the specific gate-suppression mechanism we propose.
+
+A targeted literature survey (DiT, SiT, SD3 / MMDiT, PixArt-α, "Unveiling the Secret of AdaLN-Zero", ReZero, the diffusers SD3 reference, and the AdamW paper itself; full source list in CLAUDE-session notes) found that:
+- **The dominant DiT-family training recipe is `weight_decay=0` everywhere.** DiT's official `train.py` uses literally `torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)`; SiT's `train.py` uses the same line. SD3's paper does not discuss weight decay at all and emphasises QK-normalisation and ε=1e-15 in AdamW for stability. PixArt-α has a configurable `zero_weight_decay` attribute but does not apply it to AdaLN by default.
+- **The "exclude AdaLN-Zero gates from wd" rule is therefore implicit in the literature, not enforced**: canonical DiT-family codebases sidestep the problem by setting wd=0, so they never observe the failure mode. The rule has not been formally written down and ablated in any paper we could find.
+- **The closest prior art is ReZero** (Bachlechner et al. 2020), which mentions in passing that "it was important to have a small, constant learning rate for the residual weights, otherwise the ReZero model diverges" — a hint at the gate-fragility issue but not a quantitative or actionable claim about weight decay specifically.
+- **The recent OpenReview paper "Unveiling the Secret of AdaLN-Zero"** isolates which architectural components of AdaLN-Zero matter (it identifies zero-initialisation as the dominant factor), but does not discuss the optimizer-gate interaction or the val-vs-sample-quality decoupling.
+
+The literature gap is therefore real: the AdaLN-Zero × uniform-AdamW-wd interaction is folk knowledge in the DiT community (you wouldn't apply wd>0 without parameter groups in any modern image-generation codebase) but has not been formally characterised as a quantitative case study with per-layer evidence and a positive/negative ablation. This experiment fills that gap if successful, and at minimum produces a defensible thesis-internal causal claim.
+
+**Hypothesis (mechanistic, to be falsified):**
+
+Restoring growth capacity to the AdaLN-Zero output gates (either by removing weight decay entirely from those parameters, or by removing weight decay altogether and accepting the loss of regularisation) recovers sample quality on the v2 model **without** giving up the validation-loss improvement that wd+cosine bought. If this prediction is wrong — i.e. samples remain bad even after the gates are unconstrained — then the mechanism we proposed in Finding 5 is wrong (or at least incomplete) and the v2 collapse must be attributed to something else (cosine LR-decay shrinking the effective LR to a non-sampling-friendly regime; an interaction with self-conditioning; etc.).
+
+**Experimental design — three variants in increasing scope:**
+
+The three variants below trade off compute against the strength of the causal claim. Choose based on available compute and how watertight the writeup needs to be.
+
+**A. Cheapest — finetune the v2-2078 ckpt with wd=0 on AdaLN-Zero gates only (~3 h on 1 A100):**
+
+- Resume from the v2 best raw checkpoint (`store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/best_val_00000020_000000002078.ckpt`).
+- Modify `proteinfoundation/proteina.py:configure_optimizers` to split parameters into two groups: (i) all `*.scale_output.to_adaln_zero_gamma.0.weight` parameters get `weight_decay=0`; (ii) everything else keeps the current `weight_decay` value (= 0.1). No other config change.
+- Continue training for ≈ 200–500 optimizer steps. Log: `train/grad_norm`, `train/param_norm`, the per-layer L2 norm of each AdaLN-Zero gate (new logging — needs a small addition to `on_before_optimizer_step` that walks `[p for n,p in self.named_parameters() if "to_adaln_zero" in n]` and logs each `‖p‖`).
+- Stopping rule: continue until either (a) the upper-layer gates (layers 7–13) recover to ≥ 80% of the old-recipe norms documented in Finding 5, or (b) 500 optimizer steps have elapsed without recovery.
+- Save the resulting checkpoint, run the same eval as Finding 5 (`inference_ucond_notri_ca_only_v2_quick.yaml` config, lengths [50, 150, 300, 450], N=10 samples per length, 200 ODE steps, ESMFold designability).
+
+**B. Cleanest — retrain v2 from scratch with the proper param-group split (~16 h on 1 A100, chained):**
+
+- Modify `configure_optimizers` to split parameters into (i) bias / LayerNorm γ,β / embedding / `to_adaln_zero` parameters → `weight_decay=0`; (ii) everything else → `weight_decay=0.1`. This is the canonical DiT/SiT/SD3-style split (~15 lines).
+- Train from scratch with the v2 schedule (cosine_with_warmup, peak 2e-4, total 6000 opt steps, min ratio 0.1) for the same ~2100–2300 optimizer steps where Finding 5 v2 best was reached. Use the same seed (42), same data, same batch size, same EMA settings.
+- Compare against (i) the old recipe baseline checkpoint at its best (~step 2204, val 4.71–4.77, designability per Finding 5) and (ii) the v2 broken checkpoint (val 4.437, 0/9 designable).
+- This is the "right" ablation because it isolates the param-group fix as the only difference from v2 — same LR schedule, same wd value, same everything else.
+
+**C. Wd-isolation arm (add to either A or B if budget allows; ~16 h):**
+
+- Train from scratch with `wd=0.05` + cosine_with_warmup (the schedule from v2 but the wd from old). This isolates whether the cosine schedule alone is sample-quality-friendly when wd is at its known-safe value.
+- If sample quality matches old at wd=0.05 but val improves over old (because of the cosine schedule), this independently proves the cosine schedule is fine and the wd=0.1 is the entire problem.
+
+**Outcome interpretation matrix:**
+
+| Variant A (3h finetune) | Variant B (16h retrain w/ param-groups) | Implication |
+|---|---|---|
+| Gates regrow + samples recover | (not run) | **Hypothesis confirmed** at low cost; mechanism causally established. Strong thesis result. |
+| Gates regrow but samples still bad | (not run) | **Mechanism partially correct** (wd does suppress gates) but gate suppression alone does not explain sample collapse. Need to investigate further (cosine LR? cumulative training trajectory?). Variant B becomes mandatory. |
+| Gates do not regrow in 500 steps | (not run) | **Ambiguous** — could mean structural damage (unrecoverable post-hoc) or mechanism wrong. Variant B becomes mandatory. |
+| (A run, gates+samples recover) | Same val improvement, sample quality matches or beats old | **Strongest possible result.** Causal claim watertight, plus a recipe that delivers the val improvement *and* good samples — a positive contribution beyond the negative result. Citable. |
+| (A run, gates+samples recover) | Val regresses to old levels but samples are good | The wd=0.1 was helping val purely through gate suppression (i.e. by removing the conditioning signal that adds variance to the velocity prediction); removing the suppression removes the val "improvement". This would be a cleanly negative-but-instructive result: the val-loss improvement was *entirely* the artefact of the suppression, not a real model improvement. |
+| (A run, gates+samples recover) | Samples still bad | Mechanism wrong; redo from scratch. |
+
+**Compute cost:**
+- Variant A: ~3 h on 1 A100 (single 6h SLURM slot with margin).
+- Variant B: ~16 h on 1 A100 (chained 6h slots; the same setup used for the v2 attempt).
+- Variant C (optional): another ~16 h.
+- Cheapest defensible result: Variant A alone (~3 h). Strongest result: A + B (~19 h). Paper-grade: A + B + C (~35 h).
+
+**Logging additions required (one-time, ~10 lines in `proteina.py:on_before_optimizer_step`):**
+```python
+# Per-AdaLN-Zero-gate L2 norm tracking — directly observes the recovery (or
+# lack thereof) at each layer's gate, complementing the global param_norm.
+gate_norms = {}
+for n, p in self.named_parameters():
+    if "to_adaln_zero" in n and p.requires_grad:
+        gate_norms[n] = float(p.detach().pow(2).sum().sqrt())
+for n, v in gate_norms.items():
+    self.log(f"gate_norms/{n}", v, on_step=True, on_epoch=False, sync_dist=True)
+```
+This logging is independently valuable for any future training on this codebase.
+
+**What the writeup would contain (target structure for the resulting Finding):**
+1. Background: brief restatement of Finding 5 and the literature-gap motivation above.
+2. Methods: the param-group split (~15 line code change), the variants run, the eval protocol.
+3. Results: per-gate-layer norm trajectories during the experiment (do they regrow?), val-loss curve, designability table at matched lengths.
+4. Discussion: which outcome of the matrix above was observed, and what it pins down about the mechanism.
+5. Practical recommendation: a one-paragraph "if you train a DiT-style model with wd > 0 in any codebase that doesn't already split parameter groups, here is what you must do" section that cites the ablation as evidence.
+
+**Risks and confounders to record with results:**
+- Variant A's resume from v2-2078 carries forward whatever non-gate weights the v2 training shaped under wd=0.1; even if gates regrow, the *rest* of the model has been trained against suppressed gates and may have compensated in ways that don't undo cleanly. A failure in A is therefore not a failure of the mechanism — it could be a failure of the recovery procedure. Variant B (clean retrain) is needed to definitively rule this out.
+- The eval is N=10 samples per length × 4 lengths = 40 samples. ESMFold scRMSD has known sensitivity to short-protein folding accuracy; if the recovered model is still marginal at L=50 but improves at L=300/450, that's still a positive result for the mechanism (the original v2 collapse was uniform across lengths, so partial recovery at any length is informative).
+- The mechanism predicts that *if* the gates regrow, the val loss may regress (because the model goes back to predicting time-conditioned velocities, which are higher-MSE than the smoothed-out averages it was predicting before). Do not interpret a val-loss regression as a failure of the experiment — Finding 5's central claim is precisely that val loss is a misleading proxy in this setting.
 
 ### Capacity probing — remaining pieces (Finding 4 covers the core)
 - 5-fold repeat of the full ladder to confirm the h128→h256 saturation and the Class A vs Class B boundary.

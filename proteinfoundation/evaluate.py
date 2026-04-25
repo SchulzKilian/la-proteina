@@ -432,9 +432,11 @@ if __name__ == "__main__":
         logger.info(f"Loaded resolved config from {resolved_cfg_path}")
 
     cfg_metric = cfg.generation.metric
-    
-    # Code for designability
-    if cfg_metric.compute_designability:
+
+    # Code for designability / codesignability. The inner loop dispatches by
+    # cfg_metric.compute_designability and cfg_metric.compute_codesignability
+    # independently, so we only need ONE of them on to enter.
+    if cfg_metric.compute_designability or cfg_metric.get("compute_codesignability", False):
         gen_njobs = cfg.get("gen_njobs", 1)
         eval_njobs = cfg.get("eval_njobs", 1)
         assert (

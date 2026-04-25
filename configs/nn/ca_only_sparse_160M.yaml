@@ -1,0 +1,59 @@
+# Sparse-attention variant of the canonical CA-only baseline.
+#
+# Architecture is byte-equivalent to `ca_only_score_nn_160M.yaml`, which in
+# turn matches the saved exp_config of the reference baseline run
+# `store/test_ca_only_diffusion/1776805213/checkpoints/` (see CLAUDE.md →
+# "Canonical CA-only baseline run" and Finding 5 in content_masterarbeit.md).
+# The ONLY differences from the baseline NN config are the four sparse_*
+# keys at the bottom of this file. Do not change anything else here without
+# also bumping the run_name_ in the training config and noting the deviation
+# — the whole point of this file is "baseline + sparse, nothing else".
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Match baseline: no pair update, no triangular multiplication, no downsampling.
+# update_pair_repr is False even though it would be sparse-compatible — the
+# baseline didn't use it, so the variant doesn't either (one change at a time).
+# use_tri_mult MUST stay False; pair_update.py:65 raises if combined with sparse.
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# Sparse attention (SALAD-style neighbor list). K = 2*8 + 8 + 16 = 40.
+# When enabled, pair_rep is [b, n, K, pair_dim] instead of [b, n, n, pair_dim].
+# Neighbor list is recomputed each forward pass from x_t["bb_ca"].
+sparse_attention: true
+n_seq_neighbors: 8       # sequential (residue-index) neighbors each side → 16 sequential total
+n_spatial_neighbors: 8   # nearest Cα neighbors (excluding sequential picks)
+n_random_neighbors: 16   # random neighbors sampled ∝ 1/d³_Cα (excluding seq + spatial)
