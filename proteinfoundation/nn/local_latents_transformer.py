@@ -43,8 +43,10 @@ class LocalLatentsTransformer(torch.nn.Module):
         if self.use_downsampling:
             print("Initializing Downsampling/Upsampling modules...")
             self.seq_downsample = DownsampleBlock(self.token_dim)
-            self.cond_downsample = DownsampleBlock(kwargs["dim_cond"])
             self.seq_upsample = UpsampleBlock(self.token_dim)
+            # cond is broadcast-constant across positions for the canonical config
+            # (feats_cond_seq=[time_emb_bb_ca]), so a learned downsample wastes
+            # ~dim_cond^2 params. Use a parameter-free mean pool at the call site.
             # pair_rep is built at n/2 directly — no separate pair downsampler needed
         # To form initial representation
         self.init_repr_factory = FeatureFactory(
@@ -155,18 +157,39 @@ class LocalLatentsTransformer(torch.nn.Module):
             n_random=self.n_random_neighbors,
         )
 
-    def _subsample_input(self, inp: Dict, n: int, stride: int = 2) -> Dict:
+    def _subsample_input(self, inp: Dict, n: int, mask: Optional[torch.Tensor] = None, stride: int = 2) -> Dict:
         """
         Shallow-copies the input dict, subsampling any tensor whose dim-1 equals n.
         Recurses into nested dicts (e.g. x_t, x_sc) automatically.
-        Scalars, time tensors [b], and non-sequence tensors are passed through unchanged.
+
+        Pooling rule:
+          - With mask provided AND stride==2 AND tensor is float with ndim>=3
+            (i.e. coords / latents): mask-weighted CENTROID pool. Output token i
+            is the midpoint of input residues 2i and 2i+1 (correctly normalised
+            at boundaries so distances aren't halved next to padding).
+          - Otherwise: stride-pool (every-other index) — original behavior. Used
+            for integer labels (residue_type), boolean masks, and any case where
+            the caller didn't supply a mask.
+
+        The mask, if provided, must be the FULL-N mask (pre-downsample).
         """
         out = {}
         for k, v in inp.items():
             if isinstance(v, dict):
-                out[k] = self._subsample_input(v, n, stride)
+                out[k] = self._subsample_input(v, n, mask=mask, stride=stride)
             elif isinstance(v, torch.Tensor) and v.ndim >= 2 and v.shape[1] == n:
-                out[k] = v[:, ::stride].contiguous()
+                if mask is not None and stride == 2 and v.is_floating_point() and v.ndim >= 3:
+                    assert v.shape[1] % 2 == 0, \
+                        f"centroid pool requires even n, got {v.shape[1]}"
+                    mask_f = mask.to(dtype=v.dtype)
+                    while mask_f.ndim < v.ndim:
+                        mask_f = mask_f.unsqueeze(-1)  # broadcast over trailing dims
+                    v_masked = v * mask_f
+                    v_sum = v_masked[:, 0::2] + v_masked[:, 1::2]
+                    w_sum = mask_f[:, 0::2] + mask_f[:, 1::2]
+                    out[k] = (v_sum / w_sum.clamp(min=1.0)).contiguous()
+                else:
+                    out[k] = v[:, ::stride].contiguous()
             else:
                 out[k] = v
         return out
@@ -212,19 +235,28 @@ class LocalLatentsTransformer(torch.nn.Module):
 
         if self.use_downsampling:
             original_n = seqs.shape[1]
+            # Skip source: pre-trunk featurization at full N. Carries fine-grained
+            # per-residue info that the downsample compresses away.
+            pre_trunk_seqs = seqs
+            # Full-N mask used for boundary-aware blur and centroid pooling below.
+            full_mask = mask
 
-            # 1. Downsample sequence and conditioning via learned blocks
-            seqs = self.seq_downsample(seqs)   # [b, n/2, token_dim]
-            c = self.cond_downsample(c)         # [b, n/2, dim_cond]
+            # 1. Downsample sequence via learned block (mask-aware blur)
+            seqs = self.seq_downsample(seqs, mask=full_mask)   # [b, n/2, token_dim]
 
-            # 2. Downsample mask (max pool: True if any residue in window is valid)
+            # 2. Mean-pool conditioning (no params; equivalent to learned downsample
+            #    when cond is broadcast-constant, but tolerates non-constant cond too)
+            c = 0.5 * (c[:, 0::2] + c[:, 1::2])  # [b, n/2, dim_cond]
+
+            # 3. Downsample mask (max pool: True if any residue in window is valid)
             mask_float = mask.float().unsqueeze(1)  # [b, 1, n]
             mask = F.max_pool1d(mask_float, kernel_size=2, stride=2).squeeze(1) > 0.5  # [b, n/2]
 
-            # 3. Build pair representation directly at n/2 using stride-2 subsampled coords.
-            #    This avoids computing the full [b, n, n, d] tensor and then pooling it down.
-            input_ds = self._subsample_input(input, original_n, stride=2)
-            # Compute sparse neighbor indices on downsampled coords if needed
+            # 4. Build pair representation directly at n/2. Coordinate-like fields
+            #    (CA, latents) are mask-weighted CENTROID-pooled so the pair channel
+            #    sees midpoints informed by both children rather than only every-other
+            #    residue. Categorical / bool fields fall back to stride-2.
+            input_ds = self._subsample_input(input, original_n, mask=full_mask, stride=2)
             if self.sparse_attention:
                 neighbor_idx, slot_valid = self._build_neighbor_idx(input_ds["x_t"]["bb_ca"], mask)
             else:
@@ -255,9 +287,12 @@ class LocalLatentsTransformer(torch.nn.Module):
                         )
 
         if self.use_downsampling:
-            seqs = self.seq_upsample(seqs, target_length=original_n)
-            # Restore original mask for final output
-            mask = input["mask"] 
+            # UpsampleBlock has zero-init out_proj + zero-init parity_emb, so at
+            # init seqs ≈ pre_trunk_seqs. The trunk learns deltas on top of the
+            # original featurization rather than having to reconstruct fine-grained
+            # per-residue info from coarse tokens.
+            mask = input["mask"]  # restore full-N mask for the upsampled output
+            seqs = self.seq_upsample(seqs, target_length=original_n, mask=mask) + pre_trunk_seqs
             seqs = seqs * mask[..., None]
 
         # Get outputs

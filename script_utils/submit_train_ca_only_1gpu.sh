@@ -125,8 +125,9 @@ if [ "$has_n_flag" -eq 0 ]; then
 fi
 
 # 7. Run training with 1-GPU Hydra overrides tuned for CA-only:
-#    - lr=0.0002  : sqrt-scaled from 4-GPU baseline 0.000415. Peak LR only;
-#      the cosine schedule (defined in YAML) decays to min_lr_ratio * peak.
+#    - lr=0.0002 : constant LR, sqrt-scaled from 4-GPU baseline 0.000415.
+#      No scheduler — the canonical recipe uses constant LR (the v2 attempt
+#      with cosine_with_warmup is documented as a failure in CLAUDE.md).
 #    - accumulate_grad_batches=32 : holds the 4-GPU effective batch
 #      (4 * 8 * batch_size == 1 * 32 * batch_size).
 #    - dist_strategy=auto : Lightning picks single-device, no DDP overhead.
@@ -135,9 +136,11 @@ fi
 #      SIGUSR1 save-on-preempt doesn't fire cleanly (auto_requeue is off
 #      when RESUME is unset, so the Lightning SLURMEnvironment save path
 #      is less reliable).
-# Weight decay (0.1) and cosine_with_warmup scheduler live in the YAML now
-# so the recipe is self-documenting and reproducible for the sparse-attention
-# and conv-downsample variants that will reuse this config.
+# Weight decay (0.05) lives in the YAML so the recipe is self-documenting
+# and reproducible for the sparse-attention and conv-downsample variants
+# that will reuse this config. DO NOT raise wd above 0.05 without first
+# restructuring configure_optimizers to exclude AdaLN-Zero gates / LayerNorm
+# / biases / embeddings from decay (see CLAUDE.md, Finding 6).
 bash script_utils/full_training_test.sh "$@" \
     hardware.ngpus_per_node_=1 \
     hardware.nnodes_=1 \

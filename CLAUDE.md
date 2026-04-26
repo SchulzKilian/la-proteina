@@ -10,9 +10,37 @@ rsync -avhP ks2218@login.hpc.cam.ac.uk:/rds/user/ks2218/hpc-work/store/test_ca_o
 ```
 The trailing `./` is mandatory — without it rsync only lists the file (`sent 20 bytes received 89 bytes`).
 
-## Paper Findings Log
+## Experiment Log (`experiments.md`) — auto-update, no matter how small
 
-For every experiment that could be a paper finding (claim, negative result, methodological observation), append an entry to `content_masterarbeit.md` with: **Experiment** (full setup), **Numbers**, **Narrow claim**, **Implikation**, **Methodische Einschränkungen**. Maintain a `Future Experiment Ideas` section at the bottom. Write in English; keep code/config names verbatim.
+After ANY experiment, automatically and **without asking**, append an entry to `experiments.md` at the repo root. The bar for entry is "did we run code that produced a number" — training, eval, probe, smoke test, diagnostic, ablation, sweep, even a single-protein toy run. Do not wait for the user to confirm; do not ask whether the result "is worth logging"; do not batch-defer the write to "later" — write it the same turn you observed the result.
+
+Each entry must contain:
+- **ID + date** — assignable handle (next free `Eddd`).
+- **Status** — finished / in progress / cancelled / failed.
+- **Why ran** — the question the experiment answers and the decision/claim it feeds.
+- **Configs** — exact setup: config files, recipe, hardware, run dir, wandb run IDs, checkpoint paths. Re-run-able from this entry alone.
+- **Results** — every quantitative output. Tables, per-fold/per-length numbers, weight-norm diffs, designability counts. Not just the headline.
+- **Possible narrative** — does this become a Finding? If yes, link to the corresponding section of `content_masterarbeit.md`. If no, write "non-narrative — kept for tuning/decision-making" and explain what decision it informs.
+- **Methodological caveats** — what the data does *not* support.
+
+Keep the index table at the top of `experiments.md` in sync (add a row pointing at the new section). Append-only: never delete an entry when it is later superseded; instead add a back-link from the old to the new. Log entries are the lab record; they outlive any one finding.
+
+## Paper Findings Log (`content_masterarbeit.md`) — curated narrative subset
+
+For experiments whose result is defensible enough to write into the paper as a claim, negative result, or methodological observation, also add a **Finding** entry to `content_masterarbeit.md`. The Finding format:
+- **Experiment** (full setup — short, point at the corresponding `experiments.md` E-ID for the lab-notebook detail).
+- **Numbers** (the headline numbers; per-fold if CV).
+- **Narrow claim** (strictest defensible statement; avoid overclaiming).
+- **Implikation** (cautiously-phrased broader significance, explicitly separated from the narrow claim).
+- **Methodische Einschränkungen** (what the data does *not* support).
+
+Maintain a `Future Experiment Ideas` section at the bottom. Write in English. Keep code/config names verbatim.
+
+**Relationship between the two files:**
+- `experiments.md` = comprehensive log of EVERY run (auto-updated, append-only).
+- `content_masterarbeit.md` = curated narrative subset that becomes paper findings.
+- Every Finding in `content_masterarbeit.md` should have a matching E-entry in `experiments.md` (the experiment record); the Finding is the paper claim, the experiment record is the lab-notebook detail.
+- A `experiments.md` entry without a matching Finding is normal and expected — most tuning runs and diagnostics never become findings. Do not pressure them to.
 
 ## Project Overview
 
@@ -100,6 +128,36 @@ DiT-style AdaLN-Zero gates (`*.scale_output.to_adaln_zero_gamma`) are zero-initi
 - **`fetch_last_ckpt`** picks file by mtime. If the most recent file is a `best_val_*.ckpt` saved after `last.ckpt`, the chain resumes from that — costs up to `val_check_interval / accumulate_grad_batches` steps.
 - **gpu-q-43**: broken GPU. `afterany` keeps re-routing to it. Always `--exclude=gpu-q-43`.
 - **Wandb run-ID** isn't carried across slots — each chained slot creates a new run with the same name.
+
+### Sparse-attention variant (SALAD-style, K=40)
+
+Architectural variant of the CA-only baseline. Replaces dense `[B,N,N,d]` pair representation + dense attention with a per-residue neighbor list of **K=40 (16 sequential + 8 spatial + 16 random ∝ 1/d³)**. Note the per-side semantics of `n_seq_neighbors`: with `n_seq_neighbors=8`, `n_spatial_neighbors=8`, `n_random_neighbors=16` in the YAML, the resulting neighbor count is `2*n_seq + n_spatial + n_random = 16 + 8 + 16 = 40` (see `sparse_neighbors.py:14` docstring and `k_seq = min(2 * n_seq, N - 1)` at line 56).
+
+Implementation files (worth knowing if you touch any of them):
+- `proteinfoundation/nn/modules/sparse_neighbors.py` — neighbor list builder (`@torch.no_grad`, recomputed each forward from `x_t["bb_ca"]`).
+- `proteinfoundation/nn/modules/pair_bias_attn.py` — `_attn_sparse` is the actual sparse attention. Dense vs sparse paths are switched by the presence of `neighbor_idx` argument.
+- `proteinfoundation/nn/modules/pair_update.py` — sparse pair update; **raises if `use_tri_mult=True`** (line 65) because triangular multiplication needs the full N×N grid.
+- `proteinfoundation/nn/modules/pair_rep_initial.py` — sparse-aware pair builder.
+- `proteinfoundation/nn/feature_factory.py` — has `_gather_sparse_pairs` fallback (line 130) for any pair feature without `supports_sparse=True`. **Every pair feature in the current configs has the fast path; if you add a new pair feature, set `supports_sparse=True` on its class and implement the `neighbor_idx` branch, otherwise the fallback materialises the full `[B,N,N,d]` dense tensor and gathers from it — defeating the point.**
+- `proteinfoundation/nn/local_latents_transformer.py:228-242` — wires it up; `self.sparse_attention` flag from kwargs.
+
+Config files (created 2026-04-25):
+- `configs/nn/ca_only_sparse_160M.yaml` — byte-equivalent to `ca_only_score_nn_160M.yaml` except the four `sparse_*` keys at the bottom. Don't add other deltas.
+- `configs/training_ca_only_sparse.yaml` — locked to the canonical old recipe (wd=0.05, constant LR=2e-4, no scheduler). `run_name_: ca_only_sparse_K40`.
+
+Implementation gotchas to remember when reading the code:
+- **Self is excluded from each query's neighbor list** (`eye` is added to `base_invalid` in `sparse_neighbors.py:44`). Self-information propagates only via the residual connection around MHA. Diverges from standard transformer attention.
+- **"Random" neighbors are 1/d³-weighted**, not uniform — NOT BigBird-style global tokens. Long-range information transport relies on multi-layer composition.
+- **The neighbor list is rebuilt every forward from `x_t`** (the noisy CA at the current diffusion timestep). At t≈0 spatial+random groups are essentially random subsets and only sequential neighbors carry useful info.
+- **Padding-slot guard**: short proteins (<K=40 residues) get padded with index 0; `slot_valid` mask in `sparse_neighbors.py:121-127` distinguishes "padded slot pointing at residue 0" from "real neighbor 0". Don't remove this — without it short proteins double-count residue 0 in attention.
+
+**Performance reality at n=512 (1× A100, 160M model):**
+- Sparse is **slower per opt step than dense**, not faster. `_attn_sparse` materialises two `[B*H, N, K, D]` tensors per layer via `gather` on a non-contiguous index pattern; at B=6, H=12, N=512, K=40, D=64 that's ≈ 5 GB of memory-bound traffic per forward — the FLOP savings get eaten by gather bandwidth.
+- Crossover with dense is hypothesised at n ≥ 1024 but not measured. For maxl=800 where dense doesn't fit, sparse is "infinity faster" because it's the only thing that runs.
+- **Do NOT propose sparse attention as a throughput optimisation at n=512.** The architectural value (memory headroom for longer sequences) is real; per-step throughput at n=512 is not.
+- Allocator tweak that occasionally helps gather-heavy bf16: `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+
+Things deliberately NOT combined with sparse on the first variant run (so the comparison stays clean): `update_pair_repr=True`, `use_downsampling=True`, non-default K values. Sweep these only after K=40 produces a working result.
 
 ## Cluster Notes (Cambridge HPC)
 
