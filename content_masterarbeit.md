@@ -481,6 +481,88 @@ Standard fix in DiT/SiT/SD3 codebases: parameter groups in AdamW that exclude (a
 
 ---
 
+## Finding 7 — Sidechain perturbations in AE1 latent space stay closer to ESMFold's prediction than equivalent coord-space perturbations across all noise scales (2026-04-25)
+
+**Experiment:**
+- **Question (as pre-registered):** at matched noise levels k·σ for both spaces, which arm produces sidechain placements that ESMFold (conditioned on the original sequence) is closer to?
+- **Autoencoder:** `AE1_ucond_512.ckpt` (512-residue AE used with the original 355K precomputed latents). Diffusion checkpoint not used — the experiment is AE encode/decode-only.
+- **Eval set:** 17 length-stratified proteins from `data/pdb_train/processed_latents/`, sampled with `--n-per-bin 7 --n-bins 3 --seed 0` over 50–300 residues. Bin counts came out [7, 7, 3] (the 217–300 bin under-filled given seed/file order). IDs: `1drb_B, 1xbp_W, 3gta_B, 4v5a_CK, 4v88_BO, 4v88_DO, 4v8y_BO, 4wzo_A8, 5dat_m7, 5tw1_E, 6bg4_E, 6u5b_J, 6wnw_L, 7bka_B, 7ccl_B, 7qiq_C, 8btr_LW`. Lengths: 65, 76, 92, 92, 97, 111, 119, 133, 146, 151, 155, 159, 166, 170, 217, 217, 217.
+- **Noise scales:** k ∈ {0.1, 0.3, 0.5, 1.0, 2.0}.
+- **Coord arm:** Gaussian noise on sidechain atoms (atom37 indices ∉ {0:N, 1:CA, 2:C, 4:O}) only; backbone untouched. σ = empirical per-(restype, atom_idx) std of the atom's offset from CA in the residue-local (N,CA,C) frame, computed over the 17 eval proteins. Reported summary: 686/777 entries non-zero; mean non-zero std = 0.1206 nm (≈1.2 Å).
+- **Latent arm:** Gaussian noise on encoder `mean` with σ = empirical per-dim std on the same 17 proteins. Per-dim std observed: [1.018, 1.005, 0.909, 1.001, 0.946, 1.005, 0.938, 1.062] (≈1.0 — consistent with KL-regularisation toward N(0,1)). After decode, original N/CA/C/O are spliced back so the only difference between arms is sidechain placement. Decoder-dropped sidechain atoms fall back to the original position (so the two arms compare over identical atom sets).
+- **Metric:** `proteinfoundation/evaluate.py --config_name eval_manifold_perturbation`, `compute_codesignability=True`, `codesignability_modes=["all_atom"]`, `codesignability_folding_models=["esmfold"]`. ESMFold runs on the *original* sequence; metric is all-atom RMSD between the perturbed input PDB and ESMFold's prediction. 10 cells (5 k-values × 2 spaces) → 17 PDBs each → 170 total.
+- **Run dir / artefacts:** Stage-1 PDBs under `inference/eval_manifold_perturbation/{protein_id}/job_{cell}_{space}_k{k}_{protein_id}.pdb`. Per-cell evaluator results: `inference/results_eval_manifold_perturbation_{0..9}.csv`. Aggregate tidy: `inference/manifold_tidy_eval_manifold_perturbation.csv` (170 rows). Aggregate summary: `inference/manifold_summary_eval_manifold_perturbation.csv`. Plot: `inference/manifold_plot_eval_manifold_perturbation.png`. Stats sidecar (latent_std per dim, sidechain std summary): `inference/eval_manifold_perturbation/stats.json`.
+- **Run env:** local L4 box, `/home/ks2218/.conda/envs/laproteina_env`, single GPU. Stage 1 ~90 s, Stage 2 ~28 min (10 cells × 17 proteins × ~7 s ESMFold + per-cell model reload), aggregation < 5 s.
+
+**Numbers (all-atom co-designability scRMSD, Å):**
+
+| k | space | mean | median | std | n |
+|---|---|---:|---:|---:|---:|
+| 0.1 | coord | 9.998 | 3.449 | 17.318 | 17 |
+| 0.1 | latent | 5.010 | 2.715 | 5.934 | 17 |
+| 0.3 | coord | 10.066 | 3.531 | 17.289 | 17 |
+| 0.3 | latent | 5.080 | 2.743 | 5.890 | 17 |
+| 0.5 | coord | 10.181 | 3.642 | 17.242 | 17 |
+| 0.5 | latent | 5.129 | 2.767 | 5.867 | 17 |
+| 1.0 | coord | 10.659 | 4.238 | 17.052 | 17 |
+| 1.0 | latent | 5.234 | 2.820 | 5.817 | 17 |
+| 2.0 | coord | 12.002 | 6.037 | 16.550 | 17 |
+| 2.0 | latent | 5.206 | 2.886 | 5.815 | 17 |
+
+**Paired Wilcoxon signed-rank, H1: latent < coord (n=17 per k):**
+
+| k | median(coord − latent), Å | p-value |
+|---|---:|---:|
+| 0.1 | 0.022 | 6.7 × 10⁻⁴ |
+| 0.3 | 0.031 | 4.2 × 10⁻⁴ |
+| 0.5 | 0.157 | 7.6 × 10⁻⁶ |
+| 1.0 | 0.657 | 7.6 × 10⁻⁶ |
+| 2.0 | 2.720 | 7.6 × 10⁻⁶ |
+
+Pooled across all k (n=85): median(coord − latent) = 0.348 Å, p = 2.5 × 10⁻¹⁵; **80/85 (94.1%)** of pairs have latent < coord.
+
+**Per-protein illustrative pairs at k=2.0** (sorted by coord scRMSD):
+
+| protein | coord scRMSD | latent scRMSD |
+|---|---:|---:|
+| 1xbp_W | 73.40 | 2.04 |
+| 4v8y_BO | 17.89 | 17.22 |
+| 4v88_BO | 17.87 | 17.23 |
+| 4v88_DO | 17.82 | 17.29 |
+| 5tw1_E | 10.25 | 3.51 |
+| 1drb_B | 7.71 | 1.63 |
+| 4v5a_CK | 6.65 | 5.05 |
+| 6bg4_E | 6.10 | 1.61 |
+| 5dat_m7 | 6.04 | 3.32 |
+| 4wzo_A8 | 5.65 | 2.89 |
+| 8btr_LW | 5.60 | 3.53 |
+| 7ccl_B | 5.11 | 2.89 |
+| 6wnw_L | 5.07 | 2.41 |
+| 6u5b_J | 5.04 | 2.29 |
+| 3gta_B | 4.89 | 1.84 |
+| 7bka_B | 4.83 | 2.04 |
+| 7qiq_C | 4.11 | 1.70 |
+
+The three ~17 Å entries in both arms (4v8y_BO, 4v88_BO, 4v88_DO) are large multi-chain ribosomal subunit fragments at L=217 — ESMFold's sequence-conditioned prediction simply disagrees with the deposited fold for these, so both arms inherit the floor regardless of perturbation. They illustrate that the residual scRMSD floor is set by ESMFold's modelling error, not by the perturbation.
+
+**Within-arm sensitivity to k:**
+- Latent arm: median 2.715 → 2.886 Å going from k=0.1 to k=2.0 (Δ +0.17 Å despite the per-dim noise std being 20× larger).
+- Coord arm: median 3.449 → 6.037 Å (Δ +2.59 Å).
+
+**Narrow claim (strict, fully defended by the data):** Under sidechain-only perturbation evaluated by all-atom co-designability against ESMFold on the original sequence, perturbing in `AE1_ucond_512`'s 8-dim per-residue latent space produces lower scRMSD than perturbing equivalently-scaled sidechain atoms in coord space at every tested noise scale k ∈ {0.1, 0.3, 0.5, 1.0, 2.0}, with paired Wilcoxon p ≤ 7 × 10⁻⁴ at every k and p = 2.5 × 10⁻¹⁵ pooled (94% of pairs latent < coord). Within the latent arm, scRMSD is approximately invariant in k (median +0.17 Å over a 20× change in noise std), while within the coord arm scRMSD grows roughly linearly with k (median +2.59 Å over the same range).
+
+**Implikation (cautious, separate from the narrow claim):** The combination of (a) consistently lower latent-arm scRMSD and (b) near-invariance of latent-arm scRMSD to noise magnitude is most parsimoniously explained by the AE decoder being *contractive* on perturbed latents — i.e., the decoder projects off-manifold latents back onto the data manifold it was trained on, while raw coord noise has no such projector. This is the mechanism a steering / guidance system would *want*: latent-space modifications stay near plausible structures even at large step sizes, whereas equivalent-magnitude direct coord modifications can occasionally produce dramatically off-manifold structures (e.g. 1xbp_W at k=2.0: 73 Å in coord, 2 Å in latent). In that loose sense the La-Proteina latent representation is "tighter packed near the data manifold" from the perspective of small-perturbation downstream effects, but this is an inference about decoder behaviour, not a direct measurement of latent-space cluster geometry — see limitations.
+
+**Methodische Einschränkungen:**
+- The experiment does not measure the latent space's geometry directly (e.g. encoded-distance-vs-coord-distance, density of latents around real proteins, or geodesic vs Euclidean structure on the latent manifold). The "tighter packed" framing in the Implikation is an inference from contractive decoder behaviour, not from a direct latent-space distance measurement. A latent-space density / geodesic experiment is the natural follow-up.
+- The metric is scRMSD vs ESMFold's *sequence-conditioned* prediction, not vs ground-truth experimental structures. For three of the seventeen proteins (the 4v8y/4v88 cluster), ESMFold disagrees with the deposited fold even at k=0.1 in both arms; the residual ~17 Å in those cases reflects ESMFold modelling error and not the experiment's signal. The pooled effect-size statistics include those proteins but the per-k Wilcoxon is sign-based (does latent beat coord paired by protein?), which is robust to this.
+- N=17 length-stratified proteins, single seed, single AE checkpoint. The 217-residue bin under-filled (only 3 proteins reached it). The result has not been replicated with different seeds or different length stratifications.
+- AE1 was trained on ≤ 512 residue proteins. Eval proteins (50–217 residues) are fully in-distribution. The result therefore does not transfer mechanically to AE2 / 300–800 residue proteins, which would require re-running with the AE2 checkpoint and the 300–800 length stratification.
+- The "coord arm σ" is computed from the same 17 proteins used for evaluation (the experiment is not blind to the noise calibration). This is acceptable for a proof-of-concept — what is being calibrated is realistic *per-restype, per-atom* sidechain displacement under thermal motion — but if the comparison were re-cast as "find a coord-space perturbation that beats latent-space at any plausible scaling", it would need a separate σ estimation set.
+- The "latent arm σ" (≈ 1) and "coord arm σ" (≈ 0.12 nm = 1.2 Å) are not directly commensurable in an absolute sense; the comparison is meaningful at the level of "noise that respects each space's natural scale", not "noise that produces the same Cartesian displacement". A k that would produce a fixed Cartesian sidechain-RMSD in both arms is left unmeasured.
+
+---
+
 ## Baseline reference — canonical CA-only run (for all architectural-variant comparisons)
 
 This is the run that the sparse-attention and conv-downsampling variants must be compared against. It is **not** a standalone finding — Finding 6 already covered the val-vs-sample-quality analysis. The purpose of this entry is to lock in the baseline's exact configuration so any later "the variant beat the baseline" claim has a single, citable reference point on disk.
@@ -532,24 +614,6 @@ When proposing or evaluating a variant (sparse attention, conv downsampling, any
 ---
 
 ## Future experiment ideas
-
-### Sidechain manifold comparison: coordinate-space vs. latent-space perturbations (pre-registered, 2026-04-25)
-
-**Question:** Given the partial autoencoder (CA backbone passed through, sidechains compressed to an 8-dim per-residue latent), is the latent representation more "manifold-aligned" than raw sidechain coordinates? Operationalised as: at matched percentile-scaled noise levels (k · σ for both spaces), which space produces sidechain placements that ESMFold (conditioned on the original sequence) is closer to?
-
-**Setup (locked in):**
-- **Autoencoder:** `AE1_ucond_512.ckpt` (the 512-residue AE used for the original 355K precomputed latents, paired with LD1 in the original release).
-- **Diffusion (LD) checkpoint:** *not used.* This experiment touches only the AE encode/decode round-trip; the flow model is irrelevant.
-- **Eval set:** length-stratified subset of 50–300 residue proteins from `/rds/user/ks2218/hpc-work/processed/`, seed-fixed.
-- **Noise levels:** k ∈ {0.1, 0.3, 0.5, 1.0, 2.0}.
-- **Coord arm:** Gaussian noise added to sidechain atoms (atom37 indices ∉ {0:N, 1:CA, 2:C, 4:O}) only; backbone untouched. σ is the empirical per-(residue_type, atom_idx) std of the atom's offset from CA in the residue-local (N,CA,C) frame, computed across the eval set.
-- **Latent arm:** Gaussian noise added to encoder `mean` with σ = empirical per-dim std on the eval set (≈ 1, since latents are KL-regularised toward N(0,1)). Decode with original CA coords; splice the original N/CA/C/O back so the *only* difference between conditions is sidechain placement.
-- **Metric:** `proteinfoundation/evaluate.py` with `compute_codesignability=True`, `codesignability_modes=["all_atom"]`, `codesignability_folding_models=["esmfold"]` — i.e. ESMFold on the *original* sequence vs. the perturbed structure, all-atom RMSD. Lower = closer to ESMFold's manifold of plausible all-atom placements for that sequence.
-
-**Why short proteins (50–300) — explicit compute-saving choice (DEFENSIBLE PROOF-OF-CONCEPT):**
-Sidechain conformational constraints are predominantly local (rotamer preferences, immediate neighbour packing, ~5–8 Å context). The processes the experiment is probing — whether the AE latent encodes sidechain placement in a way that respects local stereochemistry better than raw Cartesian coordinates — are intrinsically short-range. Long proteins add ESMFold compute that scales as O(L²) and global topology that does not change the local sidechain manifold question. Restricting to 50–300 residues therefore loses no power on the central claim and makes the experiment tractable on a single A100. If the result is positive on short proteins, scaling to 300–800 with the AE2/LD3 stack becomes the natural follow-up; if it is negative, the result already disconfirms the hypothesis at the regime where it is most likely to hold (small, locally-dominated sidechain neighbourhoods).
-
-**Caveat to record with results:** AE1 was trained on ≤ 512 residue proteins, so 50–300 is fully in-distribution for the encoder. A positive result for AE1 in 50–300 does not transfer mechanically to AE2 / 300–800 — that requires the follow-up.
 
 ### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 6, 2026-04-25)
 
@@ -692,3 +756,25 @@ This logging is independently valuable for any future training on this codebase.
 - Use the measured `local_latents` per-step displacement profile to construct a non-uniform t-grid that allocates more NFEs to high-displacement regions
 - Compare sample quality (scRMSD, pLDDT) vs uniform schedule at matched NFE budgets
 - If quality improves at fixed NFE, Finding 2's causal claim about curvature → one-shot difficulty becomes directly supported
+
+### Direct latent-space geometry probe (follow-up to Finding 7)
+Finding 7 showed that perturbations in AE1's latent space stay closer to ESMFold's prediction than equivalent coord-space perturbations, and inferred decoder contractivity from the noise-magnitude invariance. The "tighter packed latent space" framing was deliberately put in the Implikation, not the Narrow claim, because the experiment did not directly measure latent-space geometry. This follow-up closes that gap.
+
+**Approach:**
+1. Encode a held-out set of N=500–1000 proteins (same length stratification as Finding 7) → per-residue `mean` tensors.
+2. For each pair (i, j), compute (a) Euclidean distance in latent space (L2 over per-residue means after sequence-length matching, e.g. averaging or padding+masking), (b) all-atom RMSD between native structures (TM-align or kabsch-aligned over CA).
+3. Plot latent-distance vs structure-distance, fit a monotonic relationship (Spearman ρ).
+4. Compare to a control: same plot but using raw stacked-CA-coordinate vectors as the "latent" — quantifies how much extra structure the AE imposes vs. just-coords.
+5. Local density: for each protein, k-nearest neighbours in latent vs in structure space — does the AE preserve neighbourhoods?
+
+**What this would directly test:** whether latent distances correspond to structural similarity (the actual "tighter packing" claim). A positive result strengthens Finding 7's Implikation; a negative result restricts Finding 7 to the strict decoder-contractivity claim only.
+
+### Latent-arm decoder-contractivity ablation (follow-up to Finding 7, mechanistic)
+The Implikation in Finding 7 attributes the noise-magnitude invariance of latent-arm scRMSD (median +0.17 Å over a 20× change in noise std) to the AE decoder being contractive. A direct test:
+
+- For a single eval protein, sample latent perturbations at k ∈ {0.5, 1, 2, 4, 8, 16} (extending well past the data range) and decode.
+- Plot `||z_clean − z_perturbed||_2` (input perturbation magnitude) vs `||x_clean − x_perturbed||_F` (output coord change). A contractive map shows sublinear or saturating behaviour; an isometric map shows linear; an expansive map shows superlinear.
+- A clearly sublinear/saturating curve directly demonstrates contractivity, upgrading Finding 7's Implikation to a Narrow claim.
+
+### Coord-arm with whitened, basis-aligned noise (Finding 7 follow-up, robustness)
+The pre-registered Finding 7 caveat about commensurability between coord σ and latent σ deserves a tighter test. Add a third arm: coord-space noise sampled in a basis aligned with the local sidechain rotamer manifold (e.g. PCA over per-(restype, atom_idx) offset distributions, with σ scaled to match each PC's variance). If even this PC-aligned coord arm loses to latent at all k, the latent-space advantage is not just a bad-noise-basis artefact in the original coord arm.

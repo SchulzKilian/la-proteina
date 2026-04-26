@@ -105,12 +105,9 @@ def run_esmfold(
     list_of_strings_pdb = []
     if len(sequences) == 8:
         max_nres = max([len(x) for x in sequences])
-        if max_nres > 700:
+        if max_nres > 250:
             batch_size = 1
             num_batches = 8
-        elif max_nres > 500:
-            batch_size = 2
-            num_batches = 4
         elif max_nres > 200:
             batch_size = 4
             num_batches = 2

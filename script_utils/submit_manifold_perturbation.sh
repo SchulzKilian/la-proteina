@@ -24,16 +24,24 @@
 set -uo pipefail
 
 source $HOME/.bashrc
-export LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env
-export PATH=$LAPROTEINA_ENV/bin:$PATH
-export CONDA_PREFIX=$LAPROTEINA_ENV
-export CONDA_DEFAULT_ENV=laproteina_env
+# Activate via conda so PYTHONPATH/site-packages resolve correctly on this box.
+# The HPC version of this script just prepends $LAPROTEINA_ENV/bin to PATH;
+# that fails locally because the env lives at .conda/envs/, not conda_envs/.
+# Temporarily disable nounset: conda's MKL activate script references
+# $MKL_INTERFACE_LAYER unset, which would kill us under `set -u`.
+set +u
+source /opt/conda/etc/profile.d/conda.sh 2>/dev/null || true
+conda activate laproteina_env
+set -u
 
 cd /home/ks2218/la-proteina
 
 DATA_PATH="/home/ks2218/la-proteina/data"
-PROCESSED_DIR="/rds/user/ks2218/hpc-work/processed"
-AE_CKPT="/rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt"
+# Local box has no raw processed/ dir; processed_latents/ files are
+# OpenFold-ordered, nm, CA-centered and are accepted by load_protein's
+# fallback branch. On HPC, switch back to /rds/user/ks2218/hpc-work/processed.
+PROCESSED_DIR="/home/ks2218/la-proteina/data/pdb_train/processed_latents"
+AE_CKPT="/home/ks2218/la-proteina/checkpoints_laproteina/AE1_ucond_512.ckpt"
 EVAL_CONFIG="eval_manifold_perturbation"
 OUT_ROOT="./inference/${EVAL_CONFIG}"
 

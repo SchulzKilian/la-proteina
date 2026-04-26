@@ -18,4 +18,4 @@ run_name_: manifold_perturbation_eval
 # inference_base but the flow model isn't instantiated for evaluate.py.
 ckpt_path: ./inference/eval_manifold_perturbation
 ckpt_name: NOT_USED.ckpt
-autoencoder_ckpt_path: /rds/user/ks2218/hpc-work/checkpoints_laproteina/AE1_ucond_512.ckpt
+autoencoder_ckpt_path: /home/ks2218/la-proteina/checkpoints_laproteina/AE1_ucond_512.ckpt

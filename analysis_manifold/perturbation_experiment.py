@@ -103,12 +103,14 @@ def list_eval_proteins(processed_dir: Path, length_range: Tuple[int, int],
 
 
 def load_protein(pt_path: Path) -> Dict:
-    """Load a raw processed .pt file and convert to the dict format the AE wants.
+    """Load a processed .pt file and return the dict format the AE wants.
 
-    Replicates the relevant pieces of precompute_latents.py:
-      - Reindex atom37 axis from PDB to OpenFold ordering.
-      - Convert coords from Å to nm.
-      - Center coords by mean CA position.
+    Primary path (raw `processed/` shards): reads `data.coords` (Å, PDB atom
+    order), reindexes to OpenFold, scales Å→nm, centers on mean CA.
+
+    Fallback path (`processed_latents/` shards, where `data.coords` is absent):
+    reads `data.coords_nm` directly — these are already OpenFold-ordered, in
+    nm, and CA-centered (verified empirically: centroid ~1e-7 nm).
     """
     data = torch.load(pt_path, map_location="cpu", weights_only=False)
     L = int(data.coord_mask.shape[0])
@@ -119,18 +121,20 @@ def load_protein(pt_path: Path) -> Dict:
         if torch.is_tensor(v) and v.ndim > 0 and v.shape[0] > L:
             data[key] = v[:L]
 
-    # Reindex atom dimension to OpenFold order.
-    coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]            # [L, 37, 3] in Å
-    coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]       # [L, 37]
     residue_type = data.residue_type.long()                             # [L]
 
-    # Å -> nm
-    coords_nm = coords * 0.1                                            # [L, 37, 3]
-
-    # Center on mean CA position (mean over residues that have a CA).
-    ca_mask = coord_mask[:, CA_IDX].bool()
-    com = coords_nm[ca_mask, CA_IDX, :].mean(dim=0)
-    coords_nm = coords_nm - com[None, None, :]
+    if hasattr(data, "coords") and data.coords is not None:
+        # Raw processed/ format: PDB atom order, Å.
+        coords = data.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
+        coord_mask = data.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
+        coords_nm = coords * 0.1
+        ca_mask = coord_mask[:, CA_IDX].bool()
+        com = coords_nm[ca_mask, CA_IDX, :].mean(dim=0)
+        coords_nm = coords_nm - com[None, None, :]
+    else:
+        # processed_latents/ format: already OpenFold-ordered, nm, CA-centered.
+        coords_nm = data.coords_nm
+        coord_mask = data.coord_mask
 
     return {
         "id": data.id,
@@ -274,6 +278,9 @@ def make_encoder_batch(prot: Dict, device) -> Dict:
     ca_coors_nm = coords_nm[:, :, CA_IDX, :]                      # [1, L, 3]
 
     return {
+        # `coords` alias is required: feature_factory.extract_bs_and_n looks for
+        # batch["coords"] (or x_t.bb_ca / z_latent) to read [B, N]. Same tensor.
+        "coords": coords_nm,
         "coords_nm": coords_nm,
         "coord_mask": coord_mask,
         "residue_type": residue_type,
@@ -339,8 +346,8 @@ def perturb_latent_arm(prot: Dict, ae: AutoEncoder, z_mean: torch.Tensor,
     two arms over different atom counts and the result would be confounded
     by the AE's own atom-presence predictions.
     """
-    noise = torch.randn(z_mean.shape, generator=rng, dtype=z_mean.dtype)  # [1, L, D]
-    z_perturbed = z_mean + (noise * latent_std[None, None, :] * k).to(z_mean.device)
+    noise = torch.randn(z_mean.shape, generator=rng, dtype=z_mean.dtype).to(z_mean.device)
+    z_perturbed = z_mean + noise * latent_std[None, None, :].to(z_mean.device) * k
 
     seq_mask = prot["coord_mask"][:, N_IDX].bool().to(device).unsqueeze(0)   # [1, L]
     ca_coors_nm = prot["coords_nm"][:, CA_IDX, :].to(device).unsqueeze(0)    # [1, L, 3]

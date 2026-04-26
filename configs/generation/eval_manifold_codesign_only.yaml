@@ -48,7 +48,7 @@ metric:
   compute_motif_aa_designability: False
   compute_motif_rmsd: False
 
-  keep_folding_outputs: False
+  keep_folding_outputs: True  # avoids folding_models.py:162 rmtree-of-parent bug
 
   compute_binder_metrics: False
   compute_multimer_metrics: False
