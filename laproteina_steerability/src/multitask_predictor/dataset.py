@@ -18,6 +18,7 @@ PROPERTY_NAMES = [
     "iupred3_fraction_disordered", "shannon_entropy",
     "hydrophobic_patch_total_area", "hydrophobic_patch_n_large",
     "sap", "scm_positive", "scm_negative", "rg",
+    "camsol_intrinsic",
 ]
 
 

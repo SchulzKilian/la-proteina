@@ -59,6 +59,7 @@ part2:
     scm_positive: "protein"
     scm_negative: "protein"
     rg: "protein"
+    camsol_intrinsic: "protein"
 
   # Property names to analyze (must match columns in property_file)
   property_names:
@@ -75,6 +76,7 @@ part2:
     - scm_positive
     - scm_negative
     - rg
+    - camsol_intrinsic
 
   # Goodhart pairs: conceptually similar properties that should be checked
   # for empirical divergence. Each pair is [prop_a, prop_b].
@@ -82,6 +84,7 @@ part2:
     - [scm_positive, scm_negative]
     - [tango, sap]
     - [swi, sap]
+    - [tango, camsol_intrinsic]
 
   # Correlation clustering threshold
   corr_cluster_threshold: 0.8
