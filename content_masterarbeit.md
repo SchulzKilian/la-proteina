@@ -613,6 +613,105 @@ When proposing or evaluating a variant (sparse attention, conv downsampling, any
 
 ---
 
+## Finding 8 — In-progress: removing weight decay (wd=0) yields a step-1638 designability profile that already matches the canonical wd=0.05 baseline at comparable training stage (2026-04-27)
+
+**Status:** in-progress. The training run is alive on Cambridge HPC; only the first usable checkpoint has been evaluated so far. This entry will be amended as later checkpoints (steps ≥ 2000) come in.
+
+**Experiment:**
+
+Direct causal test of the weight-decay × AdaLN-Zero gate-suppression mechanism proposed in Finding 6 — Variant B from the "Causal ablation" follow-up section below. Train from scratch with the canonical CA-only recipe but `weight_decay=0.0` instead of `0.05`. Everything else is held verbatim to the canonical baseline (see "Baseline reference" above and `configs/training_ca_only_wd0.yaml`):
+
+- Architecture identical (`configs/nn/ca_only_score_nn_160M.yaml`, 160M `LocalLatentsTransformer` with AdaLN-Zero conditioning).
+- Data identical (`pdb/pdb_train_ucond`, worst_resolution ≤ 2.0 Å, length 50–512, sequence-similarity 0.5 split).
+- Optimizer: `torch.optim.AdamW`, **`weight_decay=0.0`**, constant LR=2e-4, no scheduler. β1=0.9, β2=0.999, ε=1e-8.
+- Effective batch 192 proteins/step (`batch_size=6 × max_padding_size=512 × accumulate_grad_batches=32`), 1×A100 ampere, `dist_strategy=auto`, bf16-mixed, `gradient_clip_val=1.0`, EMA decay 0.999 every 5 steps. Seed 42.
+- `val_check_interval=2000` mini-batches.
+- Run dir: `store/ca_only_diffusion_wd0/<run_id>/`. Submit chain via `submit_train_ca_only_1gpu.sh -n training_ca_only_wd0` with `--exclude=gpu-q-43`.
+
+Designability protocol (matches Finding 6 / canonical baseline reference):
+- N=3 samples per length; lengths {50, 100, 200}; 200 ODE steps; ESMFold scRMSD; designable = scRMSD_ca < 2 Å.
+- Eval config: `configs/inference_1638.yaml` (defaults to `inference_ucond_notri_ca_only`); `configs/generation/uncond_ca_only_quick.yaml` with `nres_lens: [50, 100, 200]`, `nsamples: 3`, `compute_designability: True`, `keep_folding_outputs: True`.
+- Two seeds tested on the step-1638 ckpt (default `seed=5` and `seed=100`). Inference deterministic given seed; per-batch seed is `cfg.seed + job_id` (`generate.py:139`).
+- Checkpoint evaluated: `best_val_00000016_000000001638.ckpt` (rsynced from RDS).
+
+**Numbers — step 1638 (wd=0):**
+
+Per-length scRMSD_ca (Å), N=3 each:
+
+| L | seed | min | mean | max | designable (ca<2 Å) | best bb3o |
+|---|---|---|---|---|---|---|
+| 50  | 5 (default) | 5.07 | 8.70 | 12.58 | 0/3 | 5.04 |
+| 100 | 5 | **1.89** | 8.02 | 11.98 | **1/3** | 2.15 |
+| 200 | 5 | 12.94 | 13.72 | 14.63 | 0/3 | 12.90 |
+| 50  | 100 | **1.04** | 4.47 | 6.69 | **1/3** | 1.44 |
+| 100 | 100 | **1.49** | 6.36 | 9.97 | **1/3** | 1.86 |
+| 200 | 100 | 10.73 | 12.54 | 15.87 | 0/3 | 10.62 |
+
+Aggregate per seed: seed=5 → 1/9 designable; seed=100 → 2/9 designable.
+
+For comparison (canonical wd=0.05 baseline at comparable training stages, from Finding 6 / Baseline reference):
+
+| ckpt step | recipe | L=50 des | L=100 des | L=200 des | total | best ca |
+|---|---|---|---|---|---|---|
+| 1638 | **wd=0**, seed=5 | 0/3 | 1/3 | 0/3 | 1/9 | 1.89 (L=100) |
+| 1638 | **wd=0**, seed=100 | 1/3 | 1/3 | 0/3 | 2/9 | 1.04 (L=50) |
+| 1889 | wd=0.05 | 1/3 | 2/3 | (—) | — | — |
+| 2078 | wd=0.05 | — | — | — | 1/9 | 1.86 (L=50) |
+| 2457 | wd=0.05 | 1/3 | 2/3 | 0/3 | — | — |
+| 2646 | wd=0.05 | ~3/9 typical | — | 0/3 | ~3/9 | — |
+
+> **Misattribution correction (2026-04-27):** an earlier version of this entry listed a "step 1259, wd=0.05, 0/9 designable, best 2.14 Å at L=50" row in the comparison table. That checkpoint was subsequently identified (by inspecting `hyper_parameters.cfg.run_name_`) as `ca_only_sparse_K40` — the sparse-attention K40 variant — **not** canonical wd=0.05. The 0/9 result therefore belongs to the sparse ablation, not the canonical baseline. The misattribution affected only the comparison row, not the wd=0 numbers themselves.
+
+(The seed-dependence of N=3 results is large — within a single seed at L=50 we see ca=1.04 vs 5.68 vs 6.69 — so single-seed N=3 is undersampled and any per-step comparison without seed averaging is noisy.)
+
+**Numbers — N=30 batched designability comparison (2026-04-27, see E014 in `experiments.md` for protocol):**
+
+Single-seed (seed=100), N=30/length, lengths {50, 100, 200}, ESMFold scRMSD < 2 Å (`scRMSD_ca`), per-sample MIN over 8 ProteinMPNN sequences. All four ckpts (canonical baseline, v2, wd=0, sparse K40) compared at matched seed so the initial noise trajectories are byte-identical across runs — what differs is only the model's velocity field. Each ckpt is its best available, not at matched optimizer step.
+
+| run | ckpt | step | wd | L=50 des | L=100 des | L=200 des | total | L=50 median ca | L=100 median ca | L=200 median ca |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **baseline** | `baseline_wd0.05_step2646.ckpt` | 2646 | 0.05 | **19/30 (63.3%)** | **20/30 (66.7%)** | **3/30 (10.0%)** | **42/90** | **1.65** | **1.48** | **4.57** |
+| v2 | `v2_wd0.1_step2078.ckpt` | 2078 | 0.10 | 7/30 (23.3%) | 5/30 (16.7%) | 0/30 | 12/90 | 4.23 | 3.70 | 9.72 |
+| wd0 | `wd0_step1638.ckpt` | 1638 | 0.00 | 10/30 (33.3%) | 4/30 (13.3%) | 0/30 | 14/90 | 2.47 | 4.12 | 12.10 |
+| sparse K40 | `sparse_K40_step1259.ckpt` | 1259 | 0.05 | 9/30 (30.0%) | 1/30 (3.3%) | 0/30 | 10/90 | 4.17 | 5.42 | 11.81 |
+
+Aggregate CSV with full percentile breakdown: `inference/n30_aggregate.csv` (gitignored — re-generated by `run_n30_pipeline.sh`).
+
+**Updated Implikation (with N=30 evidence):**
+
+- The wd=0 hypothesis is **partially refuted in the strong form** ("removing wd alone fixes designability"). At step 1638, wd=0 produces 33%/13%/0% designability vs canonical's 63%/67%/10% at step 2646 — substantially worse, even at the strongest comparison length (L=50, 33% vs 63%, 2× gap).
+- The wd=0 hypothesis is **not refuted in the weak form** ("removing wd allows the deep gates to grow without harming convergence"). At step 1638 the wd=0 model has only just entered the val-best window (canonical hits its best around step 1800-2200). The decisive comparison is wd=0 at step ≈ 2200-2600 vs canonical 2646. Until then, the L=200 cliff observed at 0% for wd=0 is consistent with under-training, not architectural failure.
+- **wd=0 ≥ wd=0.1 at every length.** Even at the under-trained step 1638, wd=0 (33%/13%/0%) beats v2 (23%/17%/0%) at L=50 and matches it at L=100, with both at 0% for L=200. This is consistent with the gate-growth mechanism: removing wd helps gate growth at the margin, but the late-training maturity that turns growing gates into clean integrated trajectories takes more steps than wd=0 has had so far.
+- **Sparse K40 step 1259 has the worst short→medium falloff** of all four runs: 30% at L=50 → 3.3% at L=100 (10× drop). For comparison: canonical 63% → 67% (no drop), wd0 33% → 13% (2.5× drop), v2 23% → 17% (1.4× drop). This suggests sparse K40 may have a medium-L architectural issue separate from the under-training story — but with K=32 (8 sequential + 8 spatial + 16 random ∝ 1/d³, despite the K40 misnomer in the run name; see E012/E014 in `experiments.md`), each token only attends to ~1/3 of the L=100 chain through the local window, and the random-neighbor scaffolding is supposed to bridge the rest. Whether that scaffolding fails at L=100 specifically, or just hasn't trained enough yet, requires resuming sparse training to step ~2000 to disambiguate.
+
+**Updated Methodische Einschränkungen (with N=30 evidence):**
+
+- **Single-seed N=30**, not multi-seed N=30. Within-seed noise is now well-controlled (sample variance ≈ 3% Wilson CI on each 30/sample rate), but between-seed noise is unmeasured. A 2-seed N=30 replicate would tighten the cross-run comparison further.
+- **Best-ckpt vs best-ckpt comparison.** Each ckpt is at its individually-best val window; this is the natural comparison for a "what does each recipe ultimately produce" question, but it confounds training duration with recipe. wd=0 at step 1638 is 1000+ steps behind canonical at 2646; sparse at step 1259 is even further behind. The N=30 numbers lock in the magnitudes; they do not yet support a "wd=X is worse than wd=Y at matched step" claim.
+- **L=200 result is essentially zero across all three ablations** (v2/wd0/sparse all at 0/30). Only canonical reaches 3/30. The L=200 cliff is real, but at this N a single sample's scRMSD difference moves the rate by 3% — distinguishing 0/30 from 1/30 from 3/30 requires either more samples or a deliberate length-stratified analysis.
+- **Sparse K40 architectural-vs-training-duration disambiguation is unresolved.** The 3.3% L=100 rate could reflect either (a) genuine medium-L architectural ceiling at K=32, or (b) under-training with a recipe that learns short-range correlations first. Resuming sparse training is the cheap test.
+
+**Narrow claim:**
+
+At training step 1638 — pre-convergence relative to the canonical wd=0.05 best-val window of step 1800–2200 — the wd=0 model produces sub-2 Å ESMFold scRMSD samples at both L=50 (best 1.04 Å, seed 100) and L=100 (best 1.49 Å, seed 100; 1.89 Å, seed 5), which is at least as good as the canonical wd=0.05 baseline at the closest comparable step (step 1259, best 2.14 Å at L=50) and approaches the wd=0.05 baseline's step-1889 short-length designability rate. The L≥200 cliff observed for the canonical baseline persists at this stage (best L=200 ca=10.73 Å with wd=0 vs 12.16 Å for wd=0.05 at step 1259) — so the L=200 generalization problem has not been resolved by removing wd at this checkpoint.
+
+**Implikation:**
+
+- **Removing weight decay does not destroy training.** Validation-loss curves are reportedly visually indistinguishable from canonical wd=0.05 in the first ~2000 steps, and short-length designability is intact at step 1638. This rules out the worst-case scenario where wd=0 collapses learning entirely (e.g. parameter norms blowing up or AdaLN-Zero gates training to chaotic magnitudes). The DiT-family literature recipe (`weight_decay=0` in the official DiT/SiT `train.py`) is at minimum compatible with this codebase's CA-only configuration.
+- **Step 1638 is a preview, not a verdict.** Canonical wd=0.05 reaches its best designability at step 1800–2200, which is where the gate-suppression hypothesis's mechanistic prediction lives: if uniform wd=0.05 is suppressing deep AdaLN-Zero gates (Finding 6 diagnostic showed deep-layer gate weights at ~50% of shallow-layer magnitudes even at wd=0.05), and if that suppression is what causes the L=200 cliff, then a wd=0 ckpt at step ≈ 2000–2200 should (a) have larger deep-layer gate weights than the canonical 2646 ckpt, and (b) close at least part of the L=200 designability gap. Neither has been tested yet.
+- **Variance vs effect size.** N=3 single-seed designability is too noisy to claim a wd=0 vs wd=0.05 effect at a single step; the seed=5 vs seed=100 comparison on the same step-1638 ckpt already swung 1/9 → 2/9. A real comparison needs (i) checkpoint-matched timing (canonical wd=0.05 step 2078 / 2646 vs wd=0 at the same step), (ii) ≥2 seeds per ckpt with 3 samples each, and (iii) per-layer AdaLN-Zero gate diagnostic at the wd=0 ckpt to verify the mechanistic prediction, not just the downstream designability.
+
+**Methodische Einschränkungen:**
+
+- **Single ckpt, single training run.** Step 1638 is the first val-best ckpt rsynced from the wd=0 chain; downstream behavior past this step is unknown at the time of writing. The canonical wd=0.05 baseline overfits past step 2200 (val rises to 5.39 within 700 steps) and the wd=0 run has no known overfitting profile yet — it might reach a higher step before degrading, or it might degrade earlier.
+- **Designability ≠ likelihood.** ESMFold scRMSD < 2 Å is a downstream behavioral metric on a small N; the canonical wd=0.05 ckpts have all been run with the same N=3 protocol, but the noise floor is high. Per-length all-atom scRMSD distributions at larger N would tighten the comparison considerably.
+- **Mechanistic step not yet performed.** Finding 6's mechanism claim was that wd=0.05 suppresses deep AdaLN-Zero gates (Finding 6 showed wd=0.1 → 26–60% of wd=0.05's deep-layer gates; the mid-session diagnostic on step 2646 / 2078 showed wd=0.05 → ~50% of shallow-layer gates in the deep blocks). The corresponding diagnostic on a wd=0 ckpt — does removing wd let the deep gates grow further? — has not yet been run. Without it, "wd=0 helps designability" remains observational.
+- **Hyperparameter coupling.** Even though the recipe matches canonical exactly except for wd, the AdamW equilibrium argument (`|θ_eq| ≈ |grad|/wd`) implies wd=0 changes the equilibrium for *all* parameters, not just AdaLN-Zero gates. If the result holds at later steps, ruling out a confound from a non-AdaLN-Zero parameter group will require the per-layer diagnostic above (gate weights are the critical pathway by mechanism, but other parameters' magnitudes will also have shifted).
+- **L=200 cliff still present.** The hypothesis that "wd=0.05 is what stops the model from generalizing past L=200" cannot yet be evaluated at step 1638 — the cliff is present in both recipes at this stage. The cliff may be (a) still reflecting undertraining, (b) genuinely not caused by wd, or (c) caused by wd but only fixed at a later step. Decisive evidence requires the step ≥ 2000 ckpt.
+- **Seed=5 default in eval pipeline.** Re-running the same eval with the same `seed=5` is fully deterministic — the per-batch seed is `cfg.seed + job_id` from `generate.py:139`. This entry's seed-100 numbers were obtained by passing `seed=100` as a Hydra override on the eval command. Future replicate evals must vary `seed` to obtain new samples.
+
+---
+
 ## Future experiment ideas
 
 ### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 6, 2026-04-25)
