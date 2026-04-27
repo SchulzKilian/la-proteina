@@ -124,6 +124,28 @@ if [ "$has_n_flag" -eq 0 ]; then
     set -- -n "$DEFAULT_CONFIG" "$@"
 fi
 
+# 6b. Group chained slots in wandb so the UI auto-aggregates them under one
+#     row instead of showing N separate per-slot runs. Each chained slot
+#     creates a new wandb run (run-ID isn't carried across slots), but if
+#     they share WANDB_RUN_GROUP the dashboard treats them as one group with
+#     a single curve when grouped, or stitches them on `trainer/global_step`
+#     when not grouped. Group key = run_name_ from the YAML (falling back to
+#     the config name), which is stable across slots of the same training.
+CONFIG_NAME=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "-n" ]; then CONFIG_NAME="$arg"; break; fi
+    prev="$arg"
+done
+WANDB_GROUP="${CONFIG_NAME:-laproteina}"
+if [ -n "$CONFIG_NAME" ] && [ -f "configs/${CONFIG_NAME}.yaml" ]; then
+    yaml_run_name=$(awk -F': *' '/^run_name_:/ {print $2; exit}' "configs/${CONFIG_NAME}.yaml" \
+                    | tr -d '"' | tr -d "'" | xargs)
+    [ -n "$yaml_run_name" ] && WANDB_GROUP="$yaml_run_name"
+fi
+export WANDB_RUN_GROUP="$WANDB_GROUP"
+echo "[+] wandb group: $WANDB_RUN_GROUP"
+
 # 7. Run training with 1-GPU Hydra overrides tuned for CA-only:
 #    - lr=0.0002 : constant LR, sqrt-scaled from 4-GPU baseline 0.000415.
 #      No scheduler — the canonical recipe uses constant LR (the v2 attempt
