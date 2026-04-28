@@ -220,11 +220,49 @@ class Proteina(L.LightningModule):
     def configure_optimizers(self):
         opt_cfg = self.cfg_exp.opt
         weight_decay = float(opt_cfg.get("weight_decay", 0.0) or 0.0)
-        optimizer = torch.optim.AdamW(
-            [p for p in self.parameters() if p.requires_grad],
-            lr=opt_cfg.lr,
-            weight_decay=weight_decay,
-        )
+        # Standard DiT/SiT/SD3 pattern: split into wd and no-wd parameter groups.
+        # The no-wd group covers parameters that either (a) have no overfitting
+        # capacity (biases, LayerNorm γ/β, embeddings) or (b) initialize at zero
+        # and need to grow against the wd pull (AdaLN-Zero gates). See
+        # experiments.md → E015 for the per-tensor analysis motivating this split.
+        use_param_groups = bool(opt_cfg.get("param_groups", False))
+        if use_param_groups and weight_decay > 0:
+            decay_params, no_decay_params = [], []
+            seen = set()
+            for name, p in self.named_parameters():
+                if not p.requires_grad or id(p) in seen:
+                    continue
+                seen.add(id(p))
+                if (
+                    p.ndim < 2                      # biases + LayerNorm γ/β
+                    or "to_adaln_zero_gamma" in name
+                    or "embed" in name.lower()
+                ):
+                    no_decay_params.append(p)
+                else:
+                    decay_params.append(p)
+            n_decay = sum(p.numel() for p in decay_params)
+            n_no_decay = sum(p.numel() for p in no_decay_params)
+            logger.info(
+                "configure_optimizers: param_groups split — "
+                "decay group: %d tensors / %.2fM params at wd=%.4f; "
+                "no-decay group: %d tensors / %.2fM params at wd=0.",
+                len(decay_params), n_decay / 1e6, weight_decay,
+                len(no_decay_params), n_no_decay / 1e6,
+            )
+            optimizer = torch.optim.AdamW(
+                [
+                    {"params": decay_params, "weight_decay": weight_decay},
+                    {"params": no_decay_params, "weight_decay": 0.0},
+                ],
+                lr=opt_cfg.lr,
+            )
+        else:
+            optimizer = torch.optim.AdamW(
+                [p for p in self.parameters() if p.requires_grad],
+                lr=opt_cfg.lr,
+                weight_decay=weight_decay,
+            )
         sched_cfg = opt_cfg.get("scheduler", None)
         if sched_cfg is None or sched_cfg.get("name", None) in (None, "none"):
             return optimizer
@@ -423,6 +461,21 @@ class Proteina(L.LightningModule):
                     if sel.any():
                         self.log(
                             f"validation_loss_by_len/len_{lo:03d}_{hi:03d}",
+                            per_protein_loss[sel].mean(),
+                            on_step=False, on_epoch=True, prog_bar=False,
+                            logger=True, batch_size=int(sel.sum()),
+                            sync_dist=True, add_dataloader_idx=False,
+                        )
+
+                # Per-noise-level split. t=1 clean, t=0 pure noise. Bin counts
+                # are imbalanced under mix_unif_beta(1.9, 1.0, 0.02) — biased
+                # toward t→1; do not population-weight across bins.
+                t_per_protein = batch["t"]["bb_ca"]  # [b]
+                for lo, hi in [(0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0)]:
+                    sel = (t_per_protein >= lo) & (t_per_protein < hi)
+                    if sel.any():
+                        self.log(
+                            f"validation_loss_by_t/t_{int(lo*100):03d}_{int(hi*100):03d}",
                             per_protein_loss[sel].mean(),
                             on_step=False, on_epoch=True, prog_bar=False,
                             logger=True, batch_size=int(sel.sum()),

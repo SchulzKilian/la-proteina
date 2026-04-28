@@ -6,15 +6,14 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=03:30:00
+#SBATCH --time=11:59:00
 #SBATCH --output=slurm_gen_stratified_%j.out
 
 # Length-stratified unguided generation: ~uniform coverage across 50-residue
-# bins in [300, 800), n_per_bin=100 -> 1000 total samples.
-# Replaces the empirical-distribution sampler in submit_generate_baseline.sh.
-#
-# Lengths are shuffled inside the script so that hitting the time limit
-# costs proportionally from every bin, rather than dropping the upper bins.
+# bins in [300, 800). Runs until the SLURM walltime is about to expire and
+# appends to --output_dir, so re-submitting the same job keeps growing the
+# sample population. Bins are filled round-robin in steering/generate_baseline.py
+# so an early kill leaves all bins equally populated.
 
 set -uo pipefail
 
@@ -27,24 +26,24 @@ export TANGO_EXE=/home/ks2218/la-proteina/tango_x86_64_release
 cd /home/ks2218/la-proteina
 
 OUTPUT_DIR=${1:-results/generated_stratified_300_800}
-N_PER_BIN=${2:-100}
-NSTEPS=${3:-200}
+NSTEPS=${2:-200}
 
-echo "=== Length-stratified baseline generation ==="
+echo "=== Length-stratified baseline generation (run-until-timeout) ==="
 echo "Node: $(hostname), GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "Date: $(date)"
-echo "n_per_bin: $N_PER_BIN, bins: 10 (50-residue) over [300,800)"
-echo "Total samples: $((N_PER_BIN * 10)), nsteps: $NSTEPS, output: $OUTPUT_DIR"
+echo "nsteps: $NSTEPS, output: $OUTPUT_DIR"
+echo "SLURM_JOB_END_TIME=${SLURM_JOB_END_TIME:-unset}"
 
 python -m steering.generate_baseline \
     --proteina_config inference_ucond_notri_long \
     --length_mode stratified \
-    --n_per_bin $N_PER_BIN \
     --bin_width 50 \
     --length_range 300 800 \
     --output_dir $OUTPUT_DIR \
     --device cuda:0 \
-    --nsteps $NSTEPS
+    --nsteps $NSTEPS \
+    --run_until_timeout \
+    --slurm_safety_s 180
 
 rc=$?
 echo "Generation finished (rc=$rc) at $(date)"

@@ -36,6 +36,8 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E012](#e012--three-run-comparison-baseline--v2--sparse-side-by-side-2026-04-26) | 2026-04-26 | finished | Side-by-side config + result diff of E008 / E009 / E010 | reference table |
 | [E013](#e013--wd0-ablation-training-canonical-recipe-with-weight_decay00-2026-04-26--ongoing) | 2026-04-26 → ongoing | in progress | wd=0 ablation training on canonical CA-only recipe | → Finding 8 |
 | [E014](#e014--four-run-n30-designability-comparison-baseline--v2--wd0--sparse-2026-04-27) | 2026-04-27 | finished | N=30/length matched-seed designability across baseline/v2/wd0/sparse | → Finding 8 (N=30 update) |
+| [E015](#e015--three-wd-weight-norm-comparison--feasibility-of-param-group-fix-2026-04-27) | 2026-04-27 | finished | wd ∈ {0, 0.05, 0.1} per-layer gate + non-gate norm diff; pre-registration check for AdaLN-Zero param-group-fix experiment | non-narrative — disconfirmed a planned experiment's premise |
+| [E016](#e016--ca-only-eval-pipeline-audit-reconstructed-bb-vs-ca-only-mpnn-2026-04-28) | 2026-04-28 | in progress | Audit of designability eval for CA-only generations: backbone-reconstruction geometry + SLURM probe on real natives | non-narrative — decides whether CA-only designability numbers need re-computing |
 
 ---
 
@@ -874,5 +876,194 @@ Aggregate CSV with min/p25/median/mean/p75/max columns per (run, L): `inference/
 - **scRMSD < 2 Å is a coarse summary.** It collapses an 8-sequence × 1-fold ensemble into a single bit per sample. Using *any* of "min over 8 sequences", "mean", or "median" changes the rates somewhat — this report uses min (matches `_res_scRMSD_ca_esmfold` in the CSV, which is the per-sample best-of-8 used in all prior CA-only designability work in this repo).
 - **L=200 across three of four runs is a 0/30 floor**, so individual ckpts cannot be ordered there. The cliff is well-established but the cliff *position* (does L=150 also collapse? L=180?) is unmeasured.
 - **No sparse-with-more-training run yet.** If sparse is resumed from `last.ckpt` for one more 6h slot (~step 1850-1900), the L=100 = 3% finding either holds (architectural) or rises substantially (under-training). Until then, sparse's headline is a mid-training result and labeling it "the architecture is broken at L=100" would be premature.
+
+---
+
+## E015 — Three-wd weight-norm comparison + feasibility check for param-group-fix experiment (2026-04-27)
+
+**Status:** finished. Pre-registration check, not a training run.
+
+**Why ran:** The author observed that the wd=0 chain (`ca_only_diffusion_wd0`) qualitatively held up better at long protein lengths than the wd=0.05 baseline, and conjectured a "best of both worlds" experiment: split AdamW parameter groups so AdaLN-Zero gates (and biases / LN γβ / embeddings) get wd=0 while attention/MLP weights get wd≥0.05. The hypothesised mechanism: wd=0 preserves gate magnitudes and therefore long-range conditioning strength, while wd>0 on the rest of the model still buys regularization. Before committing a 16h training slot to test this, weight norms across the existing wd ∈ {0, 0.05, 0.1} runs were measured to check whether the mechanism's premises were even satisfied at the current "safe" recipe.
+
+**Configs:**
+- Three best-val raw checkpoints (NON-EMA — EMA decay/every_n_steps not tuned on this project, see operator preference):
+  - wd=0:    `store/ca_only_diffusion_wd0/1777225343/checkpoints/best_val_00000021_000000002142.ckpt` (epoch 21, step 2142)
+  - wd=0.05: `store/test_ca_only_diffusion/1776805213/checkpoints/best_val_00000026_000000002646.ckpt` (epoch 26, step 2646)
+  - wd=0.1:  `store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/best_val_00000020_000000002078.ckpt` (epoch 20, step 2078)
+- Analysis: per-tensor L2 norm via `torch.linalg.vector_norm` on every floating-point parameter in `state_dict`; AdaLN-Zero gate weights identified by regex `nn\.transformer_layers\.\d+\.(mhba|transition)\.scale_output\.to_adaln_zero_gamma\.0\.weight$`. Script: `/tmp/wd_compare.py`; raw output: `/tmp/wd_compare_results.json`.
+- 14 transformer layers × 2 sub-blocks (mhba + transition) = 28 gate weight tensors per ckpt.
+
+**Results — AdaLN-Zero gate weight L2 norms (geom-mean per depth band, mhba+transition):**
+
+| layer band | wd=0 / wd=0.05 | wd=0.1 / wd=0.05 |
+|---|---|---|
+| early (0–4)   | 0.85 | 0.88 |
+| mid (5–9)     | 0.68 | 0.63 |
+| upper (10–13) | 0.75 | **0.54** |
+
+E009's per-layer collapse story is replicated: wd=0.1 upper-layer gates at 54% of canonical baseline; the most-collapsed individual gate is `transformer_layers.10.mhba` at 26% (matches E009's 0.260 ratio exactly — same comparison ckpts).
+
+**Surprise finding:** The naive prediction was wd=0 → no decay pulling on gates → gates *grow larger* than wd=0.05. The data shows the opposite — **wd=0 gates are smaller than wd=0.05 gates across every depth band**. Most plausible mechanism: training-step confound. The wd=0 best-val snapshot is at step 2142 because wd=0 overfits sooner (no regularization → val curve turns up earlier), while the wd=0.05 best-val snapshot is at step 2646 — gates at wd=0.05 had ~500 extra optimizer steps to grow. With `save_top_k=1` overwriting earlier ckpts, no same-step ckpt pair is available to disentangle the step confound from a possible direct wd-on-gates effect.
+
+**Direct wd=0 vs wd=0.1 comparison (`wd=0 / wd=0.1` per-gate ratio):**
+
+| layer band | wd=0 / wd=0.1 |
+|---|---|
+| early (0–4)   | 1.00 — no recovery |
+| mid (5–9)     | 1.24 — partial recovery |
+| upper (10–13) | **1.38** — biggest recovery |
+
+Removing wd from wd=0.1 → wd=0 recovers gate magnitudes specifically in the depth band where wd=0.1's collapse was most severe (upper layers). This is the depth-dependent gradient-signal mechanism made visible: in deep layers gradient signal is weaker → uniform wd dominates more → removing wd has the biggest effect there. Per-gate, **18 of 28** got closer to the wd=0.05 baseline when wd was removed; the recovery is a noisy two-thirds majority, not categorical (some gates, e.g. layer 11 mhba, went *further* from baseline at wd=0 than at wd=0.1).
+
+**Heterogeneity of the wd=0.1 effect (the part E009 obscured by aggregating into a band):**
+
+| stat | wd=0.1 / wd=0.05 | wd=0 / wd=0.05 |
+|---|---|---|
+| min   | **0.259** (layer 10 mhba, 74% collapse) | 0.318 (layer 10 mhba) |
+| max   | **1.376** (layer 3 mhba, 38% GROWTH) | 1.314 (layer 11 mhba) |
+| range | 1.117 | 0.996 |
+| mean  | 0.692 | 0.763 |
+| stdev | 0.252 | 0.211 |
+
+Two gates *grew* under wd=0.1 — both at layer 3 (`mhba` at 1.376×, `transition` at 1.033×). Same depth, both subblocks. Two non-mutually-exclusive interpretations: (a) compensation — when adjacent gates collapse, layer 3 absorbs the slack to maintain conditioning throughput; (b) single-seed noise. The single-seed framing of all three runs makes (a) impossible to distinguish from (b) without replicate runs. wd=0.1 is also *more* chaotic than wd=0 (stdev 0.25 vs 0.21) — gate suppression is not just shifted-toward-zero but more variable layer-to-layer.
+
+**Non-gate weights at wd=0.1 — heavy-tailed shrinkage:**
+
+| metric | wd=0.05 vs wd=0 | wd=0.1 vs wd=0 |
+|---|---|---|
+| global L2 (sum-of-squares, sqrt) | 0.979 (2.1% smaller) | 0.960 (4.0% smaller) |
+| per-tensor median ratio | 0.980 (2.0% smaller) | 0.953 (4.7% smaller) |
+| per-tensor mean ratio   | 1.029 | 0.923 (7.7% smaller) |
+
+The big median-vs-mean gap at wd=0.1 (0.95 vs 0.92) reveals heavy-tailed shrinkage. **An earlier draft of this entry conflated "per-tensor mean ratio" with "global L2 ratio" and quoted a misleading 10% figure for non-gate shrinkage** — the actual global non-gate L2 shrinkage from wd=0.05 to wd=0.1 is ~1.9% (438.65 → 430.27), not 10%. The 10% was the per-tensor-mean, inflated by small tensors that shrunk dramatically but contribute negligibly to global L2.
+
+**Where the shrinkage actually concentrates (decomposition of total L2² drop wd=0.05 → wd=0.1, total = 7299.6):**
+
+| component | L2² drop | share |
+|---|---|---|
+| AdaLN-Zero gate weights | 20.55 | **0.3%** |
+| non-gate weights | 7279.05 | **99.7%** |
+
+Gate weights have a global L2 of only 8.04 at wd=0.05 (vs non-gate global 438.65) — they are **1.83% of the model's weight magnitude**. So in pure weight-magnitude terms, the wd=0.1 regularization was already ~entirely happening on non-gate weights even with uniform wd. The gates dominate the sample-quality damage (Finding 5) despite being a tiny fraction of the L2 budget — they are functionally load-bearing far out of proportion to their numerical mass.
+
+**Top-15 non-gate tensors by per-tensor shrinkage at wd=0.1 — all are biases of LayerNorm or AdaLN normalization layers** (each 256–768 params, shrunk to 13–50% of wd=0.05 baseline). Tiny in absolute magnitude, dominate the per-tensor mean. Examples:
+
+| tensor | n_params | wd=0.05 norm | wd=0.1 norm | ratio |
+|---|---|---|---|---|
+| `transformer_layers.5.transition.adaln.norm_cond.bias` | 256 | 0.292 | 0.038 | 0.130 |
+| `transformer_layers.6.transition.adaln.norm_cond.bias` | 256 | 0.240 | 0.040 | 0.167 |
+| `transformer_layers.9.mhba.mha.pair_norm.bias` | 256 | 0.155 | 0.036 | 0.234 |
+| `transformer_layers.5.mhba.mha.q_layer_norm.bias` | 768 | 0.202 | 0.060 | 0.299 |
+| `transformer_layers.8.mhba.adaln.norm_cond.bias` | 256 | 0.118 | 0.036 | 0.307 |
+
+**Top-15 non-gate tensors by absolute L2² contribution to global drop — all are large dense weights** (4.7M-param `transition.swish_linear.0.weight` and 1.8M-param `mhba.mha.to_qkv.weight`), each shrunk by only 5–7%:
+
+| tensor | n_params | wd=0.05 norm | wd=0.1 norm | L2² drop |
+|---|---|---|---|---|
+| `transformer_layers.6.transition.transition.swish_linear.0.weight` | 4,718,592 | 47.234 | 44.074 | 288.5 |
+| `transformer_layers.5.transition.transition.swish_linear.0.weight` | 4,718,592 | 47.059 | 44.186 | 262.2 |
+| `transformer_layers.4.transition.transition.swish_linear.0.weight` | 4,718,592 | 47.415 | 44.948 | 227.8 |
+| `transformer_layers.4.mhba.mha.to_qkv.weight` | 1,769,472 | 29.026 | 27.220 | 101.6 |
+| `transformer_layers.7.mhba.mha.to_qkv.weight` | 1,769,472 | 28.867 | 27.099 | 98.9 |
+
+Two-population picture: bias/LN parameters take massive *relative* hits (≤30% of baseline) but contribute negligibly to the actual regularization mass; the few large dense matrices take small *relative* hits (5-7%) but dominate the L2 budget. **Uniform wd is poorly targeted** — biases/LN params don't carry overfitting capacity (biases are constant offsets, LN scale/shift are bounded magnitude transformations) but soak up most of wd's per-tensor effect. The standard DiT/SiT/SD3 recipe excludes biases, LayerNorm γ/β, embeddings, and AdaLN-Zero gates from wd for exactly this reason; this codebase applies wd uniformly to all parameters.
+
+**Implication for the param-group-fix scope:**
+A "minimal" param-group fix (exclude only AdaLN-Zero gates) protects the functional gate-collapse failure mode but leaves the bias/LN over-regularization in place. The "full" param-group fix (exclude biases + LN γβ + embeddings + AdaLN-Zero gates — the standard DiT/SiT pattern) corrects both. The full fix is the same code complexity (~15 lines in `configure_optimizers`); no reason to do a partial version.
+
+**Bias trajectory across wd values (asymmetric β-vs-γ collapse):**
+
+| group | wd=0 / wd=0.05 (median) | wd=0.1 / wd=0.05 (median) |
+|---|---|---|
+| Q/K/node/pair LayerNorm biases (attention path) | 0.74 | **0.62** |
+| AdaLN `norm_cond.bias` (conditioning path) | 0.77 | **0.51** |
+| LayerNorm γ (scale parameters) | 1.03 | 0.99 — **essentially unchanged** |
+| other biases | 1.02 | 0.99 |
+| other weights | 1.02 | 0.97 |
+
+Clean asymmetry: LayerNorm γ (initialized at 1, kept near 1 by the loss) is unaffected by any wd setting; LayerNorm β + AdaLN `norm_cond.bias` (initialized at 0, grows under loss pressure, opposed by wd) shrink in the same dynamic as the AdaLN-Zero gates. The "gate-collapse" mechanism generalizes: it's a **β-collapse mechanism** affecting any parameter family that needs to grow from zero against wd. AdaLN-Zero gates are the most functionally consequential instance, but Q/K LayerNorm biases (length-calibration of attention softmax) and AdaLN normalization biases (conditioning baseline) collapse by the same mechanism at a similar wd threshold.
+
+**Hypothesis raised after this analysis (untested):** Q/K LayerNorm bias collapse may contribute specifically to long-protein performance degradation. The mechanistic link is the well-known softmax-diffusion-with-length effect: as N grows, more keys compete in the softmax and attention diffuses unless calibration (γ + β) compensates. wd=0.1 cuts those calibration biases to ~62% of baseline. The hypothesis is *not* directly supported by the wd=0 vs wd=0.05 comparison (wd=0 has *smaller* Q/K biases than wd=0.05 in this snapshot, due to the step confound, but wd=0 is qualitatively reported to hold up better at long lengths). It is mechanistically distinct from the gate-collapse failure and should be testable by isolating the bias contribution.
+
+**Refined experiment recommendation:** A single discriminating run — *bias-only* param-group fix at wd=0.1 (exclude biases + LN γβ from wd, keep AdaLN-Zero gates *in* the wd budget) — would separate the bias-collapse contribution from the gate-collapse contribution. Outcomes:
+- If long-protein designability recovers but short-protein still collapses (gates still suffer) → biases were a length-dependent contributor independent of gate collapse.
+- If both recover → biases + gates both load-bearing in different regimes.
+- If neither recovers → biases weren't doing real work; the gate-collapse story is sufficient.
+
+This is more discriminating than the full DiT-style param-group fix (which is what you'd ship) because it isolates which excluded class actually matters. Same training cost (~16h slot).
+
+**Results — non-gate weight norms:**
+
+| | wd=0 | wd=0.05 | wd=0.1 |
+|---|---|---|---|
+| global L2 (sum of squares, sqrt) | 448.15 | 438.65 | 430.27 |
+| per-tensor median ratio vs wd=0.05 | 1.021 | 1.000 | 0.973 |
+| per-tensor mean ratio vs wd=0.05   | 0.972 | 1.000 | 0.897 |
+
+Non-gate weights at wd=0.05 are only ~2% smaller than at wd=0 (per-tensor median). **Weight decay at the canonical recipe is barely doing any regularization on non-gate weights.** wd=0.1 produces ~10% global shrinkage, ~3% per-tensor median.
+
+**Decision criteria for the param-group-fix experiment (pre-registered before the analysis):**
+
+| condition | required | observed | satisfied? |
+|---|---|---|---|
+| C1 — gate-magnitude headroom at wd=0 vs wd=0.05 (≥20% larger in upper layers) | required | wd=0 upper gates are *smaller* (0.75×) | **NO** |
+| C2 — non-gate wd biting at 0.05 (≥5% per-tensor shrinkage vs wd=0) | required | only ~2% shrinkage | **NO** |
+| C3 — long-protein effect localises to upper-layer gate magnitude | required | premise (gate magnitude) not observed; mechanism cannot be the proposed one | **untested but premise broken** |
+
+**Implications for the planned param-group-fix experiment:**
+
+The "best of both worlds" framing does **not** survive contact with the data. There is no wd=0-specific gate-magnitude advantage to preserve, and almost no wd=0.05-specific regularization to preserve either. The mechanistically-defensible reframing — informed by the wd=0.1 non-gate shrinkage data — is: *"With param-groups in place, applying wd=0.1 to non-gate weights only would produce ~10% non-gate weight shrinkage (real regularization, far more than wd=0.05's ~2%) without the gate-collapse tax. Does that level of non-gate-only regularization help sample quality?"* That is a legitimate causal-ablation question (turn param-group fix ON vs OFF at non-gate wd=0.1, otherwise identical), but it is a narrow exploration of a previously-unsafe wd region rather than a recovery of a hypothesised wd=0 advantage.
+
+The author's observation that wd=0 holds up better at long protein lengths is **not** explained by gate magnitudes (which are smaller at wd=0). The mechanism is therefore something else — possibly the small non-gate weight-norm increase, possibly inference-dynamics differences not summarized by norm, possibly an artefact of the step-confounded comparison. **Recommended next step before running the param-group-fix training:** measure designability (N≥10) at L=200, 300+ on both wd=0 and wd=0.05 best-val ckpts to verify the long-protein observation is real once N is large enough to be meaningful. If it is, identify the actual mechanism before committing training time to a fix targeting the wrong one.
+
+**Possible narrative:** Non-narrative — kept for tuning/decision-making. Specifically, this entry's purpose is to record *why a planned experiment was downgraded in priority* and to leave the disconfirmation visible so a future re-attempt doesn't repeat the same flawed framing.
+
+**Methodological caveats:**
+- Best-val ckpts compared are at different optimizer steps (2142 vs 2646 vs 2078); confounded with what each recipe's val curve permits as a "best" snapshot. A clean comparison would require either same-step ckpts (`save_top_k=1` overwrote them) or fresh runs with explicit interim checkpointing.
+- L2 norms are a coarse summary. Two weight tensors can have identical L2 but very different singular-value spectra / effective rank / activation behaviour. The gate-norm story is a *necessary* condition for the mechanism, not a sufficient one — even if gate magnitudes lined up, the experiment might still fail on inference-dynamics grounds.
+- The wd=0 best-val ckpt is from a chain still in progress (training job 28492667 was still running at the time of this analysis); a later best-val snapshot may shift the numbers.
+- E009's per-layer ratios are reproduced byte-equivalent for wd=0.1 vs wd=0.05, which validates the analysis script against an existing post-mortem.
+- All checkpoints are RAW best_val (not `-EMA`). EMA hyperparameters on this project are inherited defaults, untuned — using EMA ckpts for cross-run comparison would mix EMA-schedule artefacts into the result.
+
+---
+
+## E016 — CA-only eval pipeline audit: reconstructed BB vs CA-only MPNN (2026-04-28)
+
+**Status:** in progress (geometry diagnostic finished on login node; SLURM probe submitted as job 28551152, pending in queue at time of writing).
+
+**Why ran:** The CA-only designability eval (`proteinfoundation/metrics/designability.py`) calls `run_proteinmpnn(..., ca_only=False)` at lines 375 and 560 — i.e., it uses the **vanilla full-backbone ProteinMPNN model** on a PDB whose N/C/O atoms were **reconstructed** from the generated Cα trace by `ca_to_backbone_atom37` (`proteinfoundation/utils/coors_utils.py:140`). The model itself only generates Cα (`_ca_only_mode = "local_latents" not in cfg_exp.product_flowmatcher`); N/C/O are synthesised post-hoc by extrapolating along the trace. Question: is this fake-backbone-vanilla-MPNN recipe (call it path A) producing materially different designability numbers from the canonical path B = bare-CA PDB + CA-only MPNN weights? If yes, all CA-only designability numbers in E008–E012 (baseline, v2, sparse) are computed under a suboptimal eval and may need re-running.
+
+The current eval recipe is a workaround from commit `b1afbc4` ("eval for ca only fixed", 2026-04-07) — pre-commit, the call defaulted to `ca_only=True` and PDBs were CA-only. The CA-only ProteinMPNN weights (`ProteinMPNN/ca_model_weights/v_48_*.pt`) have file mtimes of **2026-04-17**, ten days *after* the commit, so the most plausible reason for the workaround was that those weights weren't on disk when the commit happened, not a deliberate choice between recipes.
+
+**Configs:**
+- Geometry diagnostic: `script_utils/probe_ca_eval/diagnose_geometry.py`. Loads two real native PDBs (5L33 109aa, 6MRR 71aa from `ProteinMPNN/inputs/PDB_monomers/pdbs/`); for each, computes |N-CA|, |CA-C|, and N-CA-C angle on the **native** backbone (filtered to residues with all three BB atoms) and on the **reconstructed** backbone produced by `ca_to_backbone_atom37` from CA-only input. No GPU.
+- SLURM probe: `script_utils/probe_ca_eval/run_ca_eval_probe.py` driven by `submit_probe.sh` (-A COMPUTERLAB-SL3-GPU, ampere, 1×A100, --exclude=gpu-q-43, 1h walltime). Three conditions per native:
+  - **A** RECON-vanillaMPNN: native → strip to CA → `ca_to_backbone_atom37` → save → ProteinMPNN `ca_only=False` → ESMFold (8 seqs) → CA-RMSD vs input PDB. Mirrors current eval.
+  - **B** BARECA-caMPNN: native → strip to CA only (N/C/O zeroed) → save → ProteinMPNN `ca_only=True` → ESMFold (8 seqs) → CA-RMSD. Canonical CA-only design path.
+  - **C** NATIVE-vanillaMPNN: native unchanged → ProteinMPNN `ca_only=False` → ESMFold (8 seqs) → CA-RMSD. Sanity check that the rest of the pipeline (ProteinMPNN/ESMFold/RMSD) is healthy on real backbones.
+- Job ID: 28551152. Output: `slurm_ca_eval_probe_28551152.out`; summary JSON at `script_utils/probe_ca_eval/outputs/summary.json`.
+
+**Results so far:**
+
+Geometry diagnostic (no GPU). Bond lengths are pinned by construction (`ca_to_backbone_atom37` uses ideal 1.459 Å / 1.525 Å), so the live signal is the N-CA-C angle:
+
+| Source | Protein | L | \|N-CA\| Å | \|CA-C\| Å | **N-CA-C deg (mean ± std)** |
+|---|---|---|---|---|---|
+| Native PDB | 5L33 | 106 (BB-complete) | 1.457 ± 0.006 | 1.522 ± 0.007 | **111.03 ± 1.88** |
+| Reconstructed | 5L33 | 106 | 1.459 ± 0.000 | 1.525 ± 0.000 | **109.90 ± 19.38** |
+| Native PDB | 6MRR | 68 (BB-complete) | 1.456 ± 0.007 | 1.521 ± 0.005 | **110.45 ± 1.98** |
+| Reconstructed | 6MRR | 68 | 1.459 ± 0.000 | 1.525 ± 0.000 | **106.03 ± 13.92** |
+
+Mean of the reconstructed angle is roughly correct (110° vs native 111°) but per-residue variance is **~10× the native variance**. Algebraic reason: the reconstruction places N along Caᵢ₋₁→Caᵢ and C along Caᵢ→Caᵢ₊₁, so the reconstructed N-CA-C angle equals the **virtual bond angle** Caᵢ₋₁-Caᵢ-Caᵢ₊₁, not the internal residue geometry. Real proteins have virtual bond angles ~88° in helix and ~120° in sheet, with sharp deviations at turns — that range is what the reconstructed N-CA-C inherits. Vanilla ProteinMPNN was trained on the tight ±2° native distribution, so a fraction of residues (turns, loops, breakpoints) sit OOD.
+
+SLURM probe results: not yet available; will be appended to this entry once the job runs.
+
+**Possible narrative:** Non-narrative — diagnostic, decides whether to re-run all CA-only designability numbers (E008–E012). If A vs B gap is ≥ 0.5 Å on real natives, re-evaluation of all CA-only checkpoints under path B becomes mandatory before any thesis claim about variant ordering is final. If gap is < 0.2 Å, current numbers stand and we move on.
+
+**Methodological caveats:**
+- N=2 native proteins, both short (71aa, 109aa). Probe cannot distinguish "is the eval recipe biased at all" (which it should answer cleanly) from "is the bias length-dependent" (which would require a 200-aa and 400-aa native added). Length-dependence question deferred until short-protein result lands.
+- `ca_to_backbone_atom37` boundary residues use a duplicated direction (`forward[0]` for residue 0; `forward[-1]` for residue N-1). Effect dominates at small L; should be largely invisible at L > 100. Not a confound for the test as set up.
+- "Designable" decision threshold (CA-RMSD < 2 Å) is the field-standard cutoff; numbers reported here are min/mean over 8 ProteinMPNN sequences as the literature standard. No multi-seed.
+- ESMFold call cost dominates the wall-clock; no re-runs planned in the same job.
 
 ---
