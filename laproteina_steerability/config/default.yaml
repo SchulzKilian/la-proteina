@@ -15,7 +15,7 @@ data:
     ca_atom_index: 1           # index into atom dim to extract CA (OpenFold order: 0=N, 1=CA, 2=C)
     protein_id: "id"           # string
     # length: omitted — derived from latents.shape[0]
-  subsample: null              # null = use all; int = random subsample of proteins
+  subsample: 2000              # null = use all; int = random subsample of proteins
   length_range: [300, 800]     # [min, max] inclusive; null = no filter
 
 # --- Outputs ---

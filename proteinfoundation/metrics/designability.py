@@ -372,7 +372,7 @@ def scRMSD(
             num_seq_per_target=num_seq_per_target,
             sampling_temp=pmpnn_sampling_temp,
             fix_pos=motif_index,
-            ca_only=False,  # Use vanilla model: backbone (N/CA/C/O) is always present
+            ca_only=True,  # CA-only generation: PDBs contain only CA atoms
         )  # List of sequences
         gen_seqs = [v["seq"] for v in gen_seqs]
         suffix = "mpnn"
@@ -557,7 +557,7 @@ def sc_sequence_recovery(
         num_seq_per_target=num_seq_per_target,
         sampling_temp=pmpnn_sampling_temp,
         fix_pos=motif_index,
-        ca_only=False,  # Use vanilla model: backbone (N/CA/C/O) is always present
+        ca_only=True,  # CA-only generation: PDBs contain only CA atoms
     )  # List of sequences
 
     pdb_seq = extract_seq_from_pdb(pdb_file_path)

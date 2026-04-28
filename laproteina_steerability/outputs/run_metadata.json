@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-04-15T11:06:43.038552+00:00",
-  "git_hash": "36c7d82860099e167db8a4e15f269915a96c37b8",
-  "dataset_size": 500,
+  "timestamp": "2026-04-27T18:01:20.661042+00:00",
+  "git_hash": "205a485f5a9e766f5788849cdb42ee16180ae876",
+  "dataset_size": 2000,
   "config": {
     "seed": 42,
     "log_level": "INFO",
     "data": {
-      "latent_dir": "/rds/user/ks2218/hpc-work/processed_latents",
+      "latent_dir": "/home/ks2218/la-proteina/data/pdb_train/processed_latents_300_800",
       "file_format": "pt",
       "field_names": {
         "latents": "mean",
@@ -14,7 +14,7 @@
         "ca_atom_index": 1,
         "protein_id": "id"
       },
-      "subsample": null,
+      "subsample": 2000,
       "length_range": [
         300,
         800
@@ -65,7 +65,8 @@
         "sap": "protein",
         "scm_positive": "protein",
         "scm_negative": "protein",
-        "rg": "protein"
+        "rg": "protein",
+        "camsol_intrinsic": "protein"
       },
       "property_names": [
         "swi",
@@ -80,7 +81,8 @@
         "sap",
         "scm_positive",
         "scm_negative",
-        "rg"
+        "rg",
+        "camsol_intrinsic"
       ],
       "goodhart_pairs": [
         [
@@ -94,6 +96,10 @@
         [
           "swi",
           "sap"
+        ],
+        [
+          "tango",
+          "camsol_intrinsic"
         ]
       ],
       "corr_cluster_threshold": 0.8,
@@ -141,12 +147,13 @@
       }
     }
   },
-  "part": "latent_interpretability",
-  "n_residues": 201845,
-  "latent_dim": 8,
-  "features": [
-    "residue_identity",
-    "dist_to_com",
-    "neighbour_count"
-  ]
+  "part": "part2_property_probes",
+  "n_properties": 14,
+  "noise_levels": [
+    0.3,
+    0.5,
+    0.8,
+    1.0
+  ],
+  "t_convention": "code (0=noise, 1=clean)"
 }

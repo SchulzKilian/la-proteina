@@ -1,4 +1,5 @@
 prop_a,prop_b,correlation,diverges
-scm_positive,scm_negative,-0.5178272916780081,False
-tango,sap,0.3631687865220455,True
-swi,sap,-0.20527057850263605,True
+scm_positive,scm_negative,-0.5387573566055507,False
+tango,sap,0.3987198909384636,True
+swi,sap,-0.21427131174940925,True
+tango,camsol_intrinsic,-0.37206942415929467,True

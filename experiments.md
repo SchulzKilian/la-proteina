@@ -38,6 +38,8 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E014](#e014--four-run-n30-designability-comparison-baseline--v2--wd0--sparse-2026-04-27) | 2026-04-27 | finished | N=30/length matched-seed designability across baseline/v2/wd0/sparse | → Finding 8 (N=30 update) |
 | [E015](#e015--three-wd-weight-norm-comparison--feasibility-of-param-group-fix-2026-04-27) | 2026-04-27 | finished | wd ∈ {0, 0.05, 0.1} per-layer gate + non-gate norm diff; pre-registration check for AdaLN-Zero param-group-fix experiment | non-narrative — disconfirmed a planned experiment's premise |
 | [E016](#e016--ca-only-eval-pipeline-audit-reconstructed-bb-vs-ca-only-mpnn-2026-04-28) | 2026-04-28 | in progress | Audit of designability eval for CA-only generations: backbone-reconstruction geometry + SLURM probe on real natives | non-narrative — decides whether CA-only designability numbers need re-computing |
+| [E017](#e017--paramgroups--wd01-quick-probe--proteinmpnn-ca_only-bug-fix-2026-04-28) | 2026-04-28 | finished | First clean designability probe (paramgroups+wd=0.1, n=9) after fixing the `ca_only=False` MPNN bug | pending — invalidates all prior CA-only designability numbers |
+| [E018](#e018--baseline-bugfix-recheck--paramgroups-n6-followup-2026-04-28) | 2026-04-28 | finished | Re-eval 9 baseline PDBs with fixed MPNN + paramgroups N=6 follow-up | pending — quantifies bug impact, flags Finding 8 numbers as unreliable |
 
 ---
 
@@ -1065,5 +1067,166 @@ SLURM probe results: not yet available; will be appended to this entry once the 
 - `ca_to_backbone_atom37` boundary residues use a duplicated direction (`forward[0]` for residue 0; `forward[-1]` for residue N-1). Effect dominates at small L; should be largely invisible at L > 100. Not a confound for the test as set up.
 - "Designable" decision threshold (CA-RMSD < 2 Å) is the field-standard cutoff; numbers reported here are min/mean over 8 ProteinMPNN sequences as the literature standard. No multi-seed.
 - ESMFold call cost dominates the wall-clock; no re-runs planned in the same job.
+---
+
+## E017 — paramgroups + wd=0.1 quick probe + ProteinMPNN `ca_only` bug fix (2026-04-28)
+
+**Status:** finished.
+
+**Why ran:** Two questions, one run.
+1. **Sanity-check the new "paramgroups + wd=0.1" training arm** (`store/ca_only_paramgroups_wd0p1/1777342310/`, ckpt `best_val_00000019_000000001952.ckpt`, ≈ opt step 1952) — does CA-only training under wd=0.1 succeed at producing designable structures *if* AdaLN-Zero gates (and biases / LN params / embeddings) are excluded from weight decay via parameter-group splits in `configure_optimizers`? This is the direct test of the gate-collapse hypothesis from Findings 5/6: the v2 run failed at wd=0.1 because uniform wd crushed the gates; if the gate-collapse explanation is correct, paramgroup-excluded wd=0.1 should *not* fail.
+2. **First eval after fixing a ProteinMPNN bug** in `proteinfoundation/metrics/designability.py:375,560`. Both call sites had `ca_only=False` hardcoded with the comment *"Use vanilla model: backbone (N/CA/C/O) is always present"*. For CA-only generation that is incorrect: only CA atoms are written to the PDB, so vanilla MPNN sees a structure with no N/C/O atoms and its sequence designs are unreliable. Flipping both sites to `ca_only=True` is the bug fix; this E015 probe is the first designability eval ever run on this codebase under the correct MPNN setting.
+
+**Configs:**
+- New inference config: `configs/inference_paramgroups_wd0p1_quick.yaml` — modeled on `inference_ucond_notri_ca_only_v2_quick.yaml`, with the ckpt path/name above and a smaller workload (3 lengths × 3 samples × 200 ODE steps = **9 total samples** at L ∈ {50, 100, 200}). `nsteps=200`, `nsamples=3`, `max_nsamples_per_batch=3`. Generation block otherwise inherits canonical CA-only sampling settings from `inference_base.yaml` + `generation/uncond_codes_ca_only.yaml`.
+- New wrapper: `script_utils/gen_n_eval_paramgroups_wd0p1.sh` — sbatch-able header, `--exclude=gpu-q-43`, but actually run interactively here (see hardware below).
+- Bug fix (independent of this experiment but applied before it ran): `proteinfoundation/metrics/designability.py:375` and `:560` — `ca_only=False` → `ca_only=True`. Both call sites are inside `scRMSD()` and `seq_recovery_proteinmpnn()`. The fix is repo-wide; if a non-CA-only model (full La Proteina with the AE) is later evaluated on the same code path, the eval will then incorrectly use CA-only MPNN on a full-atom PDB. To be threaded through the eval config (`ca_only_mpnn: true/false`) when that comes up.
+- Hardware: local non-HPC machine `gxp-l4-0` with 2× NVIDIA L4 24 GB. Conda env `/home/ks2218/.conda/envs/laproteina_env` (NOT the Cambridge `/home/ks2218/conda_envs/...` path; that env doesn't exist on this host). Single-GPU run.
+- Output dir: `inference/inference_paramgroups_wd0p1_quick/`. Generation log: `/tmp/gen_paramgroups_wd0p1.log`. Eval log: `/tmp/eval_paramgroups_wd0p1.log`.
+- Wall-clock: generation ~3-4 min; eval ~4 min (9 PDBs × ~25-30 s/PDB on L4 incl. ESMFold; L=200 PDBs take ~50 s each, L=50 ~7 s each). Total ≈ 8 min.
+
+**Results — per-protein min scRMSD over 8 ProteinMPNN sequences (CA mode, ESMFold; bb3o numbers within ~0.1 Å):**
+
+| L | id | min scRMSD (Å) | designable (<2 Å) |
+|---|---|---|---|
+| 50  | 0 |  2.73 | no |
+| 50  | 1 |  3.20 | no |
+| 50  | 2 |  1.998 | yes (borderline) |
+| 100 | 0 |  1.07 | yes |
+| 100 | 1 |  1.31 | yes |
+| 100 | 2 |  0.94 | yes |
+| 200 | 0 |  2.56 | no |
+| 200 | 1 | 14.42 | no |
+| 200 | 2 | 11.56 | no |
+
+Per-length designability rate: **L=50 = 1/3 (33%), L=100 = 3/3 (100%), L=200 = 0/3 (0%)**. Overall: 4/9 = 44% (matches the eval script's printed "Success Rate (<2Å): 44.4%"). Mean min-scRMSD across all 9: 4.42 Å. Best in the entire probe: 0.94 Å (L=100, id_2).
+
+Full per-MPNN-seq scRMSD lists (CA mode) preserved in `/tmp/eval_paramgroups_wd0p1.log`; representative example (L=100 id_2): `[1.09, 0.94, 3.75, 1.00, 3.09, 1.06, 20.33, 1.43]` — 5 of 8 sequences fold below 2 Å, plus one outlier at 20 Å (a designable hit, not a marginal one).
+
+**Possible narrative:** Pending. Two distinct stories sit on top of this run:
+
+1. **The ProteinMPNN `ca_only` bug invalidates every prior CA-only designability number in this repo.** That includes: E007 (steering eval), E012 (three-run baseline/v2/sparse table), and E014 (the four-run N=30 comparison that backs Finding 8 in `content_masterarbeit.md`). All those results were computed with `ca_only=False` MPNN against CA-only PDBs, i.e. with MPNN seeing only the CA channel of a 4-atom expectation. The numbers may be biased low (artificially many 0/30s) or biased noisily — direction of the bias has to be measured by re-running, not assumed. **Until E014 is re-run with the fix, Finding 8's "wd=0.1 collapses designability vs canonical wd=0.05" claim cannot be defended at the published numerical level.** The qualitative claim *might* hold; the specific 23.3% / 16.7% / 0% per-length breakdown for v2 almost certainly doesn't.
+2. **paramgroups + wd=0.1 looks healthy at L=100.** 3/3 with mins of 0.94 / 1.07 / 1.31 Å is well above the canonical bar (1-2/3) at this length. L=50 = 1/3 (id_2 at 1.998 Å) just clears it. This is consistent with the gate-collapse hypothesis: parameter-group exclusion of AdaLN-Zero gates (zero-init parameters that need to *grow* during training) from weight decay would prevent the wd=0.1 collapse seen in v2. But: this comparison is to v2 numbers that themselves were buggy, so the strength of the support for the hypothesis is currently weaker than it would seem. Without an apples-to-apples paramgroup vs no-paramgroup comparison **both evaluated under the fixed MPNN**, the paramgroup intervention's effect size is not pinned down.
+
+Action items implied (not done in this entry):
+- Re-run E014's four-arm N=30 designability probe with the MPNN fix. ~3h L4 wall-clock. Promote the resulting numbers into Finding 8 (and back-link the old buggy numbers as superseded, per the append-only rule).
+- Run a paramgroups+wd=0.1 N=30 probe at the same lengths so it can be added as a fifth column in the comparison table. Cheap (~50 min L4) since the ckpt is already local.
+- Audit `content_masterarbeit.md` for every numerical designability claim and tag any that came from `ca_only=False` MPNN as "preliminary, pending re-eval".
+
+**Methodological caveats:**
+- **N=9 total, N=3 per length, single seed.** This is the canonical "small probe" from CLAUDE.md ("1-2/3 designable at L=50 and L=100"), not an N=30 production result. Binomial CI on per-length rate is ~±55% absolute at N=3. The 3/3 at L=100 is not significantly different from 2/3 at this N, and a *2*/3 outcome at L=50 instead of 1/3 also wouldn't change the conclusion. The point of this probe is to confirm the ckpt isn't broken (it isn't), not to rank it against other recipes.
+- **Borderline at L=50.** id_2's min scRMSD is 1.998 Å — 0.002 Å below the 2 Å threshold. The "1/3 designable" call is essentially a coin flip; 1/3 vs 0/3 here should not be interpreted as different from 0/3 at this single-sample resolution.
+- **L=200 is genuinely bad (worst protein 14.42 Å), but at N=3 we cannot distinguish "0/3 because the recipe collapses at L=200" from "0/3 because the recipe matches baseline (which itself is 10% at L=200, so ~3/30 expected; 0/3 is then perfectly plausible noise)".** Need N=30 at L=200 to claim anything.
+- **L4 GPU vs A100 numerics.** No effect expected on the qualitative result (same noise floor as E014).
+- **The MPNN fix and the paramgroups recipe were tested in a single run.** They are not independently confounded with each other, but neither has an A/B comparison alongside it: there is no "paramgroups + wd=0.1, evaluated with the BUGGY MPNN" run, and no "v2 + buggy MPNN" run *re-run* with the fix. So we know "paramgroups+wd=0.1 + correct MPNN = 4/9 designable", and we know "v2 + buggy MPNN = 0/9 in earlier probes", but the cross-comparison still has *both* variables changing.
+
+**Cross-references:**
+- Bug-fix commit (pending): designability.py:375, :560.
+- Code added: `configs/inference_paramgroups_wd0p1_quick.yaml`, `script_utils/gen_n_eval_paramgroups_wd0p1.sh`.
+- Predecessor experiments potentially invalidated: E007, E012, E014.
+- Findings potentially affected: Finding 5, Finding 6, Finding 8 in `content_masterarbeit.md` (all derive from designability numbers computed with the buggy MPNN).
+- Superseded by E018 for the paramgroups headline (E018 has N=6, vs N=3 here). Kept here per the append-only rule.
+
+---
+
+## E018 — Baseline bugfix recheck + paramgroups N=6 follow-up (2026-04-28)
+
+**Status:** finished.
+
+**Why ran:** Two follow-ups to E017, both motivated by the same goal — separating the effect of the ProteinMPNN `ca_only` bug from the effect of the paramgroups+wd=0.1 recipe.
+1. **Re-evaluate the same 9 baseline PDBs** that were part of E014's N=30 baseline arm (`inference/inference_baseline_n30/job_0_n_{50,100,200}_id_{0,1,2}/`), using the bug-fixed MPNN. Identical PDBs, identical ESMFold pipeline; the only thing that changed is `ca_only=False` → `ca_only=True` in `designability.py`. This isolates the bug's effect on already-known good ckpt outputs and quantifies how much of the apparent "L=200 cliff" in Finding 8 is real vs an MPNN artifact.
+2. **Bump the paramgroups+wd=0.1 probe from N=3 to N=6 per length** to tighten the per-length rate (binomial CI on N=3 is ±55% absolute, on N=6 ±40%). Same ckpt as E015.
+
+**Configs:**
+- New eval-only config: `configs/inference_baseline_recheck_calpha.yaml` — modeled on `inference_paramgroups_wd0p1_quick.yaml`. Points at `baseline_wd0.05_step2646.ckpt` (already on disk locally; not actually loaded since generation is skipped). Lengths/nsamples are placeholders since `evaluate.py` only reads them for matching the inference dir layout.
+- Pre-staged inference dir: `inference/inference_baseline_recheck_calpha/job_0_n_{50,100,200}_id_{0,1,2}/job_0_n_{...}.pdb` — 9 PDBs total, copied verbatim from `inference_baseline_n30/`. Pre-existing `esmfold_output/` and `seqs/` subdirs from E014 were stripped before re-eval to force fresh MPNN+ESMFold passes.
+- Updated `inference_paramgroups_wd0p1_quick.yaml`: `nsamples: 3 → 6`, `max_nsamples_per_batch: 3 → 6`. Lengths unchanged ([50, 100, 200]).
+- Hardware: same as E017 (single NVIDIA L4, `gxp-l4-0`, env `/home/ks2218/.conda/envs/laproteina_env`).
+- Both runs used the bug-fixed `designability.py` (the `ca_only=True` flip from E017).
+- Eval logs: `/tmp/eval_baseline_recheck_calpha.log`, `/tmp/eval_paramgroups_wd0p1_n6.log`.
+- Generation log (paramgroups N=6 only): `/tmp/gen_paramgroups_wd0p1_n6.log`.
+- Wall-clock: baseline recheck ≈ 4 min (9 PDBs, no generation); paramgroups N=6 ≈ 4 min generation + ≈ 8 min eval (18 PDBs). Total ≈ 16 min.
+
+**Results — baseline recheck (same 9 PDBs as E014's first three id slots, OLD buggy MPNN values from `inference/results_inference_baseline_n30_0.csv`):**
+
+Per-protein min scRMSD (CA mode), OLD vs NEW (Δ = NEW − OLD):
+
+| L | id | OLD (`ca_only=False`) | NEW (`ca_only=True`) | Δ | designable old | designable new |
+|---|---|---|---|---|---|---|
+| 50  | 0 |  0.864 |  0.817 | −0.047 | yes | yes |
+| 50  | 1 |  3.553 |  4.954 | +1.401 | no  | no  |
+| 50  | 2 |  1.192 |  0.789 | −0.403 | yes | yes |
+| 100 | 0 |  1.530 |  1.017 | −0.513 | yes | yes |
+| 100 | 1 |  1.466 |  0.964 | −0.502 | yes | yes |
+| 100 | 2 |  1.797 |  1.344 | −0.453 | yes | yes |
+| 200 | 0 |  1.887 |  1.095 | −0.792 | yes | yes |
+| 200 | 1 |  9.135 |  1.548 | **−7.587** | no  | **yes** |
+| 200 | 2 |  2.790 |  1.069 | **−1.721** | no  | **yes** |
+
+8 of 9 PDBs improved; 1 of 9 regressed (L=50 id_1, an already-undesignable sample). Per-length designability rate on this slice:
+- L=50: 2/3 (67%) → 2/3 (67%) — same.
+- L=100: 3/3 (100%) → 3/3 (100%) — same (but mins moved from 1.5-1.8 Å to 1.0-1.3 Å).
+- L=200: 1/3 (33%) → **3/3 (100%)** — two PDBs that read as failed under buggy MPNN are actually designable.
+
+Overall: 6/9 (67%) → 8/9 (89%). Average min-scRMSD: 2.59 Å → 1.51 Å. The eval script's printed summary: "Average scRMSD: 1.511 Å, Success Rate (<2Å): 88.9%".
+
+**Interpretation:** the `ca_only=False` bug caused a strong positive bias in scRMSD (i.e. structures that were actually self-consistent looked unreliable). The bias is largest at L=200 (mean Δ ≈ −3.4 Å on this 3-protein slice) and almost exactly zero at L=50 (mean Δ ≈ +0.3 Å, dominated by the one regression). The "L=200 cliff" effect in Finding 8's E014 table is at least *partly* a measurement artifact — direction confirmed, magnitude needs full N=30 re-eval.
+
+**Results — paramgroups+wd=0.1 N=6:**
+
+Per-protein min scRMSD (CA mode):
+
+| L | id_0 | id_1 | id_2 | id_3 | id_4 | id_5 |
+|---|---|---|---|---|---|---|
+| 50  |  2.05 |  **1.57** |  2.42 |  8.57 |  **1.43** |  **1.27** |
+| 100 |  **0.94** |  3.05 |  **0.91** |  **0.69** |  **1.77** |  **1.73** |
+| 200 |  2.09 |  6.53 | 11.07 | 11.45 |  6.67 |  **1.69** |
+
+Per-length designability rate (min < 2 Å):
+- L=50:  3/6 (50%)
+- L=100: 5/6 (83%)
+- L=200: 1/6 (17%)
+- Overall: 9/18 = 50% (eval script: "Success Rate (<2Å): 50.0%, Average scRMSD: 3.661 Å").
+
+**Comparison to E017 (paramgroups N=3, same ckpt):**
+
+| L | E017 (N=3) | E018 (N=6) | combined N=9 if re-pooled (informational) |
+|---|---|---|---|
+| 50  | 1/3 (33%) | 3/6 (50%) | 4/9 (44%) |
+| 100 | 3/3 (100%) | 5/6 (83%) | 8/9 (89%) |
+| 200 | 0/3 (0%)  | 1/6 (17%) | 1/9 (11%) |
+
+(Note: E017's PDBs were a separate generation pass and use a different RNG state than E018, so the combined column is informational only.) The N=3 → N=6 sample shows regression to mean at L=100 (3/3 was lucky), and a slight bump at L=200 (the original 0/3 was also small-N noise). The per-length picture is consistent: paramgroups+wd=0.1 trains successfully, but L=200 is *not* near-100% the way the baseline N=3 recheck hinted — best L=200 sample only barely clears 2 Å (1.69).
+
+**Side-by-side designability rate matrix (this experiment, all under fixed MPNN):**
+
+| Recipe | step | L=50 | L=100 | L=200 | overall |
+|---|---|---|---|---|---|
+| baseline (canonical wd=0.05, no paramgroups) | 2646 | 2/3 (67%) | 3/3 (100%) | 3/3 (100%) | 8/9 (89%) |
+| paramgroups + wd=0.1 | 1952 | 3/6 (50%) | 5/6 (83%) | 1/6 (17%) | 9/18 (50%) |
+
+Direct comparison is confounded (see caveats); the table is included so a future reviewer can see the headline numbers in one place.
+
+**Possible narrative:** Pending. Two distinct stories that share evidence:
+1. **The `ca_only` bug had a measurable, length-dependent effect on E014's numbers.** Eight of nine baseline samples improved under the fix; the L=200 column is the most affected. **Re-running E014's full N=30 four-arm comparison with the fix is now load-bearing for any defensible version of Finding 8.** The current Finding 8 table in `content_masterarbeit.md` should be tagged "preliminary — pending re-evaluation under the bug-fixed MPNN" until that re-run lands, or removed.
+2. **Paramgroups+wd=0.1 probably trains successfully but underperforms canonical baseline at this snapshot.** L=100 looks healthy (5/6 = 83%), L=200 looks weak (1/6 = 17%) — consistent with E015's read but on more data. Whether this is a recipe issue or just an under-trained ckpt (1952 vs 2646 steps) is not separable from this single probe; would need a step-matched paramgroups checkpoint, OR a baseline recheck at step 1952 for direct comparison.
+
+Action items implied (not done in this entry, but now obvious):
+- **Re-run E014 with the fix.** Estimated 3 h on this L4 (4 ckpts × ~45 min each, generation cached). Promote results into Finding 8; back-link the buggy numbers as superseded.
+- **Add a paramgroups+wd=0.1 N=30 arm** to the re-run so it sits in the table on equal footing.
+- **(Optional) Re-eval baseline at step 1952** to make the paramgroups vs baseline comparison step-matched.
+
+**Methodological caveats:**
+- **Baseline N=3 is too small to read 100% at L=100/L=200 as "the recipe is at 100%".** E014's N=30 buggy numbers were 67% / 67% / 10%, so a fix-corrected N=30 will likely land somewhere in 80-95% / 90-100% / 30-60%, not 100% across the board. The 89% headline on baseline_recheck is on this 9-sample slice, not a per-length rate estimate.
+- **One regression in 9 PDBs (L=50 id_1, +1.4 Å)** suggests the fix is not purely better — some samples become harder when MPNN sees only the CA channel. Likely an MPNN-internal effect: at very short L=50 with bad backbone, vanilla mode could occasionally hit a happy hallucination, and CA-only is more honest. Sign of effect is unambiguous overall; magnitude is sample-dependent.
+- **Paramgroups N=6 is still small.** L=200 = 1/6 = 17% has 95% binomial CI ≈ [0.4%, 64%]. Cannot distinguish "16% true rate" from "0% true rate" from "40% true rate" at this N. N=30 needed for any per-length comparison.
+- **Step mismatch confound (1952 vs 2646)** means the paramgroups vs baseline rate comparison is not a clean test of the recipe.
+- **Single seed everywhere.** E014's protocol was seed=100; E017/E018 inherit `inference_base.yaml`'s `seed: 5`. No seed sweep. Within-seed L4 noise on min-scRMSD is ~0.5 Å.
+- **L=50 id_1 is a known difficult sample** (3.55 Å under buggy MPNN, 4.95 Å under fixed MPNN). It read as "non-designable" in both modes; the +1.4 Å delta is among the within-seed noise floor for this kind of sample but is the only direction-flipping data point in the recheck slice.
+
+**Cross-references:**
+- Builds on E017 (same MPNN bug fix, same paramgroups ckpt).
+- PDBs in `inference/inference_baseline_recheck_calpha/` are direct copies from `inference/inference_baseline_n30/` (E014). PDBs in `inference/inference_paramgroups_wd0p1_quick/` are now N=6, overwriting the N=3 set from E017 (regenerated from scratch; first N=3 not preserved separately on disk).
+- Implications for `content_masterarbeit.md → Finding 8`: deferred to a follow-up re-run of E014.
 
 ---

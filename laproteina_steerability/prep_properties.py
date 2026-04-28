@@ -2,7 +2,7 @@
 import pandas as pd
 from pathlib import Path
 
-CSV_PATH = "/rds/user/ks2218/hpc-work/developability_panel.csv"
+CSV_PATH = "/home/ks2218/la-proteina/developability_panel.csv"
 CAMSOL_PATH = "/home/ks2218/la-proteina/CamSolpH_results.txt"
 OUT_PATH = Path(__file__).parent / "data" / "properties.csv"
 

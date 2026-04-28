@@ -14,6 +14,10 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from src.multitask_predictor.dataset import PROPERTY_NAMES
+
+_N_PROPS = len(PROPERTY_NAMES)
+
 
 def _mean_pool(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """[B, L, D] × [B, L] → [B, D] mean over valid positions."""
@@ -24,7 +28,7 @@ def _mean_pool(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 class LinearProbe(nn.Module):
     """Linear: pool → linear head. Smallest probe. ~100 params."""
 
-    def __init__(self, latent_dim: int = 8, n_properties: int = 13):
+    def __init__(self, latent_dim: int = 8, n_properties: int = _N_PROPS):
         super().__init__()
         self.head = nn.Linear(latent_dim, n_properties)
 
@@ -40,7 +44,7 @@ class MLPProbe(nn.Module):
         latent_dim: int = 8,
         hidden: int = 64,
         n_layers: int = 1,
-        n_properties: int = 13,
+        n_properties: int = _N_PROPS,
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -69,7 +73,7 @@ class PerResidueMLPProbe(nn.Module):
         latent_dim: int = 8,
         hidden: int = 128,
         n_layers: int = 2,
-        n_properties: int = 13,
+        n_properties: int = _N_PROPS,
         dropout: float = 0.1,
     ):
         super().__init__()

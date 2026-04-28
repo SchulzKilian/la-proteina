@@ -1,0 +1,23 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_baseline_recheck_calpha
+config_name: inference_baseline_recheck_calpha
+
+# Canonical CA-only baseline ckpt (E008 / E014). PDBs to evaluate are
+# pre-staged from inference/inference_baseline_n30/ (id_0,1,2 at each L)
+# — generation is skipped; this config exists only to drive evaluate.py.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: baseline_wd0.05_step2646.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 200
+  dataset:
+    nsamples: 3
+    max_nsamples_per_batch: 3
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

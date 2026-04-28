@@ -1,0 +1,24 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_paramgroups_wd0p1_quick
+config_name: inference_paramgroups_wd0p1_quick
+
+# Checkpoint rsynced from HPC:
+#   /rds/user/ks2218/hpc-work/store/ca_only_paramgroups_wd0p1/1777342310/checkpoints/
+# Lands at repo root via the standard `rsync -avhP ... ./` convention.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000019_000000001952.ckpt
+autoencoder_ckpt_path:
+
+# Probe: 3 lengths × 6 samples × 200 ODE steps.
+generation:
+  args:
+    nsteps: 200
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]
