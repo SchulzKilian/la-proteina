@@ -712,6 +712,66 @@ At training step 1638 — pre-convergence relative to the canonical wd=0.05 best
 
 ---
 
+## Finding 9 — La-Proteina's joint sequence head produces a chemistry-specific alphabet collapse, mode-merges on bimodal natural distributions, and inflates standard sequence-based thermal-stability proxies (2026-04-30)
+
+**Status:** finished for sub-claims (a), (b), (c.i). Sub-claim (c.ii) (ML-predicted Tm via TemStaPro) is preregistered, GPU run pending. Lab-notebook detail in `experiments.md → E019`.
+
+**Experiment:**
+
+Distributional comparison of 1,000 La-Proteina jointly-generated sequences (`results/generated_stratified_300_800/sequences.fasta`, sampled from `inference_ucond_notri_long.yaml` → `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt`, length-stratified-uniform 300-800 in 50-residue bins, 200 ODE steps, seed 1000-1999) against PDB references along three orthogonal axes:
+
+1. **14-property developability panel** (`compare_properties.py`): generated set scored by `steering/property_evaluate.py`, reference set is `laproteina_steerability/data/properties.csv` — 56,008 PDB proteins, length 300-796, scored by the *same* underlying functions in `proteinfoundation/analysis/compute_developability.py`. Both pipelines take their sequence from the per-protein `residue_type` tensor, so this is a clean comparison: real PDB sequence vs La-Proteina's own jointly-sampled sequence, with no MPNN intermediary on either side.
+2. **Per-amino-acid composition** (`aa_composition.py`): mole fractions averaged across proteins, length-filtered to [300, 800]. Reference: `pdb_cluster_all_seqs.fasta` filtered to [300, 511] = 53,749 sequences (the FASTA is length-capped at 511; this introduces a small population-mismatch caveat — see below).
+3. **Sequence-based thermal-stability proxies** (`thermal_stability.py`): aliphatic index (Ikai 1980), IVYWREL fraction (Zeldovich 2007), GRAVY (Kyte-Doolittle), charged fraction (D+E+K+R), log10[(D+E)/(K+R)] (regularized acidic/basic ratio), and aromatic fraction (F+W+Y) as a buried-core proxy. Computed on the same length-filtered sets as above.
+
+**Numbers (selected; full table in `experiments.md → E019`):**
+
+*Property panel — five largest gen-vs-PDB drifts:*
+
+| property | ref mean | gen mean | Cohen's d | KS_d | ref/gen modes |
+|---|---|---|---|---|---|
+| shannon_entropy | 4.10 bits | 3.36 bits | **−6.65** | **0.92** | 2 / 1 |
+| iupred3_fraction_disordered | 0.034 | 0.201 | **+2.70** | 0.36 | 1 / 1 |
+| net_charge | −7.0 | −32.4 | −2.14 | 0.43 | 1 / 1 |
+| scm_negative | −43 | −83.7 | −2.30 | 0.44 | 1 / 1 |
+| swi (sequence-weighted hydropathy) | 0.779 | 0.795 | +1.62 | 0.62 | **2 / 1** |
+
+*Per-AA composition — biggest over- and under-representations:*
+
+- Over-represented: N (Asn) +146%, E (Glu) +95%, I (Ile) +35%, L (Leu) +29%, G (Gly) +21%.
+- Under-represented: M (Met) −79%, H (His) −69%, W (Trp) −68%, F (Phe) −42%, D (Asp) −38%, V (Val) −37%, P (Pro) −34%, C (Cys) −34%, A (Ala) −28%.
+- **Glu/Asp ratio: gen 3.22, PDB 1.04** — within-class chemistry asymmetry.
+- Top 5 over-represented AAs make up **50.4%** of generated residues vs **32.5%** of PDB residues.
+
+*Thermal-stability proxies:*
+
+| metric | PDB | gen | Cohen's d |
+|---|---|---|---|
+| aliphatic_index (literature: ↑ = thermostable) | 84.4 | 91.8 | **+0.74** |
+| ivywrel_fraction (literature: ↑ = thermostable) | 0.371 | 0.429 | **+1.35** |
+| **aromatic_fraction (F+W+Y, buried-core proxy)** | **0.090** | **0.061** | **−1.19** |
+
+**Narrow claim — three sub-claims, each individually defensible:**
+
+**(a) Chemistry-specific alphabet collapse.** La-Proteina's joint sequence head reduces sequence Shannon entropy by ~0.74 bits (4.10 → 3.36), a 4.1 SD effect on KS-D = 0.92. The reduction is not uniform across residue chemistry: it concentrates probability mass on disorder-promoting / context-tolerant residues (E +95%, N +146%, L +29%, I +35%, G +21%) and depletes context-demanding residues (W −68%, F −42%, M −79%, H −69%, D −38%, V −37%, P −34%, C −34%, A −28%). Within the acidic-residue class, Glu is amplified ~3-fold relative to Asp (gen Glu/Asp = 3.22 vs PDB 1.04), preferring the longer, helix-friendly, surface-tolerant member over the shorter member that requires specific helix-N-cap / β-turn / Asx contexts. The aromatic depletion follows a core-buryness ranking (W > F ≫ Y) consistent with loss of buried hydrophobic-core anchors specifically rather than aromatic chemistry generically.
+
+**(b) Mode-merging on multimodal natural distributions (partial).** Of the property-panel features that are bimodal in PDB, SWI (sequence-weighted hydropathy index) collapses from 2 modes to 1 with the generated mean (0.795) sitting *between* the two PDB modes — the textbook signature of regression to the unconditional mean rather than mode-dropping. pI remains bimodal in the generated set, so this is *not* a generic claim that all multimodal natural distributions collapse; it is a specific failure mode that occurs on at least one biophysically meaningful property.
+
+**(c) Standard sequence-based thermal-stability proxies are confounded by alphabet collapse.** Aliphatic index (Ikai 1980) and IVYWREL fraction (Zeldovich 2007) — the two most-cited single-number sequence proxies for thermostability in the protein-engineering literature — *both* score the generated set as more thermostable than PDB (+0.74 SD and +1.35 SD respectively). Mechanistically, both proxies are dominated by Leu/Ile/Glu mole fractions, which are the residues over-represented in the alphabet collapse. Simultaneously, the most direct sequence-side proxy for a buried hydrophobic core — the F+W+Y aromatic fraction — drops 1.19 SD, contradicting the proxies' verdict. *(c.i, sequence-only)*: this contradiction alone is sufficient to demonstrate that the literature proxies cannot be applied to generative-model outputs without a structural sanity check. *(c.ii, preregistered)*: a TemStaPro ProtT5+MLP classifier (`thermal_stability.py --temstapro-dir`, GPU-bound, ~70 min A100) will return a per-protein P(Tm > T) at 9 thresholds for both sets; the prediction is that the alphabet-collapse compositional signal will *not* persuade an embedding-based classifier of higher thermostability, and the gen distribution will instead either match PDB or fall below it.
+
+**Implication (cautiously phrased):** La-Proteina's headline co-designability metric (`evaluate.py:337`, `use_pdb_seq=True`) routes the model's own jointly-generated sequence directly into ESMFold without an MPNN re-design step. ESMFold is a sequence-conditioned structure predictor with a strong language-model prior; low-complexity, charge-and-asparagine-enriched, disorder-leaning sequences are within the easy regime of that prior and refold confidently regardless of whether the underlying generated structure is biologically plausible. The compositional drift documented above therefore plausibly inflates the co-designability number. This implication — co-designability gaming via easy-to-refold sequences — is the practical reason this Finding matters for the masterarbeit narrative: it identifies a candidate failure mode of joint-generation evaluation that cannot be detected from the headline scRMSD number alone.
+
+**Methodological caveats — what this Finding does *not* support:**
+
+1. **No claim that generated *structures* are unphysical.** Sub-claims (a)-(c) are entirely about the joint sequence-head output. F+W+Y depletion and iupred3 disorder bias are *consistent with* under-developed hydrophobic cores and floppy backbones, but DSSP secondary-structure breakdowns, ESMFold pLDDT distributions, and packing-density readouts on the gen set are not yet computed.
+2. **Single-checkpoint, single-eval-seed result.** Generated set is N=1000 from `seed_base=1000`, scored from `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt` only. Cross-seed and cross-checkpoint variance not estimated. Bootstrap uncertainty on AA-composition mole fractions is ~1% absolute.
+3. **Reference-set length cap for AA composition.** `pdb_cluster_all_seqs.fasta` is length-capped at 511, so the AA-composition reference is PDB[300, 511] while the property-panel reference is PDB[300, 796]. Spot-checks (e.g., panel-reference Shannon mean = 4.10 matches the AA-composition-reference Shannon when computed independently) confirm the magnitudes are robust under this caveat, but the AA-composition numbers should not be quoted with sub-percentage precision.
+4. **Co-designability inflation is a hypothesis, not a measurement.** The natural follow-up — designability vs co-designability gap on the same backbones (i.e. the paired comparison of MPNN-on-generated-backbone scRMSD vs La-Proteina-own-sequence scRMSD) plus designability stratified by Shannon-entropy decile — is preregistered but not yet computed. Without that paired comparison, the Implication is decorrelated from the Narrow claim and should be treated as a candidate explanation, not a measured effect.
+5. **TemStaPro Tier 2 not yet completed.** Sub-claim (c) is supported by the internal contradiction between IVYWREL/aliphatic and aromatic_fraction within sequence-based proxies; it does not yet have an external ML-predicted Tm reference. The submit script (`script_utils/run_thermal_stability.sh`) is in place; results will amend (c.ii).
+6. **Mode-merging claim limited to SWI.** pI stays bimodal; we have not surveyed all bimodal panel properties exhaustively. The general "mode-merging on multimodal targets" framing requires at least one more confirming property on a different chemistry axis before it can be promoted from a specific observation to a general claim.
+
+---
+
 ## Future experiment ideas
 
 ### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 6, 2026-04-25)

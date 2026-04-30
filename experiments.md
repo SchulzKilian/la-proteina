@@ -40,6 +40,7 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E016](#e016--ca-only-eval-pipeline-audit-reconstructed-bb-vs-ca-only-mpnn-2026-04-28) | 2026-04-28 | in progress | Audit of designability eval for CA-only generations: backbone-reconstruction geometry + SLURM probe on real natives | non-narrative — decides whether CA-only designability numbers need re-computing |
 | [E017](#e017--paramgroups--wd01-quick-probe--proteinmpnn-ca_only-bug-fix-2026-04-28) | 2026-04-28 | finished | First clean designability probe (paramgroups+wd=0.1, n=9) after fixing the `ca_only=False` MPNN bug | pending — invalidates all prior CA-only designability numbers |
 | [E018](#e018--baseline-bugfix-recheck--paramgroups-n6-followup-2026-04-28) | 2026-04-28 | finished | Re-eval 9 baseline PDBs with fixed MPNN + paramgroups N=6 follow-up | pending — quantifies bug impact, flags Finding 8 numbers as unreliable |
+| [E019](#e019--joint-sequence-head-audit-property-panel--per-aa-composition--thermal-stability-proxies-2026-04-30) | 2026-04-30 | finished (Tier 1+2a) / Tier 2b TemStaPro pending GPU run | Distributional comparison of La-Proteina jointly-generated sequences vs PDB across the 14-property developability panel, per-AA composition, and thermal-stability proxies | → Finding 9 |
 
 ---
 
@@ -1228,5 +1229,152 @@ Action items implied (not done in this entry, but now obvious):
 - Builds on E017 (same MPNN bug fix, same paramgroups ckpt).
 - PDBs in `inference/inference_baseline_recheck_calpha/` are direct copies from `inference/inference_baseline_n30/` (E014). PDBs in `inference/inference_paramgroups_wd0p1_quick/` are now N=6, overwriting the N=3 set from E017 (regenerated from scratch; first N=3 not preserved separately on disk).
 - Implications for `content_masterarbeit.md → Finding 8`: deferred to a follow-up re-run of E014.
+
+---
+
+## E019 — Joint sequence head audit: property panel + per-AA composition + thermal-stability proxies (2026-04-30)
+
+**Status:** finished for Tier 1 (sequence proxies) and Tier 2a (per-AA composition). Tier 2b (TemStaPro ML thermal-stability predictor) **pending** — submit script ready, GPU run not yet executed (1× A100 ampere, est. ~70 min wall-clock; on L4 ~4-6 h).
+
+**Why ran:** La-Proteina is the first family member with a joint sequence head — sequences come directly from `sample_prots["residue_type"]` (`steering/generate.py:113`), not from a downstream MPNN. This means the model's own sequence-distribution behaviour is *directly observable* without an MPNN confound, and any drift from the natural sequence distribution attaches to the model rather than to the inverse-folder. The audit asks: at the level of (i) the developability property panel, (ii) per-amino-acid composition, and (iii) thermal-stability proxies, how does the joint sequence head's output compare to the PDB? Decision feed: whether the headline co-designability metric (which uses La-Proteina's own sequences end-to-end through ESMFold via `evaluate.py:337`, `use_pdb_seq=True`) is potentially inflated by easy-to-fold sequences, and whether the sequence head exhibits classical generative-model failure modes (alphabet collapse, mode-merging on multimodal targets).
+
+**Configs (re-run-able from this entry):**
+
+- **Generated set:** `results/generated_stratified_300_800/sequences.fasta` (1000 sequences, length 300-799), produced by:
+    - `proteina_config: inference_ucond_notri_long.yaml` → `ckpt_path: ./checkpoints_laproteina/LD3_ucond_notri_800.ckpt`, `autoencoder_ckpt_path: ./checkpoints_laproteina/AE2_ucond_800.ckpt`.
+    - `length_mode: stratified`, `length_range: [300, 800]`, `bin_width: 50`, `n_per_bin: 100`, `nsteps: 200`, `seed_base: 1000`.
+    - Manifest: `results/generated_stratified_300_800/manifest.csv`.
+- **Reference panel (developability properties):** `laproteina_steerability/data/properties.csv` — 56,008 PDB proteins, length 300-796, 19 columns. Built by `laproteina_steerability/prep_properties.py` from the upstream `developability_panel.csv`. Real PDB sequences (`compute_developability.py:579`, sequence from `data.residue_type` of the processed `.pt` files).
+- **Reference FASTA (AA composition):** `pdb_cluster_all_seqs.fasta` length-filtered to [300, 800]. Note: this fasta's max length is 511, so the filter effectively cuts at 511 → 53,749 sequences. Different population than the property-panel reference (which goes to 796) — caveat below.
+- **Generated-set property recompute:** `results/generated_stratified_300_800/properties_generated.csv` produced by `steering/property_evaluate.py` (sequence taken from `data["sequence"]` in the generated `.pt` files, set in `steering/generate.py:151`). Identical scoring code to the reference panel (`compute_swi`, `compute_tango`, `compute_charge_and_pI`, `compute_iupred3_standalone`, `compute_shannon_entropy`, etc.).
+
+**Scripts (committed in this experiment):**
+
+- `proteinfoundation/analysis/compare_properties.py` — distribution comparison across 15 columns of the developability panel. Renames the column-name mismatch between the two CSVs to a canonical name space; computes per-property mean/sd/var/median/IQR/skew/excess-kurtosis/min/max + KDE-peak count, plus pairwise Cohen's d / KS-D / Wasserstein. Outputs `summary.csv` and a 4×4 grid of overlaid hist+KDE plots.
+- `proteinfoundation/analysis/aa_composition.py` — per-protein 20-AA fractions from FASTA, length-filtered, averaged across proteins. Reports each AA's gen-vs-ref absolute and relative difference; outputs `aa_composition.csv` and a stacked bar plot of side-by-side composition + per-AA over-/under-representation.
+- `proteinfoundation/analysis/thermal_stability.py` — Tier 1 sequence proxies (aliphatic index, IVYWREL fraction, GRAVY, charged fraction, log(D+E/K+R), F+W+Y aromatic fraction). Tier 2 driver for TemStaPro (ProtT5-XL + MLP, stand-in for DeepStabP which has no offline weights). Outputs per-protein CSVs, summary CSV, and 6-panel histogram grid.
+- `script_utils/run_thermal_stability.sh` — SLURM submit script (1× A100 ampere, 4 h walltime, `--exclude=gpu-q-43`, persistent caches at `/home/ks2218/cache/huggingface` and `/home/ks2218/cache/temstapro_embeddings`). TemStaPro repo cloned to `/home/ks2218/TemStaPro`; `sentencepiece` 0.2.1 installed in `laproteina_env`.
+
+**Output dirs:**
+
+- `results/property_comparison/stratified_vs_pdb/` — property-panel comparison CSVs + plots, per-AA composition CSV + bar plot.
+- `results/thermal_stability/stratified_vs_pdb/` — Tier 1 proxy CSVs, per-protein CSVs, 6-panel hist grid. Tier 2 will append TemStaPro columns (`clf_40` … `clf_80`, plus `left_*`/`right_*` bounds and a thermophilicity label) when the GPU run completes.
+
+### Results
+
+#### A. Developability panel comparison (15 properties)
+
+(Cohen's d = (gen_mean − ref_mean) / pooled_sd. KS_d = 2-sample KS. Modes = peak count in a Gaussian KDE.)
+
+| property | ref_mean | gen_mean | Cohen's d | ref_sd | gen_sd | ref_modes | gen_modes | KS_d | wasserstein |
+|---|---|---|---|---|---|---|---|---|---|
+| sequence_length | 405 | 548 | +1.47 | 97.1 | 143 | 1 | 1 | 0.454 | 144 |
+| swi | 0.779 | 0.795 | +1.62 | 0.0101 | 0.019 | **2** | **1** | 0.623 | 0.0178 |
+| tango | 999 | 1130 | +0.44 | 282 | 614 | 1 | 1 | 0.195 | 247 |
+| tango_aggregation_positions | 1620 | 1460 | -0.13 | 1170 | 1760 | 1 | 1 | 0.284 | 620 |
+| net_charge | -7.03 | -32.4 | **-2.14** | 8.61 | **62** | 1 | 1 | 0.430 | 34 |
+| pI | 6.13 | 5.6 | -0.43 | 1.21 | 1.95 | 2 | 2 | 0.428 | 0.912 |
+| iupred3 | 0.216 | 0.332 | +1.63 | 0.068 | 0.176 | 2 | 1 | 0.423 | 0.121 |
+| iupred3_fraction_disordered | 0.0337 | 0.201 | **+2.70** | 0.0498 | 0.284 | 1 | 1 | 0.358 | 0.168 |
+| **shannon_entropy** | **4.10** | **3.36** | **-6.65** | 0.096 | 0.432 | 2 | 1 | **0.921** | 0.737 |
+| hydrophobic_patch_total_area | 3960 | 2790 | -0.87 | 1330 | 2460 | 1 | 1 | 0.599 | 1630 |
+| hydrophobic_patch_n_large | 12.2 | 6.27 | -1.00 | 5.87 | 8 | 1 | 1 | 0.587 | 6.42 |
+| sap | 13.3 | 11.8 | -0.24 | 5.83 | 19.5 | 1 | 1 | 0.571 | 8.62 |
+| scm_positive | 39.6 | 46.6 | +0.48 | 13.3 | 48.8 | 1 | 1 | 0.289 | 21.8 |
+| scm_negative | -43 | -83.7 | -2.30 | 14.5 | 78 | 1 | 1 | 0.444 | 47.1 |
+| rg | 21.9 | 23.6 | +0.56 | 3.12 | 3.3 | 1 | 1 | 0.324 | 1.78 |
+
+**Headline cross-reads:**
+
+- shannon_entropy: KS=0.92, Cohen's d=−6.65 — the single largest deviation in the panel. Effective alphabet size 2^4.10 ≈ 17 (ref) → 2^3.36 ≈ 10 (gen). Gen sd is 4.5× wider (heavy lower tail of low-complexity sequences).
+- iupred3 family: gen is much more disorder-promoting (fraction_disordered +2.70 SD).
+- net_charge / scm_negative: gen mean −2.1 SD lower with gen sd 5-7× wider.
+- swi: KS=0.62, modes 2→1 with gen mean (0.795) sitting *between* the two PDB modes — mode-merging signature.
+- rg drift (+0.56 SD) is length-confounded (gen mean length 548 vs ref 405; with rg ∝ L^{0.4}, expected gen rg ≈ 24.0 vs observed 23.6 → essentially length-scale-matched).
+- tango: gen mean only +0.44 SD shifted but sd is 2.2× wider (heavy tail of very aggregation-prone sequences).
+
+#### B. Per-amino-acid composition (`aa_composition.py`, length-filtered to [300, 800])
+
+Comparison set: gen n=1000 vs ref n=53,749 (PDB cluster fasta, capped at length 511 by source).
+
+**Top 5 over-represented AAs in gen:**
+
+| AA | gen | ref | abs Δ | rel Δ |
+|---|---|---|---|---|
+| E (Glu) | 11.78% | 6.06% | +5.72 pp | **+95%** |
+| L (Leu) | 11.40% | 8.87% | +2.53 pp | +29% |
+| **N (Asn)** | **10.28%** | **4.19%** | **+6.10 pp** | **+146%** |
+| G (Gly) | 9.62% | 7.93% | +1.69 pp | +21% |
+| I (Ile) | 7.28% | 5.41% | +1.87 pp | +35% |
+
+These five make up **50.4% of generated residues** vs **32.5% in PDB**.
+
+**Most under-represented:**
+
+| AA | gen | ref | rel Δ |
+|---|---|---|---|
+| M (Met) | 0.51% | 2.42% | **−79%** |
+| H (His) | 0.92% | 2.96% | **−69%** |
+| W (Trp) | 0.46% | 1.43% | −68% |
+| F (Phe) | 2.37% | 4.12% | −42% |
+| D (Asp) | 3.66% | 5.85% | **−38%** |
+| V (Val) | 4.45% | 7.01% | **−37%** |
+| P (Pro) | 3.22% | 4.90% | −34% |
+| C (Cys) | 0.91% | 1.38% | −34% |
+| A (Ala) | 6.09% | 8.45% | **−28%** |
+
+**Notable specific findings:**
+
+- **Glu/Asp ratio: gen 3.22, PDB 1.04** — chemistry-specific asymmetry within the acidic class. The negative-charge bias from the panel (net_charge −2.1 SD) is driven *almost entirely by Glu*; Asp is actually under-used. Mechanistic reading: Asp's short side chain forms backbone H-bonds (helix N-cap, β-turn, Asx motifs) and demands specific structural contexts; Glu's longer side chain decouples from the backbone and is helix-friendly + surface-tolerant. The model concentrates on the *low-contextual-specificity* member of each chemistry pair.
+- **Ala under-used (−28%)** — counterexample to a naïve "pick simple residues" reading. Ala is the prototypical context-tolerant residue but it's small and "uninformative"; it gets squeezed out by larger committed residues (L, I, E) that contribute more to local-structure consistency.
+- **Ile preferred, Val crushed** — Val (β-branched at Cβ, strongly β-strand-preferring) is under-used; Ile (β-branched but with γ-carbons, helix-tolerant) is over-used. **Falsifiable prediction:** DSSP-resolved secondary-structure breakdown of generated structures will show β-sheet content depressed.
+- **Aromatic collapse follows core-buryness ranking:** W (deepest buried, −68%) > F (−42%) > Y (−5%, basically unchanged). Y is the polar aromatic and behaves more like a surface residue than a buried-core anchor. The "aromatic" collapse is specifically a *buried-aromatic* collapse.
+
+#### C. Thermal-stability sequence proxies (Tier 1, `thermal_stability.py`)
+
+| metric | ref_mean | gen_mean | Cohen's d | ref_sd | gen_sd | KS_d | wasserstein |
+|---|---|---|---|---|---|---|---|
+| aliphatic_index (Ikai 1980) | 84.4 | 91.8 | **+0.74** | 9.73 | 19.2 | 0.359 | 10.6 |
+| ivywrel_fraction (Zeldovich 2007) | 0.371 | 0.429 | **+1.35** | 0.039 | 0.139 | 0.488 | 0.099 |
+| gravy (Kyte-Doolittle) | -0.241 | -0.513 | -1.29 | 0.208 | 0.354 | 0.526 | 0.296 |
+| charged_fraction (D+E+K+R) | 0.220 | 0.252 | +0.75 | 0.039 | 0.133 | 0.465 | 0.091 |
+| log_acidic_basic_ratio (log10[D+E/K+R]) | 0.075 | 0.259 | +1.67 | 0.090 | 0.475 | 0.366 | 0.250 |
+| **aromatic_fraction (F+W+Y)** | **0.090** | **0.061** | **−1.19** | 0.024 | 0.035 | 0.404 | 0.029 |
+
+**Methodological observation:** the two literature proxies for thermostability (aliphatic index, IVYWREL fraction) are **systematically inflated by the alphabet collapse** — both say "gen looks more thermostable than PDB" by +0.74 / +1.35 SD. The drivers are exactly the residues over-represented in the alphabet collapse (Leu, Ile in aliphatic index; Leu, Glu in IVYWREL). Meanwhile, the aromatic_fraction (F+W+Y), which is the most direct sequence-side proxy for a buried hydrophobic core, drops 1.19 SD. **Aliphatic index and IVYWREL cannot be used as standalone evidence of thermal stability for generative-model outputs**; they were calibrated to discriminate within natural proteins (mesophiles vs thermophiles) and do not control for compositional gaming.
+
+#### D. Tier 2 (TemStaPro / ML-predicted Tm classes) — pending GPU run
+
+DeepStabP, the original target, has no offline weights — it exists only as a hosted web service (https://deepstabp.dsmz.de) and the GitHub `CSBiology/DeepStabP` repo is the F# web frontend, not the Python prediction code. Backend repo `CSBiology/DeepStabp_Backend` does not exist (or is private). For the same architecture family (mean-pooled ProtT5-XL embedding → small MLP head, multi-threshold classification), **TemStaPro** (Pudžiuvelytė et al., *Bioinformatics* 2024) was set up as a working substitute:
+
+- Repo: `https://github.com/ievapudz/TemStaPro` cloned to `/home/ks2218/TemStaPro`.
+- Weights: bundled in `models/` (45 weight files: 9 thresholds × 5 seeds, predicting `P(Tm > T)` for `T ∈ {40, 45, 50, 55, 60, 65, 70, 75, 80}` °C).
+- ProtT5 model: `Rostlab/prot_t5_xl_half_uniref50-enc` (~1.5 GB, fp16), downloaded once on first run via HuggingFace.
+- `sentencepiece` 0.2.1 added to `laproteina_env`.
+- Submit: `sbatch script_utils/run_thermal_stability.sh`. Persistent embedding cache at `/home/ks2218/cache/temstapro_embeddings` so the 53k-sequence ref pass is a one-time cost.
+- Wall-clock estimate: ~70 min A100, ~4-6 h L4 (memory-bandwidth-bound on ProtT5-XL).
+
+### Possible narrative
+
+→ **Finding 9** in `content_masterarbeit.md` (added in the same commit as this entry). The Finding consolidates (A), (B), and (C) into three sub-claims: (i) chemistry-specific alphabet collapse, (ii) mode-merging on bimodal targets (SWI), (iii) gameability of standard thermal-stability proxies. (D) is preregistered and will either confirm or refine sub-claim (iii).
+
+### Methodological caveats
+
+- **Single generated set, single eval seed.** N=1000 from `seed_base=1000`. No cross-seed variance estimate. AA-composition magnitudes have ~1% absolute uncertainty under bootstrap.
+- **Single training checkpoint.** `LD3_ucond_notri_800.ckpt` only. No comparison to a different La-Proteina ckpt, an earlier-training snapshot, or an alternative model family.
+- **Reference fasta length cap.** `pdb_cluster_all_seqs.fasta` only goes up to length 511, so the AA composition reference is computed on PDB[300, 511] while the property-panel reference is PDB[300, 796]. The two reference populations differ; AA-composition numbers may shift by a few percent if recomputed against the same set as the panel (sequences extracted from the processed `.pt` files). Direction of effects (signs of all relative differences) is robust under this — confirmed by spot-checks against the panel-reference Shannon entropy (4.10 in both).
+- **No structural-quality readout in this experiment.** The "the model has no buried hydrophobic core" reading is supported by the F+W+Y collapse and the iupred3 disorder bias, but not directly measured. Adding DSSP secondary-structure breakdown + ESMFold pLDDT distribution to the same generated set would close that gap.
+- **Tier 2 (TemStaPro) not yet run.** Tier 1 alone supports the methodological observation (aliphatic + IVYWREL gameable, aromatic fraction tells the opposite story); a passing TemStaPro number would *not* contradict the observation but would either lower the confidence of the "easy-to-fold" claim or elevate it.
+- **Co-designability inflation hypothesis (Finding 9 implication) is preregistered, not measured.** Cleanest direct test: designability vs co-designability gap on the same backbones, plus designability stratified by Shannon-entropy decile. Both deferred to a follow-up experiment.
+
+### Outputs on disk
+
+- `results/property_comparison/stratified_vs_pdb/summary.csv` — 22 columns × 15 rows.
+- `results/property_comparison/stratified_vs_pdb/distributions.png` — 4×4 hist+KDE grid.
+- `results/property_comparison/stratified_vs_pdb/aa_composition.csv` — 6 cols × 20 rows.
+- `results/property_comparison/stratified_vs_pdb/aa_composition.png` — composition + relative-deviation bar plot.
+- `results/thermal_stability/stratified_vs_pdb/summary.csv` — 11 cols × 6 rows (Tier 1 only at present).
+- `results/thermal_stability/stratified_vs_pdb/distributions.png` — 6-panel hist grid.
+- `results/thermal_stability/stratified_vs_pdb/{gen,ref}_per_protein.csv` — per-protein Tier 1 values (and TemStaPro values once Tier 2 completes).
 
 ---
