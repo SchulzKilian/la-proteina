@@ -189,6 +189,33 @@ def bin_burial(rsa: np.ndarray) -> np.ndarray:
     return np.where(rsa < 0.20, 0, np.where(rsa < 0.50, 1, 2))
 
 
+def dump_per_residue(gen, ref, out_path: Path):
+    """Write per-residue rows to parquet (or csv fallback).
+
+    Columns: protein_id, residue, rsa, set, sample_idx. `sample_idx` is a
+    monotone integer per sampling-instance — length-matched ref drawn WITH
+    replacement can place the same protein_id in multiple non-overlapping
+    blocks, and `sample_idx` keeps them distinguishable downstream.
+    """
+    rows = []
+    next_idx = 0
+    for label, proteins in [("gen", gen), ("ref", ref)]:
+        for stem, aas, rsa in proteins:
+            for a, r in zip(aas, rsa):
+                rows.append((str(stem), str(a), float(r), label, next_idx))
+            next_idx += 1
+    df = pd.DataFrame(rows,
+                       columns=["protein_id", "residue", "rsa", "set", "sample_idx"])
+    try:
+        df.to_parquet(out_path, index=False)
+    except Exception:
+        csv_path = out_path.with_suffix(".csv")
+        df.to_csv(csv_path, index=False)
+        out_path = csv_path
+    print(f"[dump] {len(df):,} per-residue rows → {out_path}")
+    return df
+
+
 def per_protein_features(proteins):
     P = len(proteins)
     n_res = np.zeros(P, dtype=np.int64)
@@ -338,6 +365,8 @@ def main():
         print(f"[length-match] ref resampled to {len(ref)} proteins matched to gen length distribution")
     else:
         ref = ref_full
+
+    dump_per_residue(gen, ref, args.out_dir / "per_residue.parquet")
 
     gen_feat = per_protein_features(gen)
     ref_feat = per_protein_features(ref)

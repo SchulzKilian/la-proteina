@@ -45,6 +45,7 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) | 2026-04-30 | finished | First designability probe of sparse-K40 + `update_pair_repr` CA-only variant at step 1133 | non-narrative — decides whether to keep training the variant |
 | [E022](#e022--long-length-designability-probe-of-canonical-baseline-l300400500-fixed-mpnn-re-eval-2026-05-02) | 2026-05-02 | finished | Long-length designability probe of canonical baseline (L=300/400/500), fixed-MPNN re-eval | non-narrative — feeds Finding 8's "L cliff" picture |
 | [E023](#e023--aromatic-burial-targeting-gen-vs-pdb-rsa-via-freesasa-2026-05-03) | 2026-05-03 | finished | Aromatic burial-targeting comparison: La-Proteina full-atom unconditional gen vs length-matched PDB ref, RSA via FreeSASA + Tien et al. 2013 max ASA | potential narrative — flags F under-burial in joint-gen samples |
+| [E024](#e024--aromatic-burial-followups-composition-decomposition--curve-shape--per-protein-distribution-2026-05-03) | 2026-05-03 | finished | Three follow-up analyses on top of E023's per-residue RSA: (1) aromatic-pool composition + counterfactual reweighting; (2) F/Y curve shape vs amplitude (KDE + logistic slope); (3) per-protein burial-targeting distribution. | refines Finding 9 — group-level preservation is NOT explained by composition reweighting; F/Y placement *shapes* are statistically indistinguishable in slope (amplitude-limited story); per-protein analysis underpowered |
 
 ---
 
@@ -1598,3 +1599,88 @@ If this is promoted to Finding 10 in `content_masterarbeit.md`, the narrow claim
 - Finding 9 in `content_masterarbeit.md` — joint-sequence-head bias narrative. E023 extends Finding 9 from sequence to structure.
 - `proteinfoundation/analysis/aromatic_burial.py` — implementation. CLI: `--gen-dir`, `--ref-dir`, `--out-dir`, `--n-ref-sample`, `--ref-oversample-factor`, `--no-length-match`. Auto-detects `.pdb` vs `.pt`.
 - Predicts: a CA-only-arm version of this probe is impossible (no side chains in the gen PDBs); a paramgroups-arm version (`inference_paramgroups_wd0p1_*`) is possible but its current N=18 inference run is too small for tight per-residue CIs. If the joint sequence head is retrained with stronger sequence-loss weight in a future arm, re-running E023 on those gen PDBs is the obvious replication test.
+
+---
+
+## E024 — Aromatic-burial follow-ups: composition decomposition, curve shape, per-protein distribution (2026-05-03)
+
+**Status:** finished.
+
+**Why ran:** E023 left three independent questions on the table that the headline group-ratio number (gen 3.04 vs PDB 3.19) hides. Each of the three is a separate diagnostic of the joint-sequence-head failure mode and feeds different parts of the Finding-9 picture. This experiment runs all three on the same per-residue RSA dataset E023 produced, so the follow-ups are conditional on the same FreeSASA pipeline (no DSSP / max-ASA / FreeSASA confounds vs E023).
+- **Q1 (composition):** Is gen's group-level burial-ratio preservation (3.04 vs PDB 3.19) genuine behavioral preservation, or a compositional artifact? gen is depleted of all four aromatics, but Y is enriched relative to W and F within the aromatic pool — a mathematical re-weighting of per-residue ratios with PDB proportions instead of gen proportions tells us whether the "matched" group ratio is a coincidence of two opposing biases.
+- **Q2 (curve shape vs amplitude):** Per-residue, is the *shape* of the gen P(F|RSA) and P(Y|RSA) curves the same as PDB (i.e. F still prefers low RSA, just at a lower amplitude — supply-limited story) or *flatter* (placement preference broken)? The slope of a logistic fit to (RSA → is-F) is the natural one-number summary.
+- **Q3 (per-protein distribution):** Is the F under-burial a uniform shift across all gen proteins, or is it a long tail / bimodality where some proteins still place F correctly and a subset drives the headline number?
+
+**Configs:**
+- Inputs: per-residue parquet `results/aromatic_burial/per_residue.parquet` (added to `proteinfoundation/analysis/aromatic_burial.py` as part of this work — adds `dump_per_residue` writing `protein_id`, `residue`, `rsa`, `set`, `sample_idx` per row; a 4.5 MB pyarrow file with 616,424 rows). The parquet was produced by re-running E023's exact CLI (`--gen-dir inference/inference_ucond_notri --ref-dir data/pdb_train/processed_latents_300_800 --out-dir results/aromatic_burial --n-ref-sample 1000`) with the new dump enabled — headline numbers reproduced verbatim against E023's `aromatic_frequencies.csv`. `sample_idx` distinguishes the 1002 length-matched ref draws (633 unique stems, draws WITH replacement) from each other.
+- Pipeline: `proteinfoundation/analysis/aromatic_burial_followups.py`, three independent functions (`exp1_composition`, `exp2_curve_shape`, `exp3_per_protein`). Bootstrap is over PROTEINS (1000 resamples) at the `sample_idx` level for EXP1/EXP2 (so the length-matched draws are preserved as separate units); EXP3 deduplicates on `protein_id` (one ratio per physical protein, no double-counting in the histogram / KS test).
+- EXP2 runtime trick: per-bootstrap KDE inputs subsampled to ≤8000 residues without replacement (KDE shape unchanged because Gaussian-KDE outputs are normalised to ∫=1; absolute amplitude preserved using ORIGINAL `len(target)/len(all)` as the marginal multiplier). Per-bootstrap logistic fits subsampled to ≤30000 residues. This is needed because ref bootstrap concatenates ~540K residues per replicate × 1000 replicates × 2 residues — without the cap the KDE step would dominate runtime. CHOICE-FLAG (logged): KDE `bw_method='scott'` (scipy default, per-replicate adaptive).
+- EXP3 filter: per protein ≥10 target total, ≥2 buried, ≥2 exposed. Fallback to W+F+Y aromatic group (H excluded as amphipathic) when fewer than 30 gen proteins survive the F-only filter.
+- Hardware: laptop CPU (single-process, ~3 min wall for the followups). FreeSASA was not re-run (per the user's instructions — re-use the cached per-residue RSA from E023).
+- Output dir: `results/aromatic_burial/followups/`. Files: `results.md` (headline tables + verdicts), `run.log` (decisions & sanity prints), `exp2_F_curves.{png,pdf}`, `exp2_Y_curves.{png,pdf}` (raw + area-normalized side-by-side, gen vs PDB, with bootstrap bands).
+
+**Results:**
+
+**EXP1 — composition breakdown of the aromatic pool** (bootstrap CIs over proteins):
+
+| set | W | F | Y | H |
+|---|---|---|---|---|
+| gen | 0.080 [0.051, 0.112] | 0.279 [0.234, 0.330] | **0.476 [0.406, 0.541]** | 0.165 [0.123, 0.213] |
+| PDB | 0.151 [0.147, 0.155] | 0.337 [0.333, 0.341] | 0.323 [0.319, 0.328] | 0.189 [0.185, 0.193] |
+
+Within the aromatic pool, gen is **strongly Y-enriched** (47.6% vs 32.3% in PDB) and **W-depleted** (8.0% vs 15.1%); F and H are slightly low. The composition shift is real and outside the bootstrap CI on every dimension.
+
+Counterfactual decomposition of the gen aromatic-group burial ratio:
+
+| quantity | value |
+|---|---|
+| per-residue gen burial ratios (raw counts) | W=5.35, F=2.30, Y=5.14, H=1.16 |
+| observed gen group ratio (p_gen · r_gen) | 3.71 |
+| empirical gen group ratio (P(arom|buried)/P(arom|exposed) from raw counts) | 2.97 |
+| counterfactual (p_pdb · r_gen) | 3.46 |
+
+Reweighting gen's per-residue ratios with PDB aromatic-pool proportions moves the group ratio from **3.71 → 3.46**, only **6.6%** — well below the 20% threshold the script uses to flag a compositional artifact. The empirical group ratio (2.97, computed strictly from raw counts and matching E023's headline 3.04 within rounding) is reproduced from a different formula here, just for sanity. The two-line summary: gen has individually-preserved burial preferences for Y (5.14) and W (5.35), partially-preserved for H (1.16, like PDB's 1.09), and a **strongly-broken F** (2.30 vs PDB's 5.68). The group ratio happens to land near PDB's by averaging across these heterogeneously-preserved residues — but the averaging is **NOT** a composition trick; it is genuinely heterogeneous per-residue behavior partly cancelling.
+
+**EXP2 — curve shape vs amplitude (F and Y).** Logistic-fit slope `b` of P(is X) = sigmoid(a + b·RSA), 1000-bootstrap 95% CIs:
+
+| residue | gen slope | PDB slope | CI overlap? | verdict |
+|---|---|---|---|---|
+| F | -2.30 [-4.10, -0.76] | -3.64 [-4.09, -3.22] | yes | SAME SHAPE (slope CI overlaps; amplitude-limited) |
+| Y | -1.42 [-2.01, -0.88] | -1.97 [-2.27, -1.67] | yes | SAME SHAPE (slope CI overlaps; amplitude-limited) |
+
+The slope-CI verdict is "same shape" for both F and Y. Caveat: the bootstrap slope CI for gen F is wide (−4.10 to −0.76), so this verdict is "consistent with same shape, not strong evidence of same shape" — only 138 gen proteins, with a low F count per protein, makes the slope estimate noisy.
+
+**However, the area-normalized KDE curves (in `exp2_F_curves.png`) tell a richer story than the slope summary.** PDB F-density falls smoothly from a high peak at RSA≈0 to near-zero at RSA≈1; gen F-density is approximately *flat* across [0, 0.8] and rises again near RSA≈1. The slope verdict misses this because a sigmoid cannot capture the high-RSA bump. So the headline reading is "amplitude-limited", but the visual reading also flags a small-amount weird-bump at RSA>0.8 in gen — likely model artifact at exposed sites. For Y the area-normalized curves are similar in shape, with gen's burial peak slightly more pronounced at RSA≈0.15-0.20 and PDB's flatter through the same RSA range.
+
+**EXP3 — per-protein burial-targeting distribution.** Filter (≥10 target total, ≥2 buried, ≥2 exposed):
+
+- F-only: gen survives **2/138**, ref survives **116/633**. Below the 30-gen threshold → fall back to W+F+Y group.
+- W+F+Y group: gen survives **18/138**, ref survives **314/633**. Still below threshold → **per-protein analysis is underpowered**, no histogram drawn.
+
+For-information-only summary stats on the group fallback:
+
+| set | median ratio | IQR | N |
+|---|---|---|---|
+| gen | 1.24 | 0.54 - 2.06 | 18 |
+| PDB | 2.73 | 1.74 - 3.86 | 314 |
+
+KS two-sample test on the two distributions: D = 0.506, p = 1.5e-4. The KS p-value is small but with 18 vs 314 it is unreliable as a per-protein-shape claim. The N is the binding constraint: the F under-burial cannot be cleanly attributed to "uniform shift" / "long tail" / "bimodal subset" from this dataset.
+
+**Possible narrative:** refines Finding 9.
+- The compositional decomposition (EXP1) makes a **stronger** Finding-9 claim possible: gen's group-level burial preservation is **not** a numerical accident of compositional shift; the joint sequence head produces individually heterogeneous per-residue burial behavior that happens to average out. The "F is broken, Y is preserved, W is preserved-or-better" pattern is a real per-residue claim, not a composition artifact. This belongs in `content_masterarbeit.md` Finding 9 as a tightened sub-claim.
+- The curve-shape result (EXP2) is **slope-CI-overlap-but-visually-suggestive** for both F and Y. As a paper claim, the cautious reading is "the per-residue *placement-vs-RSA* shape in gen is statistically indistinguishable from PDB given N=138 — the difference is in amplitude". The high-RSA bump in F is suggestive but not strongly supported (within bootstrap band); a larger gen N would be needed to make a "shape is broken" claim.
+- The per-protein distribution analysis (EXP3) is **underpowered** — kept as a non-narrative entry that documents the limitation. For a Finding-9 follow-up that *can* support a uniform-shift-vs-bimodal-subset claim, gen N would need to be ~200+ proteins surviving the W+F+Y group filter, which means ~600+ raw gen samples (currently 138).
+
+**Methodological caveats:**
+- All three experiments rest on the same FreeSASA + Tien et al. 2013 max ASA pipeline as E023, with the same cutoffs (buried <0.20, exposed ≥0.50). DSSP-based RSA would shift small numbers but not the gen-vs-PDB direction.
+- EXP2's logistic slope summary is only sensitive to the sigmoid component of the per-residue P(is X | RSA) curve — it is structurally blind to bumps, plateaus, or bimodal shapes. The qualitative reading of the area-normalized curve plot is the right diagnostic for those features. The script reports both.
+- EXP2's per-bootstrap subsampling caps (KDE ≤8000, logistic ≤30000) discard ~95% of ref residues per replicate. The CIs are slightly wider than they would be with full data, but the point estimates are unbiased and the narrative (CI overlap) does not change at smaller subsample caps in spot checks.
+- EXP3 is filter-bound, not method-bound. The filter values (10/2/2) are reasonable but ad-hoc; loosening them would inflate noise per protein. The right fix is more gen samples, not different filter thresholds.
+- EXP1's "20% threshold" for COMPOSITIONAL vs NOT COMPOSITIONAL is a heuristic. The 6.6% observed effect is well below this; tightening to 10% would not flip the verdict.
+- For EXP1 the "p-weighted" formulation (`sum_i p_i * r_i`) is an approximation of the strict empirical group ratio (computed in the same formula on both observed and counterfactual sides for an apples-to-apples comparison). The strict group ratio (2.97) is reported separately for sanity vs E023's 3.04.
+
+**Cross-references:**
+- E023 — direct parent. E024 is the followup-on-the-same-data that the user asked for after E023's headline numbers landed.
+- Finding 9 in `content_masterarbeit.md` — the joint-sequence-head bias narrative that E024 strengthens (composition decomposition) and qualifies (curve shape + per-protein distribution underpowered).
+- Implementation: `proteinfoundation/analysis/aromatic_burial.py` (now also dumps `per_residue.parquet`); `proteinfoundation/analysis/aromatic_burial_followups.py` (CLI: `--in-file`, `--out-dir`, `--seed`).
+- Predicts: re-running on a paramgroups-arm gen set (when its inference is large enough) would test whether the per-residue *heterogeneous* preservation (F broken, Y preserved) survives the wd-split optimizer fix, or whether it was an artifact of the joint-sequence head specifically. The composition decomposition (EXP1) is the cheap diagnostic to run first on any new arm.
