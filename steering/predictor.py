@@ -48,6 +48,11 @@ class SteeringPredictor(nn.Module):
         self.register_buffer("_stats_mean", torch.from_numpy(self.stats.mean))
         self.register_buffer("_stats_std", torch.from_numpy(self.stats.std))
 
+        # n_properties is inferred from the checkpoint's stats_mean length —
+        # newer checkpoints (e.g. logs/multitask_t1/20260427_161809) ship 14
+        # heads (camsol_intrinsic added at idx 13); older ones ship 13.
+        n_properties = int(self.stats.mean.shape[0])
+
         # Reconstruct model architecture from checkpoint or defaults
         self.model = PropertyTransformer(
             latent_dim=8,
@@ -56,7 +61,7 @@ class SteeringPredictor(nn.Module):
             n_layers=3,
             ffn_expansion=4,
             dropout=0.1,
-            n_properties=13,
+            n_properties=n_properties,
             max_len=1024,
         )
         self.model.load_state_dict(ckpt["model_state_dict"])

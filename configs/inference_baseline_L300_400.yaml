@@ -1,0 +1,23 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_baseline_L300_400
+config_name: inference_baseline_L300_400
+
+# Canonical CA-only baseline ckpt (E008 / E014, step 2646, wd=0.05).
+# Re-runs the L-extension probe (previously inference_2646_long) with the
+# post-fix ProteinMPNN eval (ca_only=True, commit ed10dfe).
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: baseline_wd0.05_step2646.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400  # canonical baseline uses inference_base default (400 ODE steps)
+  dataset:
+    nsamples: 3
+    max_nsamples_per_batch: 3
+    nlens_cfg:
+      nres_lens: [300, 400]

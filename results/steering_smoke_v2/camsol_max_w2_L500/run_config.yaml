@@ -1,0 +1,26 @@
+device: cuda:0
+lengths:
+- 500
+nsteps: 100
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+steering:
+  channel: local_latents
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_0_best.pt
+  device: cuda:0
+  enabled: true
+  gradient_clip: 10.0
+  gradient_norm: unit
+  log_diagnostics: true
+  objectives:
+  - direction: maximize
+    property: camsol_intrinsic
+    weight: 1.0
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    t_stop: 0.9
+    type: linear_ramp
+    w_max: 2.0
+steering_config: steering/config/sweep_camsol_tango_L500/camsol_max_w2.yaml

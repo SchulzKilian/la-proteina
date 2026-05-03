@@ -1,0 +1,23 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_pairupdate_quick
+config_name: inference_sparse_pairupdate_quick
+
+# Checkpoint rsynced from HPC:
+#   /rds/user/ks2218/hpc-work/store/ca_only_sparse_K40_pairupdate/1777463843/checkpoints/
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000011_000000001133.ckpt
+autoencoder_ckpt_path:
+
+# Probe: 3 lengths × 6 samples × 200 ODE steps (matches E018 paramgroups N=6 protocol).
+generation:
+  args:
+    nsteps: 200
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

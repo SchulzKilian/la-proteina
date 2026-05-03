@@ -181,6 +181,10 @@ def main():
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--nsteps", type=int, default=None,
                         help="Override number of ODE steps (default: from config)")
+    parser.add_argument("--skip_unguided", action="store_true",
+                        help="Skip the paired unguided generation. Use when sweeping "
+                             "multiple steering configs that share seeds+lengths so "
+                             "the unguided baseline only has to be produced once.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -254,9 +258,12 @@ def main():
             logger.info("[%d/%d] Generating %s ...", done, total, protein_id)
 
             # --- Unguided ---
-            model.steering_guide = None
-            coors_u, res_u, mask_u, _ = generate_one(model, length, seed, device)
-            save_protein(coors_u, res_u, mask_u, protein_id, unguided_dir)
+            if args.skip_unguided:
+                logger.info("  Skipping unguided generation (--skip_unguided set).")
+            else:
+                model.steering_guide = None
+                coors_u, res_u, mask_u, _ = generate_one(model, length, seed, device)
+                save_protein(coors_u, res_u, mask_u, protein_id, unguided_dir)
 
             # --- Guided ---
             model.steering_guide = guide

@@ -173,7 +173,8 @@ def run_temstapro(fasta: Path,
                   temstapro_dir: Path,
                   emb_dir: Path,
                   out_tsv: Path,
-                  python_exe: Path) -> pd.DataFrame:
+                  python_exe: Path,
+                  prot_trans_dir: Path) -> pd.DataFrame:
     """Drive the TemStaPro CLI as a subprocess and load its mean-output TSV.
 
     Returns DataFrame indexed by sequence id with TemStaPro columns.
@@ -189,10 +190,12 @@ def run_temstapro(fasta: Path,
         )
     emb_dir.mkdir(parents=True, exist_ok=True)
     out_tsv.parent.mkdir(parents=True, exist_ok=True)
+    prot_trans_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         str(python_exe), str(cli),
         "-f", str(fasta),
         "-e", str(emb_dir),
+        "-d", str(prot_trans_dir),
         "-t", str(temstapro_dir),
         "--more-thresholds",
         "--mean-output", str(out_tsv),
@@ -214,10 +217,17 @@ def run_temstapro(fasta: Path,
             f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
         )
     df = pd.read_csv(out_tsv, sep="\t")
-    if "sequence_id" in df.columns:
-        df = df.rename(columns={"sequence_id": "id"})
-    elif df.columns[0].lower() in ("name", "protein", "id"):
+    id_aliases = ("sequence_id", "protein_id", "name", "protein", "id")
+    for alias in id_aliases:
+        if alias in df.columns:
+            if alias != "id":
+                df = df.rename(columns={alias: "id"})
+            break
+    else:
         df = df.rename(columns={df.columns[0]: "id"})
+    # FASTA descriptions can contain whitespace; tier1_table keeps only the
+    # first token, so normalise here before merging.
+    df["id"] = df["id"].astype(str).str.split().str[0]
     return df
 
 
@@ -324,6 +334,10 @@ def main() -> None:
                     help="Path to a TemStaPro repo clone. If unset, only Tier 1 runs.")
     ap.add_argument("--temstapro-emb-dir", type=Path, default=Path("/tmp/temstapro_embeddings"),
                     help="Cache dir for ProtT5 embeddings (re-used across runs).")
+    ap.add_argument("--prot-trans-dir", type=Path,
+                    default=Path.home() / "cache" / "prot_t5_xl_half_uniref50-enc",
+                    help="Local directory holding the ProtT5 weights (TemStaPro -d). "
+                         "If empty, ProtT5-XL (~1.5 GB) is downloaded once on first run.")
     ap.add_argument("--python-exe", type=Path, default=Path(sys.executable),
                     help="Python executable for the TemStaPro subprocess.")
     args = ap.parse_args()
@@ -344,11 +358,13 @@ def main() -> None:
         gen_tsp = run_temstapro(args.gen, args.temstapro_dir,
                                 args.temstapro_emb_dir / "gen",
                                 args.out / "temstapro_gen.tsv",
-                                args.python_exe)
+                                args.python_exe,
+                                args.prot_trans_dir)
         ref_tsp = run_temstapro(args.ref, args.temstapro_dir,
                                 args.temstapro_emb_dir / "ref",
                                 args.out / "temstapro_ref.tsv",
-                                args.python_exe)
+                                args.python_exe,
+                                args.prot_trans_dir)
         # Numeric columns in TemStaPro's mean output: clf_<thr> probabilities,
         # plus 'left_<thr>' / 'right_<thr>' for upper/lower probability bounds.
         # We keep all numeric columns for comparison.

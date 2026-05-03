@@ -1,0 +1,22 @@
+steering:
+  enabled: true
+  # 5-fold predictor trained on residues 300-800; 14-property head
+  # (camsol_intrinsic added at idx 13, R^2=0.95 ± 0.002 across folds).
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_0_best.pt
+
+  objectives:
+    - property: camsol_intrinsic
+      direction: maximize          # higher CamSol = more soluble
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 2.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9                    # final 10% pure flow, lets model relax to manifold
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true
