@@ -40,7 +40,11 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E016](#e016--ca-only-eval-pipeline-audit-reconstructed-bb-vs-ca-only-mpnn-2026-04-28) | 2026-04-28 | in progress | Audit of designability eval for CA-only generations: backbone-reconstruction geometry + SLURM probe on real natives | non-narrative — decides whether CA-only designability numbers need re-computing |
 | [E017](#e017--paramgroups--wd01-quick-probe--proteinmpnn-ca_only-bug-fix-2026-04-28) | 2026-04-28 | finished | First clean designability probe (paramgroups+wd=0.1, n=9) after fixing the `ca_only=False` MPNN bug | pending — invalidates all prior CA-only designability numbers |
 | [E018](#e018--baseline-bugfix-recheck--paramgroups-n6-followup-2026-04-28) | 2026-04-28 | finished | Re-eval 9 baseline PDBs with fixed MPNN + paramgroups N=6 follow-up | pending — quantifies bug impact, flags Finding 8 numbers as unreliable |
-| [E019](#e019--joint-sequence-head-audit-property-panel--per-aa-composition--thermal-stability-proxies-2026-04-30) | 2026-04-30 | finished (Tier 1+2a) / Tier 2b TemStaPro pending GPU run | Distributional comparison of La-Proteina jointly-generated sequences vs PDB across the 14-property developability panel, per-AA composition, and thermal-stability proxies | → Finding 9 |
+| [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) | 2026-04-29 | finished (per index) — body TBD | Full N=30 fixed-MPNN re-eval of E014's four arms + 5th paramgroups arm | → Finding 8 (rewrite); supersedes E014's numbers |
+| [E020](#e020--joint-sequence-head-audit-property-panel--per-aa-composition--thermal-stability-proxies-2026-04-30) | 2026-04-30 | finished (Tier 1+2a) / Tier 2b TemStaPro pending GPU run | Distributional comparison of La-Proteina jointly-generated sequences vs PDB across the 14-property developability panel, per-AA composition, and thermal-stability proxies | → Finding 9 |
+| [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) | 2026-04-30 | finished | First designability probe of sparse-K40 + `update_pair_repr` CA-only variant at step 1133 | non-narrative — decides whether to keep training the variant |
+| [E022](#e022--long-length-designability-probe-of-canonical-baseline-l300400500-fixed-mpnn-re-eval-2026-05-02) | 2026-05-02 | finished | Long-length designability probe of canonical baseline (L=300/400/500), fixed-MPNN re-eval | non-narrative — feeds Finding 8's "L cliff" picture |
+| [E023](#e023--aromatic-burial-targeting-gen-vs-pdb-rsa-via-freesasa-2026-05-03) | 2026-05-03 | finished | Aromatic burial-targeting comparison: La-Proteina full-atom unconditional gen vs length-matched PDB ref, RSA via FreeSASA + Tien et al. 2013 max ASA | potential narrative — flags F under-burial in joint-gen samples |
 
 ---
 
@@ -792,7 +796,7 @@ The sparse run is named `ca_only_sparse_K40` and earlier writeups described the 
 
 ## E014 — Four-run N=30 designability comparison (baseline / v2 / wd0 / sparse, 2026-04-27)
 
-**Status:** finished (one matched-seed N=30 batch per run; multi-seed replicates not yet collected).
+**Status:** finished (one matched-seed N=30 batch per run; multi-seed replicates not yet collected). **Numbers in this entry were computed with the buggy `ca_only=False` ProteinMPNN call (see E017). Superseded by [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) which re-MPNN+ESMFolds the same PDBs under the fixed pipeline.** The buggy CSVs are preserved as `inference/results_inference_<arm>_n30_0_buggy.csv` for diff/audit.
 
 **Why ran:** Previous side-by-side comparisons (E012, the N=3 runs in E008/E009/E010, and the N=3 single-seed probes in E013) had per-rate Wilson confidence intervals so wide that the rate-comparison between any two runs was nearly always overlapping at single-digit sample counts. Within a single seed, N=3 designability rates swing 0/3 ↔ 2/3 (0% ↔ 67%) just from the choice of three initial-noise samples. This was empirically observed on the wd=0 step-1638 ckpt (seed 5: 1/9 designable; seed 100: 2/9). Decision input that the multi-seed N≥30 batched comparison is required to make any "recipe X is better than recipe Y" claim about CA-only designability.
 
@@ -1232,7 +1236,17 @@ Action items implied (not done in this entry, but now obvious):
 
 ---
 
-## E019 — Joint sequence head audit: property panel + per-AA composition + thermal-stability proxies (2026-04-30)
+## E019 — Full N=30 fixed-MPNN re-eval of E014's four arms + 5th paramgroups arm (2026-04-29)
+
+**Status:** finished per the index — full body not yet transcribed into this file.
+
+**Why ran:** First clean N=30 designability eval, after the `ca_only=False` ProteinMPNN bug fix (E017), of the same four training arms compared in E014 (canonical wd=0.05 baseline, v2, wd=0, sparse-K40) plus paramgroups+wd=0.1. Supersedes the buggy N=30 numbers in E014; rewrites Finding 8.
+
+**Note:** This entry was committed as an **index row only** during a merge; the full body (Configs / per-arm Results table / Methodological caveats) was either never written into `experiments.md` or lives in a separate file. Several other entries cross-reference the N=30 numbers — E014's status block, E022's "L=50/100/200 numbers in Finding 8 anchor", E022's "right comparison anchor" caveat — when those numbers are needed, they should be pulled from `inference/results_inference_<arm>_n30_0.csv` (post-fix CSVs) and the body filled in here. Until then, treat the cross-references as pointers to "Finding 8 (rewrite) source data, location TBD".
+
+---
+
+## E020 — Joint sequence head audit: property panel + per-AA composition + thermal-stability proxies (2026-04-30)
 
 **Status:** finished for Tier 1 (sequence proxies) and Tier 2a (per-AA composition). Tier 2b (TemStaPro ML thermal-stability predictor) **pending** — submit script ready, GPU run not yet executed (1× A100 ampere, est. ~70 min wall-clock; on L4 ~4-6 h).
 
@@ -1378,3 +1392,209 @@ DeepStabP, the original target, has no offline weights — it exists only as a h
 - `results/thermal_stability/stratified_vs_pdb/{gen,ref}_per_protein.csv` — per-protein Tier 1 values (and TemStaPro values once Tier 2 completes).
 
 ---
+
+## E021 — Sparse-K40 + pair-update quick N=6 designability probe (2026-04-30)
+
+**Status:** finished.
+
+**Why ran:** First designability read on the sparse-K40 + `update_pair_repr` CA-only variant (training run `ca_only_sparse_K40_pairupdate/1777463843`) — does adding the pair-update layer on top of sparse-K40 produce designable structures, and does it look comparable to other CA-only arms at a similar training stage? Per CLAUDE.md "sample-quality bar (variants must clear)" = 1-2/3 designable at L=50 and L=100; this probe is meant to either pass that bar (continue training, schedule N=30) or fail it (debug the variant before more compute).
+
+**Configs:**
+- Checkpoint: `best_val_00000011_000000001133.ckpt` (epoch 11, opt step 1133), rsynced from HPC `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K40_pairupdate/1777463843/checkpoints/`. Local copy: `/home/ks2218/la-proteina/best_val_00000011_000000001133.ckpt` (1.94 GB; mtime 2026-04-30 14:20).
+- Training config (for reference, not loaded here): `configs/training_ca_only_sparse_pairupdate.yaml` — canonical OLD recipe (wd=0.05, constant LR=2e-4, no scheduler, accumulate_grad_batches=32, batch=6, ema decay=0.999 every 5 steps); NN config `configs/nn/ca_only_sparse_pairupdate_160M.yaml` (sparse K=40, `update_pair_repr=True`, `update_pair_repr_every_n=3`, `use_tri_mult=False`, `use_downsampling=False`).
+- New inference config: `configs/inference_sparse_pairupdate_quick.yaml` — modeled on `inference_paramgroups_wd0p1_quick.yaml`. 3 lengths × 6 samples × 200 ODE steps = **18 total samples** at L ∈ {50, 100, 200}. `nsteps=200`, `nsamples=6`, `max_nsamples_per_batch=6`. Generation block otherwise inherits canonical CA-only sampling settings from `inference_base.yaml` + `generation/uncond_codes_ca_only.yaml`. Seed=5 (inherited from `inference_base.yaml`).
+- New wrapper: `script_utils/gen_n_eval_sparse_pairupdate.sh` — sbatch-able header, `--exclude=gpu-q-43`, but **actually run interactively here on the L4 dev box** (gxp-l4-0). The wrapper's hardcoded `LAPROTEINA_ENV=/home/ks2218/conda_envs/laproteina_env` is HPC-specific; on the L4 box the env lives at `/home/ks2218/.conda/envs/laproteina_env`. Bypassed the wrapper's CUDA preflight and called `generate.py` / `evaluate.py` directly with the absolute python path.
+- Hardware: 1× NVIDIA L4 (gxp-l4-0, GPU 0).
+- Output dir: `inference/inference_sparse_pairupdate_quick/`. Generation+eval log: `/tmp/gen_n_eval_sparse_pairupdate.log`.
+- Wall-clock: generation ~5 min; eval ~8 min (18 PDBs, ProteinMPNN + ESMFold per PDB, fixed `ca_only=True` MPNN). Total ≈ 13 min.
+
+**Caveats from the launch itself (worth re-reading before the next variant):**
+- `proteinfoundation/generate.py` is Hydra-driven and only accepts `--config-name=foo` (hyphen). `proteinfoundation/evaluate.py` is argparse and only accepts `--config_name foo` (underscore). Mixing them up (used `--config_name=` for `generate.py` on the first attempt) makes Hydra print help and exit 0 silently; if not chained with `&&`, the eval step then fails with `ValueError: Results path … does not exist` because no PDBs were ever produced. The wrapper `gen_n_eval_paramgroups_wd0p1.sh` already gets this right; the lesson is "don't paraphrase the wrapper".
+- The script's `if ! python -c "import torch; assert torch.cuda.is_available()"` preflight runs against whatever `python` resolves to first on PATH. On the L4 box, `python` is `/opt/conda/bin/python` (system base), which has no CUDA-capable torch — the preflight aborts even though the actual env's torch is fine. Fix is to either `conda activate` properly, hardcode the absolute python path, or change the wrapper's `LAPROTEINA_ENV` for local-vs-HPC.
+
+**Results — per-protein min scRMSD over 8 ProteinMPNN sequences (CA mode, ESMFold; bb3o values in parentheses where they differ noticeably):**
+
+| L | n | min scRMSD per sample (Å, sorted) | designable (<2 Å, CA) | best | median |
+|---|---|---|---|---|---|
+| 50  | 6 | 1.48, 1.72, 2.14, 7.85, 15.88, 19.29 | 2/6 (33%) | 1.48 | 5.00 |
+| 100 | 6 | 1.35, 2.16, 2.60, 4.42, 8.98, 10.13 | 1/6 (17%) | 1.35 | 3.51 |
+| 200 | 6 | 2.20, 7.75, 9.74, 13.36, 13.96, 14.36 | 0/6 (0%)  | 2.20 | 11.55 |
+| **all** | 18 | — | **3/18 (17%)** | 1.35 | 8.41 |
+
+bb3o-mode designability: 2/6 / 1/6 / 0/6 (matches CA-mode at this 2 Å threshold). bb3o min-scRMSD per row is within ~0.1 Å of the CA-mode value, so the CA/bb3o distinction is not driving the designability count here.
+
+Headline (printed by `evaluate.py`): "Average scRMSD: 7.744 Å, Success Rate (<2Å): 16.7%, Total: 18, Failed: 0".
+
+**Comparison context (do NOT read these as a recipe-vs-recipe ranking — step counts differ):**
+
+| Recipe | step | N | L=50 | L=100 | L=200 | overall |
+|---|---|---|---|---|---|---|
+| baseline (canonical wd=0.05) | 2646 | N=3 (E018 recheck) | 2/3 (67%) | 3/3 (100%) | 3/3 (100%) | 8/9 (89%) |
+| paramgroups + wd=0.1         | 1952 | N=6 (E018)        | 3/6 (50%) | 5/6 (83%)  | 1/6 (17%)  | 9/18 (50%) |
+| **sparse-K40 + pair-update** | **1133** | **N=6 (this)**   | **2/6 (33%)** | **1/6 (17%)** | **0/6 (0%)** | **3/18 (17%)** |
+
+Step 1133 is well before the canonical baseline's "best val ≈ step 1800-2200" window, so an under-trained ckpt is the simplest explanation for the low rate, not a fundamental problem with the variant. The canonical baseline at step 1133 has not been probed; nearest comparison is the paramgroups+wd=0.1 ckpt at step 1952 (50% overall), and the canonical baseline at step 2646 (89% overall on N=9, with E019 N=30 re-eval landing somewhere lower).
+
+**Findings (tuning, not paper-grade):**
+
+1. **The scRMSD distribution is bimodal, not "uniformly mediocre".** Each length splits cleanly into a "near-canonical-best" cluster and a "collapse-mode" cluster, with a wide gap between them:
+   - L=50: 1.48, 1.72, 2.14 ‖ 7.85, 15.88, 19.29 — three near-misses or hits, three trajectories that diverged hard.
+   - L=100: 1.35, 2.16, 2.60 ‖ 4.42, 8.98, 10.13 — same pattern, less pronounced gap.
+   - L=200: 2.20 ‖ 7.75, 9.74, 13.36, 13.96, 14.36 — one near-miss, the rest in collapse.
+   This is the signature of an under-trained CA-only score field where a fraction of seeds get trapped on degenerate trajectories before the field has fully formed, *not* the signature of a recipe that is uniformly worse than baseline.
+2. **Best-sample quality is already at canonical-baseline-best levels.** L=100 best = 1.35 Å is in the same ballpark as paramgroups L=100 best (~0.94 Å, E018) and the canonical baseline L=100 best (E018 recheck, all 3/3 < 2 Å). The model has the *capacity* for designable structures at step 1133; what's missing is sample-to-sample consistency. The L=200 single near-miss at 2.20 Å — the only sample within striking distance of designability — is similarly encouraging given that "best of 6" is not "best of 30".
+3. **L=200 = 0/6 is consistent with the L=200 cliff seen in every CA-only ckpt at this stage.** Finding 8 already documents that even the canonical wd=0.05 baseline only really clears L=200 around step 2078-2646; expecting L=200 to work at step 1133 is mis-calibrated. The 0/6 here is "early ckpt, expected", not "sparse+pairupdate breaks at L=200".
+4. **Decision:** continue training the variant; re-probe at a step ≥ 1800 (matching the canonical baseline's best-val window) before deciding whether it warrants an N=30 arm next to E014 / E019's four/five-arm comparison. Do not promote any per-length rate from this snapshot to a Finding in `content_masterarbeit.md` — N=6 + single seed + step mismatch makes it untestable.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. The bimodality observation in Findings #1 above could become a methodological aside in `content_masterarbeit.md` if a step-matched comparison (canonical at step ≈ 1133 vs sparse+pairupdate at step ≈ 1133) ever shows that the variant is *more* bimodal than baseline at the same training stage. Without that, the bimodality is just the generic under-trained-CA-only fingerprint and not a property of this variant specifically.
+
+**Methodological caveats:**
+- **N=6 per length is too small to read 0/6 as "the variant cannot do L=200".** 95% binomial CI on 0/6 is [0%, 39%]; the next probe at a later step could show 1-2/6 without contradicting this one.
+- **Step 1133 vs paramgroups 1952 vs baseline 2646** — three distinct training durations are being compared in the table above. The table is informational; it is *not* a clean A/B/C of recipes. A step-matched comparison would require either probing the canonical baseline at step ≈ 1133 (not currently on disk) or letting the sparse+pairupdate run train to step ≈ 1952 and re-probing.
+- **Single seed (seed=5).** Within-seed L4 noise on min-scRMSD is ~0.5 Å per E018; some of the marginal samples (e.g., L=50 id with 2.14 Å) could flip across the 2 Å threshold under a different seed.
+- **No per-column wall-clock breakdown.** Throughput vs the dense baseline at L=200 was not measured here; CLAUDE.md's note that sparse can be slower than dense at n=512 due to gather bandwidth is unaddressed by this run (only N=6 × 3 lengths, dominated by ProteinMPNN/ESMFold time, not generation).
+- **Eval used the fixed `ca_only=True` ProteinMPNN call** (post-E017 fix); these numbers are directly comparable to E018/E019 numbers, *not* to E014 / pre-fix probes.
+
+**Cross-references:**
+- Code added: `configs/inference_sparse_pairupdate_quick.yaml`, `script_utils/gen_n_eval_sparse_pairupdate.sh`. Pre-existing: training config `configs/training_ca_only_sparse_pairupdate.yaml`, NN config `configs/nn/ca_only_sparse_pairupdate_160M.yaml`.
+- Builds on the architectural infrastructure introduced for the sparse-K40-only variant (E012 / E014 sparse arm) and the canonical-recipe lock from the baseline run.
+- A later step ≥ 1800 ckpt for the same training run, when probed at N=6 / N=30, will supersede this entry's per-length rate readings (back-link from here to that future entry once it exists).
+
+---
+
+## E022 — Long-length designability probe of canonical baseline (L=300/400/500, fixed-MPNN re-eval) (2026-05-02)
+
+**Status:** finished.
+
+**Why ran:** The canonical CA-only baseline (`baseline_wd0.05_step2646.ckpt`, E008/E014) had only ever been probed at L ∈ {50, 100, 200} on the post-fix MPNN eval (E018/E019). A pre-fix L=300/400/500 probe existed (`inference_2646_long`, run 2026-04-25) but was on the buggy `ca_only=False` ProteinMPNN path that E017/E018 invalidated for all CA-only designability numbers. User asked for L=300/400 N=3 numbers on the fixed eval. Decision input for: (a) where the canonical baseline's "L cliff" actually sits past L=200 once the eval bias is removed; (b) whether any sparse / pair-update / paramgroups variant should bother probing past L=200 in their own evaluations.
+
+**Configs:**
+- Generation: re-used the existing PDBs from `inference/inference_2646_long/job_0_n_{300,400,500}_id_{0,1,2}/*.pdb` (generated 2026-04-25 under the canonical recipe — `inference_ucond_notri_ca_only`, seed=5, nsteps=400 ODE, sc sampling, `bb_ca` schedule=log p=2.0 / gt=1/t / `center_every_step=True`, `local_latents` not present (CA-only)). The MPNN bug is purely on the eval side (`designability.py:375,560`), so the existing PDBs are not contaminated and the right move is eval-only re-run, not regeneration.
+- Eval: `python proteinfoundation/evaluate.py --config_name inference_2646_long` after (i) backing up the buggy CSV to `inference/results_inference_2646_long_0.PRE_FIX_2026-04-25.csv`, (ii) removing the inner per-sample tmp dirs (`job_0_n_{L}_id_{i}/job_0_n_{L}_id_{i}/`) that would otherwise trip `evaluate.py:208`'s `assert not os.path.exists(tmp_dir)`, (iii) clearing stale `df_pdb_*` / `seq_df_pdb_*` shards. Eval ran on the post-fix `ca_only=True` ProteinMPNN call (commit `ed10dfe`, 2026-04-28).
+- Hardware: 1× L4 24GB (gxp-l4-0), bf16-mixed.
+- Output CSV: `inference/results_inference_2646_long_0.csv` (post-fix; rewrote the buggy file at the canonical path).
+- Backup of buggy CSV (kept for the bug-impact diff below): `inference/results_inference_2646_long_0.PRE_FIX_2026-04-25.csv`.
+- Eval log: `eval_2646_long_postfix.log`.
+
+**Results — per-protein min scRMSD over 8 ProteinMPNN sequences (CA mode, ESMFold; bb3o values within ~0.1 Å — does not change designability calls):**
+
+| L   | id_gen | min scRMSD CA (Å) | bb3o (Å) | designable <2 Å |
+|-----|--------|-------------------|----------|------------------|
+| 300 | 1      | 3.49              | 3.63     | no               |
+| 300 | 3      | 8.31              | 8.31     | no               |
+| 300 | 8      | **2.73**          | 2.88     | no (close)       |
+| 400 | 4      | 11.17             | 11.14    | no               |
+| 400 | 5      | 15.28             | 15.24    | no               |
+| 400 | 7      | 11.36             | 11.29    | no               |
+| 500 | 0      | 16.19             | 16.15    | no               |
+| 500 | 2      | 17.82             | 17.83    | no               |
+| 500 | 6      | 20.26             | 20.21    | no               |
+
+Per-length aggregate:
+
+| L   | n | designable (<2 Å, CA) | min CA | mean CA |
+|-----|---|------------------------|--------|---------|
+| 300 | 3 | 0/3 (0%)               | 2.73   | 4.84    |
+| 400 | 3 | 0/3 (0%)               | 11.17  | 12.61   |
+| 500 | 3 | 0/3 (0%)               | 16.19  | 18.09   |
+
+Headline (printed by `evaluate.py`): "Average scRMSD: 11.845 Å, Success Rate (<2Å): 0.0%, Total: 9, Failed: 0".
+
+**Bug-impact delta (post-fix `ca_only=True` minus pre-fix `ca_only=False`, same 9 PDBs):**
+
+| L   | mean Δ (Å) | per-sample Δ            |
+|-----|------------|--------------------------|
+| 300 | **−4.98**  | −4.70, −6.53, −3.72      |
+| 400 | −1.95      | −3.05, −0.58, −2.21      |
+| 500 | +0.40      | −1.87, +1.24, +1.82      |
+
+Pattern: the MPNN-bug overestimate of scRMSD shrinks dramatically at L=300 (mean −5 Å) and is essentially noise / zero-mean at L=500 (mean +0.4 Å, with no consistent direction across samples). At L=400 the bias is intermediate (mean −2 Å). The L=300 sample id_8 went from 6.45 Å (pre-fix, "not even close") to 2.73 Å (post-fix, "near miss") — a single bug-eval correction is the difference between "definitely not designable" and "borderline".
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making, but feeds Finding 8's "L cliff" picture. Specifically:
+- 0/9 designable across L ∈ {300, 400, 500} **after** the eval fix — the L cliff at the canonical baseline is real, not a measurement artifact, and persists past L=200 even with corrected ProteinMPNN.
+- The L=300 result (one sample at 2.73 Å, mean 4.84 Å) is qualitatively different from L=400/500 (mean 12-18 Å). The model degrades gradually L=300 → 400, then collapses at L≥400. This is consistent with the reported "wd=0 holds up better at long protein lengths than wd=0.05" qualitative observation (E015) — and motivates a like-for-like L=300/400/500 N=3 probe of the wd=0 ckpt to test whether the gap actually exists at these lengths once both arms use the fixed eval.
+- The pre-fix vs post-fix Δ pattern (large negative at L=300, near-zero at L=500) is consistent with Finding 9's E018 observation that "the bug bias is largest at L=200" — extends the picture: the bias decays toward zero as L grows further, presumably because at very long L the reconstructed-N/C/O virtual angles are uniformly distributed enough that the bias becomes a wash rather than a one-sided overestimate.
+
+**Methodological caveats:**
+- **N=3 per length is small.** The L=300 0/3 result has a 95% binomial CI of [0%, 71%]; "0/3 designable" is consistent with anything from "true rate 0%" to "true rate ≤ 70%". The L=300 id_8 sample at 2.73 Å is 0.73 Å above the threshold — within seed-to-seed L4 noise (~0.5 Å per E018), so a re-run with a different seed could plausibly land 1/3 designable, not 0/3. Do not promote per-length rates from this entry to a Finding without an N≥10 confirm.
+- **Single seed (seed=5 inherited from `inference_base.yaml`).** Same caveat as E017/E018/E021.
+- **Eval-only re-run, not full re-generation.** PDBs are from 2026-04-25 generation. Per CLAUDE.md the bug fix was eval-only (`designability.py` commit `ed10dfe`, 2026-04-28), so this is the *correct* re-run protocol. But it means generation-side numerics (bf16 on the L4 used for the original generation) are frozen; if a generation-side bug were ever found, those numbers would need a regen.
+- **Comparison to L=50/100/200 numbers in Finding 8.** L=50/100/200 designability rates from E019's N=30 re-eval are the "right" comparison anchor for these L=300/400/500 numbers — both are post-fix MPNN, both on the canonical baseline ckpt. The comparison is N=30 vs N=3, so this entry's per-length rates have ~3× the binomial CI width relative to Finding 8's L=50/100/200 column.
+- **No matched-seed comparison to other recipes.** E021's sparse-K40-pairupdate probe and E018's paramgroups probe are at different ckpt steps; neither has L≥300 data on the post-fix eval. Cross-recipe L-cliff claims need each variant's own L=300/400/500 probe at a comparable training step.
+
+**Cross-references:**
+- Same checkpoint and recipe as E008 (canonical baseline training), E014 (N=30 designability at L=50/100/200, pre-fix), E018 (baseline N=3 bug-fix recheck at L=50/100/200), E019 (full N=30 re-eval at L=50/100/200).
+- Pre-fix data for the same 9 PDBs is preserved in `inference/results_inference_2646_long_0.PRE_FIX_2026-04-25.csv` and is the "Δ" baseline in the Bug-impact table above. Do not delete that backup — it is the only on-disk record of the pre-fix L=300/400/500 probe.
+- Predicts: a like-for-like L=300/400/500 N=3 probe of the wd=0 ckpt (E013) on the post-fix eval would test whether the qualitative "wd=0 better at long lengths" claim from E015's discussion holds up under fixed eval. Not run yet; flagged as future experiment idea.
+- Eval bug origin: E016 (audit) → E017 (fix + first clean probe) → E018 (recheck baseline+paramgroups) → E019 (N=30 re-eval) → **E022 (L extension, this entry)**.
+
+---
+
+## E023 — Aromatic burial targeting: gen vs PDB, RSA via FreeSASA (2026-05-03)
+
+**Status:** finished.
+
+**Why ran:** Decide whether the joint-sequence-head La-Proteina samples (full-atom unconditional gen, the same family as E020) place aromatic residues (W/F/Y/H) into the protein core with a frequency that matches natural proteins, or whether the model has lost the residue-level structural-targeting signal. Aromatic burial is the single best one-shot diagnostic for "did the model learn that hydrophobic side chains go inside" — it is a minimal-assumption stress test that does not require ProteinMPNN or ESMFold, only structures and SASA. Decision input for: (a) extending Finding 9's "joint sequence head produces compositionally biased sequences" picture from sequence-only to a structure-side observable; (b) whether per-residue identity (F vs Y vs W vs H) discrimination is preserved or only the group-level hydrophobic vs polar distinction.
+
+**Configs:**
+- Gen set: `inference/inference_ucond_notri/job_0_n_{300,400,500,600,700,800}_id_{0..22}/*.pdb` — 138 full-atom PDBs from the unconditional joint sampler (notri = no triangular multiplication ablation, but full-atom local-latents + sequence head). Lengths 300-800, 23 per length. PDBs already on disk; eval-only run.
+- Ref set: random sample of 3000 `.pt` files from `data/pdb_train/processed_latents_300_800/` (precomputed-latent cache, full-atom `coords_nm` in OpenFold-37 atom order, `coord_mask`, `residue_type`), then post-hoc length-matched (50-residue bin width) down to 1002 proteins to mirror gen length distribution. Length-match check: gen median 550 (IQR 400-700), ref median 540 (IQR 388-692) — within 2%.
+- Pipeline: `proteinfoundation/analysis/aromatic_burial.py`. Per-residue total SASA via FreeSASA (Lee-Richards probe, default classifier); RSA = SASA / `MAX_ASA[aa]` with Tien et al. 2013 theoretical max ASA values, clipped to [0, 1.5]. Burial bins: buried `<0.20`, intermediate `[0.20, 0.50)`, exposed `≥0.50`. .pt files converted to in-memory PDB strings (nm → Å, OpenFold atom names) before FreeSASA. Multi-chain pooling: residues from all chains in model 0 included.
+- Statistic: burial-targeting ratio `R = P(aa | RSA<0.20) / P(aa | RSA≥0.50)`, computed for each of W/F/Y/H individually and for the aromatic group {W, F, Y, H}. 95% CIs from 1000 bootstrap resamples **over proteins** (not residues), so per-protein correlations are preserved.
+- Hardware: 1× L4 24GB (gxp-l4-0), CPU-only (FreeSASA is single-threaded CPU). ~10 min wall.
+- Output dir: `results/aromatic_burial/`. CSV: `aromatic_frequencies.csv`. Plots: `aromatic_vs_rsa.{png,pdf}` (group curve, 20 RSA bins, bootstrap bands), `aromatic_by_residue.{png,pdf}` (4-panel, one per W/F/Y/H). Run log: `results/aromatic_burial/run.log`.
+- DSSP not used (no `mkdssp` binary on box, no sudo). FreeSASA + manual division by Tien et al. max ASA gives the same RSA as Biopython's `acc_array='Wilke'` DSSP wrapper on the same probe radius.
+
+**Results — overall aromatic frequency:**
+
+| set | aromatic % | 95% CI |
+|-----|-----------|--------|
+| gen | 6.07 | [5.4, 6.8] |
+| PDB | 12.74 | [12.6, 12.9] |
+
+The gen set uses **roughly half the aromatic content** of natural proteins — gen and ref CIs do not overlap. (Consistent with E020's per-AA composition observation that the joint sequence head produces compositionally biased sequences; this entry quantifies the bias for the aromatic subgroup specifically and ties it to a structural observable.)
+
+**Results — burial-targeting ratio R = P(aa | buried) / P(aa | exposed):**
+
+| residue | gen R [95% CI] | PDB R [95% CI] | gen / PDB |
+|---------|----------------|-----------------|-----------|
+| W | 9.43 [1.90, 38.95] | 5.62 [4.95, 6.34] | 1.68× |
+| F | 2.57 [1.27, 5.07] | **5.68 [5.16, 6.32]** | **0.45×** |
+| Y | 5.30 [3.41, 7.91] | 3.67 [3.44, 3.93] | 1.45× |
+| H | 1.25 [0.61, 2.55] | 1.09 [1.03, 1.17] | 1.15× |
+| Aromatic (group) | 3.04 [2.11, 4.21] | 3.19 [3.06, 3.33] | 0.95× |
+
+Per-bin frequencies (P(aa) within each burial bin):
+
+| bin | gen W | gen F | gen Y | gen H | PDB W | PDB F | PDB Y | PDB H |
+|-----|-------|-------|-------|-------|-------|-------|-------|-------|
+| buried (RSA<0.20) | 0.0067 | 0.0222 | 0.0368 | 0.0078 | 0.0272 | 0.0607 | 0.0531 | 0.0235 |
+| intermediate | 0.0028 | 0.0105 | 0.0225 | 0.0144 | 0.0096 | 0.0216 | 0.0290 | 0.0264 |
+| exposed (RSA≥0.50) | 0.0013 | 0.0098 | 0.0071 | 0.0068 | 0.0049 | 0.0108 | 0.0145 | 0.0215 |
+
+Sanity / total counts: gen 138/138 parsed (0 FreeSASA failures), 75,900 residues; ref 1002 proteins after length-match (3000/3000 parsed before match), 540,524 residues. The two "warnings" the script printed on this run (`residue counts differ >2x` and `parse rate 33.4%`) are bogus on the current logic — gen has 7× fewer proteins than the post-match ref by design; the 33.4% number is the length-match retention fraction, not a FreeSASA failure rate. Both are warning-logic bugs not data bugs; the underlying parse rate is 100% on both sides.
+
+**Possible narrative:** potential narrative — feeds an extension of Finding 9 from sequence-side to structure-side. Specifically:
+- **Group-level hydrophobic-vs-polar partitioning is preserved.** R for the aromatic group is 3.04 in gen vs 3.19 in PDB — CIs heavily overlap (`[2.11, 4.21]` vs `[3.06, 3.33]`). The model has not lost the basic notion that aromatic side chains belong inside. This is the unsurprising-but-required null check.
+- **Per-residue discrimination is degraded for F.** Gen F ratio 2.57 vs PDB F ratio 5.68 — gen's upper CI (5.07) just touches PDB's lower CI (5.16), so the difference survives a 95% bootstrap test. F is the single strongest core-targeting aromatic in natural proteins (highest R in PDB), and the model essentially neutralises that preference.
+- **Y comes out higher in gen than in PDB on point estimates (5.30 vs 3.67), but the CIs overlap (`[3.41, 7.91]` vs `[3.44, 3.93]`).** The data does **not** support a "Y picks up the slack from F" claim at 95% — the overlap means we cannot reject "gen Y burial targeting is the same as PDB" with this sample size. The point estimate is suggestive of the direction but the bootstrap CI does not exclude PDB's value. Treat as a hypothesis to be tested with a larger gen set, not as a finding.
+- **H matches biology** — R ≈ 1 in both gen (1.25 [0.61, 2.55]) and PDB (1.09 [1.03, 1.17]) — H is amphipathic and has no buried-vs-exposed preference in natural proteins, and the model recovers that.
+- **W noisy.** Gen W ratio 9.43 [1.90, 38.95] — point estimate higher than PDB's 5.62 but the lower bound is below PDB's lower bound, so this is consistent with the PDB ratio. Gen W count is small (~370 W total in gen across all 138 proteins), which is what drives the wide CI. Do not over-read.
+- The compensation hypothesis ("F under-targeted, Y over-targeted, group-level R preserved") is mechanistically tempting and consistent with the point estimates, but the data does not actually establish it — F's deficit is significant, Y's excess is not, and the group-level "preservation" could equally be explained by F alone being attenuated while Y/W are unchanged.
+
+If this is promoted to Finding 10 in `content_masterarbeit.md`, the narrow claim is: "the joint sequence head's compositional bias has a structural correlate — fewer aromatics overall, and per-residue, F's natural buried preference is significantly attenuated; group-level hydrophobic-vs-polar partitioning is preserved." Y's elevated point estimate should be flagged as a hypothesis, not a claim.
+
+**Methodological caveats:**
+- **Single configuration.** Only `inference_ucond_notri` is probed — one La-Proteina training arm, one sampler config, one set of generation seeds. Whether this F-attenuation pattern is recipe-specific (joint head only, or also CA-only?) is open. The CA-only arm (`inference_ucond_notri_ca_only`) cannot be analysed this way because backbone-only PDBs have no aromatic side chains.
+- **n=138 gen proteins is small.** Per-residue bootstrap CIs are wide for the rare residues — W in particular (gen overall freq 0.49% × 138 × 550 res ≈ 370 W total). The W-ratio point estimate is unreliable; the F deficit is the main result that survives the small-sample CI.
+- **Length-match is post-hoc and approximate.** Ref is resampled (with replacement when needed) from the 3000-draw to mirror gen's 50-residue-binned length distribution. Median lengths now agree (gen 550, ref 540), but the resample inflates effective replication (the 1002 ref proteins are not 1002 independent draws after length-matching). The bootstrap CI on the ref side is therefore optimistic; treat ref CIs as lower bounds on uncertainty. Gen CIs are unaffected.
+- **RSA cutoff 0.20 / 0.50 is convention, not threshold-justified.** Robustness to cutoff (0.15/0.40 or 0.25/0.55) not checked. The ratio's sign is unlikely to flip under small cutoff changes, but the gen/PDB fold-change magnitude is cutoff-dependent.
+- **FreeSASA is not DSSP.** The Tien et al. 2013 max ASA values were derived against an implementation roughly equivalent to FreeSASA's Lee-Richards calculator, so the RSA agreement is good in practice. But the "20% / 50%" threshold conventions in the burial-targeting literature were originally calibrated against DSSP output. A DSSP-based re-run would show small numerical shifts in the per-bin frequencies; the gen-vs-PDB **comparison** is the same in both regimes because the same RSA pipeline is applied to both sets.
+- **Multi-chain pooling.** PDB references with biological assemblies have their burial reported relative to the deposited structure as parsed (model 0, all chains). Gen samples are monomeric. For the natural set this means a residue at a chain-chain interface is reported as "buried" if FreeSASA's calc on the assembly says so; for the gen set there is no interface. This is the right comparison for a fair "is this residue inside the protein?" probe; it is the wrong comparison if the question were "would this residue be buried in the monomer?".
+- **The two sanity warnings printed by the script (residue count >2× and parse rate 33.4%) are warning-logic bugs**, not data bugs (see Results). Fix queued for next run; does not affect the headline numbers.
+
+**Cross-references:**
+- E020 — Joint sequence head audit (sequence-only). E023 is the structure-side companion; the F under-burial here is consistent with E020's per-AA composition pattern but is independent evidence (structural, not compositional).
+- Finding 9 in `content_masterarbeit.md` — joint-sequence-head bias narrative. E023 extends Finding 9 from sequence to structure.
+- `proteinfoundation/analysis/aromatic_burial.py` — implementation. CLI: `--gen-dir`, `--ref-dir`, `--out-dir`, `--n-ref-sample`, `--ref-oversample-factor`, `--no-length-match`. Auto-detects `.pdb` vs `.pt`.
+- Predicts: a CA-only-arm version of this probe is impossible (no side chains in the gen PDBs); a paramgroups-arm version (`inference_paramgroups_wd0p1_*`) is possible but its current N=18 inference run is too small for tight per-residue CIs. If the joint sequence head is retrained with stronger sequence-loss weight in a future arm, re-running E023 on those gen PDBs is the obvious replication test.
