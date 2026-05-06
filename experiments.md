@@ -59,6 +59,7 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) | 2026-05-06 | finished | First designability read on the `ca_only_downsampled` CA-only variant at best_val ep=23 step=2331 (`ca_only_downsampled/1777987722`). | non-narrative — **dead at this step**. 0/18 designable across L∈{50,100,200}; best CA scRMSD 12.41 Å, median 17.66 Å. Step 2331 sits inside the canonical baseline's 1800-2200 best-val window, so under-training does not explain the result. No bimodality — every sample is fully collapsed. |
 | [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) | 2026-05-06 | finished | First designability read on the `ca_only_sparse_K40_scnbr_t04` CA-only variant at best_val ep=8 step=819 (`ca_only_sparse_K40_scnbr_t04/1778022317`). | non-narrative — **fails the variant bar at this step**. 0/18 designable; best CA scRMSD 4.37 Å (L=100), median 11.44 Å. Step 819 is well before E021's step 1133 inflection and the canonical 1800-2200 window — verdict on the variant's converged ceiling deferred until a later step is probed. |
 | [E037](#e037--curvature-targeted-bump-schedule-paired-n30-probes-2026-05-05--2026-05-06) | 2026-05-05 → 2026-05-06 | finished | Paired-noise schedule comparison (N=30, L=300, LD3-800): baseline vs `power_with_middle_bump` at eps∈{0.1, 0.14}, μ=0.489, σ=0.08 — extra NFEs at the `local_latents` curvature peak from E004/Finding 2 | non-narrative — null at N=30 with directional split (continuous mean improves, designability rate slightly worse); flags N=100 follow-up |
+| [E038](#e038--scnbr_t04-re-probe-with-fix-c2-actually-wired-2026-05-06) | 2026-05-06 | finished | Re-probe of `ca_only_sparse_K40_scnbr_t04` ckpt (best_val ep=8 step=819) after merging Fix C2 inference path from HPC. Same protocol as E035 (3 lengths × 6 samples × 200 nsteps); Fix C2 canary log confirmed the threshold-gated x_sc neighbor source fired at runtime. | non-narrative — 0/18 still, **but the mechanism is alive**: L=100 best 3.16 Å (vs E035's 4.37 Å), median 6.34 Å (vs 9.94 Å), three samples concentrated at 3.16/3.39/3.76 Å. Variant remains pre-convergence at step 819; re-probe at step ≥ 1500 is the next decision point, not abandonment. **Supersedes [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) for the inference-correct numbers**; E035's "0/18 with best 4.37 Å" was a Fix-C2-missing artifact, not a variant verdict. |
 
 ---
 
@@ -3073,3 +3074,79 @@ So the bump *does* shift mass toward lower scRMSD throughout the distribution �
 - `slurm_schedule_cmp_28000070.out` — the cancelled first attempt from 2026-04-19 (cgroup hung at first generation call); kept on disk for reference but produced no result.
 
 **Predicts:** N=100 paired probe at L=300 with `power_bump_e0.14` would (a) give a Wilcoxon p≤0.05 on the continuous direction if the +0.10 Å median Δ holds, and (b) put a ±5pp band on the designability shift, making the binary direction defensible. Cost: ~4h on 1× A100. Defer until the late-t density check above is done — if it confirms the tail-stealing hypothesis, redesign the schedule first.
+
+---
+
+## E038 — `scnbr_t04` re-probe with Fix C2 actually wired (2026-05-06)
+
+**Status:** finished.
+
+**Why ran:** [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) ran the `scnbr_t04` ckpt at step 819 and got 0/18 designable, but the local checkout was missing the Fix C2 inference code at the time — the threshold-gated `x_sc`-as-neighbor-source switch and the step-0 bootstrap forward both lived only on the HPC training tree (commit `8e97d7a` on the GitHub remote, not yet merged locally). E035's inference therefore ran the model with `sparse_attention=True` neighbor-list-from-`x_t` at all t — i.e., as plain sparse-K40 + the existing `x_sc_pair_dist_*` pair feature, which is *not* what the ckpt's weights were trained against. The result was uninformative about whether the variant works. After pulling 8e97d7a (and harmonising the docs merge — see commit `92a312f`), this re-probe runs the same ckpt with the inference path the ckpt was trained for. Decision input for: (a) is Fix C2 doing the architectural thing on this ckpt; (b) at step 819, does the variant clear the variant bar.
+
+**Configs:**
+- Checkpoint: `best_val_00000008_000000000819.ckpt` (epoch 8, opt step 819) — same file as E035.
+- Inference YAML: `configs/inference_sparse_scnbr_t04_quick.yaml` (unchanged from E035) — 3 lengths × 6 samples × 200 ODE steps, seed=5 inherited from `inference_base.yaml`.
+- Fix C2 wiring: `cfg_exp.training.sc_neighbors=True`, `cfg_exp.training.sc_neighbors_t_threshold=0.4` flow from the ckpt's `hyper_parameters` into `LocalLatentsTransformer.__init__` (`proteinfoundation/proteina.py:122-128`); `inference_base.yaml:23 sc_neighbors_bootstrap=True` flows into `full_simulation` via `proteinfoundation/proteina.py:809-828`. Canary print (`local_latents_transformer.py:127-132`) confirmed at runtime — see "Runtime confirmation" below.
+- Hardware: 1× NVIDIA L4 (gxp-l4-0, GPU 0). Env: `/home/ks2218/.conda/envs/laproteina_env`.
+- Output dir: `inference/inference_sparse_scnbr_t04_quick/` (clean re-run; E035 outputs deleted before launch). CSV: `inference/results_inference_sparse_scnbr_t04_quick_0.csv`. Log: `/tmp/probe_scnbr_postfix.log`.
+- Wall-clock: ~12 min total (gen + eval), comparable to E035.
+
+**Runtime confirmation that Fix C2 fired:**
+
+```
+[Fix C2] sc_neighbors=True (t_threshold=0.4): sparse neighbors will be built
+from x_sc when t < threshold and x_sc is present; otherwise falls back to x_t.
+```
+
+Printed exactly once at `Proteina.load_from_checkpoint` time (line 60 of `/tmp/probe_scnbr_postfix.log`). This is the canary that hops 1-3 of the wiring (ckpt hparams → `Proteina.__init__` → `LocalLatentsTransformer.__init__`) succeeded. Hops 4-5 (per-protein threshold gate in the forward, step-0 bootstrap in `full_simulation`) are not directly observable from a print but are exercised on every sample because the conditions to skip them all evaluate False (`sc_neighbors=True`, `self_cond=True`, `sc_neighbors_bootstrap=True`, `t_bb_ca` starts at 0 < 0.4 for the first ~40% of integration steps under the canonical `bb_ca` log-p=2 schedule).
+
+**Results — per-protein min scRMSD over 8 ProteinMPNN sequences (CA mode, ESMFold; bb3o values within ~0.1 Å):**
+
+| L | n | min scRMSD per sample (Å, sorted) | designable (<2 Å, CA) | best | median |
+|---|---|---|---|---|---|
+| 50  | 6 | 5.39, 8.54, 9.07, 15.16, 16.55, 19.17 | 0/6 (0%) | 5.39 | 12.11 |
+| 100 | 6 | **3.16, 3.39, 3.76**, 8.93, 13.78, 14.24 | 0/6 (0%) | **3.16** | 6.34 |
+| 200 | 6 | 12.49, 13.38, 13.52, 14.58, 14.79, 15.12 | 0/6 (0%) | 12.49 | 14.05 |
+| **all** | 18 | — | **0/18 (0%)** | 3.16 | 13.45 |
+
+Headline: "Average scRMSD: 11.390 Å, Success Rate (<2Å): 0.0%, Total: 18, Failed: 0". bb3o-mode designability matches.
+
+**Direct comparison to [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) (same ckpt, same protocol, only difference is Fix C2 active):**
+
+| L | E035 best Å | E038 best Å | Δ best | E035 median Å | E038 median Å | Δ median |
+|---|---|---|---|---|---|---|
+| 50  | 7.73 | **5.39** | **−2.34** | 9.30  | 12.11 | +2.81 |
+| 100 | 4.37 | **3.16** | **−1.21** | 9.94  | **6.34**  | **−3.59** |
+| 200 | 13.38 | 12.49 | −0.89 | 14.21 | 14.05 | −0.16 |
+| pooled mean | 11.57 Å | 11.39 Å | −0.18 |  |  |  |
+
+Per-sample lower-tail concentration at L=100:
+- E035 sorted CA scRMSD: `4.37, 6.73, 8.74, 11.13, 11.75, 15.48` — one sample below 5 Å.
+- E038 sorted CA scRMSD: `3.16, 3.39, 3.76, 8.93, 13.78, 14.24` — **three samples below 4 Å, all clustered around 3-4 Å.**
+
+This is the bimodal "near-canonical-best" head that [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) documented for sparse-K40 + pair-update at step 1133 (best L=100 = 1.35 Å on a converged ckpt). The mechanism is producing the right qualitative signature on the L=100 distribution; the absolute level is consistent with an under-trained ckpt rather than with a broken architecture.
+
+**Findings (tuning, not paper-grade):**
+
+1. **Fix C2 is producing the expected mechanistic signature.** L=100 median dropped 3.59 Å, three-sample concentration at 3.16/3.39/3.76 Å, best improved by 1.2 Å. None of these would be observable if the threshold-gated x_sc-neighbor swap and the step-0 bootstrap weren't actually changing the model's forward path. The wiring is real, the architectural axis works.
+2. **L=50 is bimodal-worse, not uniformly-better.** Best improved 2.34 Å but median worsened 2.81 Å — fewer "almost there" samples, two more in collapse mode. This is consistent with Fix C2 "rescuing the seeds that were close" but not "rescuing the seeds that were trapped". Same fingerprint sparse + pair-update showed at step 1133 (E021).
+3. **L=200 is essentially unchanged.** Best 12.5 Å, median 14.0 Å. At L=200 the score field hasn't formed yet at step 819 — neighbor-source choice is downstream of "the model has learned to integrate at this length", and that's still the bottleneck. Not a Fix-C2 failure mode; the same L=200 cliff existed for plain sparse-K40 at step 1259 (E014/E019: 0/30 at L=200, best 2.01 Å) and for sparse + pair-update at step 1133 (E021: 0/6 at L=200, best 2.20 Å).
+4. **Variant is pre-convergence, not dead.** Step 819 < E021's 1133 inflection, well below canonical 1800-2200 best-val window. The L=100 best dropping to 3.16 Å is the encouraging signal; given E021's L=100 best of 1.35 Å at step 1133 and an architecture that's now demonstrably exercising Fix C2, training to step ≥ 1500 is the right next step.
+5. **Decision:** continue training; re-probe at step ≥ 1500. If L=100 best at step ≥ 1500 doesn't drop below 2 Å (matching E021's 1.35 Å at step 1133), call the variant — Fix C2's mechanism is doing its job at this ckpt's training stage but isn't bridging the gap to E021's level, which would mean Fix C2 doesn't compose with the broader convergence trajectory. Until then, this is "needs more training", not protection.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. Could become a methodological aside if the step ≥ 1500 re-probe (a) confirms Fix C2 closes a gap vs plain sparse-K40 at matched step, or (b) demonstrably fails to. Either result is more informative than this one. Do *not* promote any per-length rate from this snapshot to a Finding.
+
+**Methodological caveats:**
+- **N=6 single seed (seed=5).** Same caveat as E035. The L=100 "3 samples below 4 Å" is a 3/6 cluster that needs N≥30 + multi-seed before it can be claimed as "Fix C2 is shifting the L=100 distribution toward designable" with statistical weight. The current data is enough to show the *direction* of the effect, not to bound its magnitude.
+- **Step mismatch vs E021.** E021's sparse + pair-update at step 1133 is the closest variant-cousin comparator, and E021 is at 1133 vs this entry's 819. Not step-matched. The argument "Fix C2 is producing the *signature* of E021's L=100 best-cluster" is qualitative; a step-matched (Fix C2 at step 1133) probe would let us say more.
+- **No matched-step canonical comparator.** Same caveat as E035.
+- **Fix C2 was trained against a 50% self-cond probability** (`proteina.py:577`'s `random.random() > 0.5` gate). Training never saw "x_sc is the result of a step-0 bootstrap forward at high noise" — the train-time x_sc is "previous-step x_1_pred at the same t". The inference step-0 bootstrap is therefore a small distribution mismatch between train and inference at step 0 specifically. Steps 1+ match training. This is a design observation about Fix C2, not specific to E038, but worth flagging as a candidate explanation if the step ≥ 1500 re-probe under-performs E021 by more than the step gap alone would predict.
+- **Threshold value 0.4 is unswept.** Could be too aggressive or too conservative. The right A/B for the variant is "Fix C2 at threshold ∈ {0.2, 0.4, 0.6}" once it has a converged ckpt, not on this under-trained one.
+
+**Cross-references:**
+- Supersedes [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) for the inference-correct numbers (E035 is preserved per the append-only rule; treat its 0/18 / best 4.37 Å as a Fix-C2-missing artifact).
+- Built on the merge resolution that brought Fix C2 inference into the local checkout — see commit `92a312f` ("Merge from HPC: Fix C2 + docs harmonize ...") and `8e97d7a` (the original HPC Fix C2 commit).
+- Fix C2 wiring: `proteinfoundation/proteina.py:119-128, 809-828` (config flow + integrator args), `proteinfoundation/nn/local_latents_transformer.py:125-132, 294-314` (constructor read + per-protein threshold gate via `torch.where`), `proteinfoundation/flow_matching/product_space_flow_matcher.py:582-583, 707-731` (function signature + step-0 bootstrap).
+- Closest variant-cousin: [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) (sparse-K40 + pair-update at step 1133) — different architectural variant (pair-update, not sc-neighbors) but matched on "post-fix MPNN, sparse K=32 attention, canonical recipe" so the L=100 best comparison is the cleanest available.
+- Memory: `feedback_dead_arm_calls.md` — applies to a *step-matched* dead variant; this is *step-mismatched* with a working mechanism, so the rule is "more training, then call".
+- Predicts: at step ≥ 1500 (mid-way to canonical's 1800-2200 best-val window), the L=100 best should drop below 2 Å for at least one sample if Fix C2 is composing with the convergence trajectory; if it doesn't, the variant is dead and the decision rule above triggers.
