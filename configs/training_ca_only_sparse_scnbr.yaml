@@ -1,14 +1,21 @@
-# Sparse-attention + pair-rep-update variant of the CA-only baseline.
+# Sparse-attention CA-only variant + Fix C2 (sc_neighbors).
+#
+# Architecture: ca_only_sparse_160M (sparse K=40, NO pair-rep update,
+# NO triangle multiplication). Identical to training_ca_only_sparse.yaml
+# at the architectural level.
+#
+# Delta vs training_ca_only_sparse.yaml: training-time sc_neighbors=True,
+# t_threshold=0.4. At low t (high noise) the sparse neighbor list is
+# constructed from x_sc (the model's clean-sample estimate from the
+# self-conditioning forward) instead of x_t (which is essentially noise).
+# Hypothesis: addresses the per-t val spike at t∈[0,0.2] in the existing
+# sparse_K40 / sparse_K40_pairupdate runs by giving the spatial+random
+# neighbor groups a non-noise coordinate source at high-noise timesteps.
 #
 # RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4).
-# See CLAUDE.md "Canonical baseline run" and content_masterarbeit.md
-# "Baseline reference" for why these values are non-negotiable.
-#
-# Architecture delta vs ca_only_sparse_K40: the NN config is
-# `ca_only_sparse_pairupdate_160M`, which adds `update_pair_repr: True`
-# (one update every 3 layers, no triangle mult) on top of sparse-K40.
-# Everything else mirrors the sparse-K40 baseline run.
-run_name_: ca_only_sparse_K40_pairupdate
+# Mirrors training_ca_only_sparse.yaml verbatim except for run_name_ and
+# the two sc_neighbors keys under training:.
+run_name_: ca_only_sparse_K40_scnbr_t04
 
 hardware:
   ncpus_per_task_train_: 24
@@ -19,7 +26,7 @@ hardware:
 
 defaults:
   - dataset: pdb/pdb_train_ucond
-  - nn: ca_only_sparse_pairupdate_160M
+  - nn: ca_only_sparse_160M
   - generation: validation_local_latents
   - _self_
 
@@ -53,9 +60,8 @@ training:
   self_cond: True
   p_folding_n_inv_folding_iters: 0.0
   use_precomputed_latents: False
-  # Fix C2 (opt-in): build sparse neighbors from x_sc instead of x_t when t < threshold.
-  # Default off; existing runs reproduce bit-exactly.
-  sc_neighbors: False
+  # Fix C2: build sparse neighbors from x_sc instead of x_t when t < threshold.
+  sc_neighbors: True
   sc_neighbors_t_threshold: 0.4
 
 lora:

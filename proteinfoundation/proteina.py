@@ -116,8 +116,17 @@ class Proteina(L.LightningModule):
         logger.info(f"cfg_exp.nn: {cfg_exp.nn}")
 
         # Neural network
+        # Fix C2: source of truth for sc_neighbors lives under cfg_exp.training (alongside
+        # self_cond), but the NN constructor only sees cfg_exp.nn. Plumb the resolved
+        # values through as kwargs — defaults preserve existing behavior when absent.
+        _sc_neighbors_kwargs = {
+            "sc_neighbors": cfg_exp.training.get("sc_neighbors", False),
+            "sc_neighbors_t_threshold": cfg_exp.training.get("sc_neighbors_t_threshold", 0.4),
+        }
         if cfg_exp.nn.name == "local_latents_transformer":
-            self.nn = LocalLatentsTransformer(**cfg_exp.nn, latent_dim=self.latent_dim)
+            self.nn = LocalLatentsTransformer(
+                **cfg_exp.nn, latent_dim=self.latent_dim, **_sc_neighbors_kwargs
+            )
         elif cfg_exp.nn.name == "local_latents_transformer_motif_uidx":
             self.nn = LocalLatentsTransformerMotifUidx(**cfg_exp.nn, latent_dim=self.latent_dim)
         else:
@@ -302,8 +311,8 @@ class Proteina(L.LightningModule):
             self.nsamples_processed = 0
 
     def on_before_optimizer_step(self, optimizer):
-        # Logged before grad clipping. Lets us see norm spikes at SLURM
-        # restarts, instabilities at LR changes, and the steady-state magnitude.
+        if self.global_step % 100 != 0:
+            return
         grad_sq = torch.tensor(0.0, device=self.device)
         param_sq = torch.tensor(0.0, device=self.device)
         for p in self.parameters():
@@ -797,6 +806,11 @@ class Proteina(L.LightningModule):
         fn_predict_for_sampling = partial(
             self.predict_for_sampling, n_recycle=self.inf_cfg.get("n_recycle", 0)
         )
+        # Fix C2: pull sc_neighbors flags through to the integrator. The bootstrap
+        # forward at step 0 only fires when both training-side sc_neighbors=True
+        # and inference-side sc_neighbors_bootstrap=True.
+        sc_neighbors_active = self.cfg_exp.training.get("sc_neighbors", False)
+        sc_neighbors_bootstrap = self.inf_cfg.args.get("sc_neighbors_bootstrap", True)
         gen_samples, extra_info = self.fm.full_simulation(
             batch=batch,
             predict_for_sampling=fn_predict_for_sampling,
@@ -810,6 +824,8 @@ class Proteina(L.LightningModule):
             guidance_w=guidance_w,
             ag_ratio=ag_ratio,
             steering_guide=getattr(self, "steering_guide", None),
+            sc_neighbors_active=sc_neighbors_active,
+            sc_neighbors_bootstrap=sc_neighbors_bootstrap,
         )
         # Dict with the data_modes as keys, and values with batch shape b
         # extra_info is a dict with additional things, including

@@ -17,6 +17,10 @@ generation:
   args:
     nsteps: 400
     self_cond: True
+    # Fix C2 (only used if training-side sc_neighbors=True): bootstrap forward at step 0
+    # so neighbors at the very first step are built from an x_sc estimate instead of pure
+    # noise. Costs one extra forward at step 0 (or two if guidance_w != 1.0).
+    sc_neighbors_bootstrap: True
 
     # Guidance
     guidance_w: 1.0   # guidance model weights, 1.0 for w/o CFG and autoguidance, 0.0 for excluding the main model

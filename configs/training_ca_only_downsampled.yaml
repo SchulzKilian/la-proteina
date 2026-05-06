@@ -1,14 +1,7 @@
-# Sparse-attention + pair-rep-update variant of the CA-only baseline.
-#
-# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4).
-# See CLAUDE.md "Canonical baseline run" and content_masterarbeit.md
-# "Baseline reference" for why these values are non-negotiable.
-#
-# Architecture delta vs ca_only_sparse_K40: the NN config is
-# `ca_only_sparse_pairupdate_160M`, which adds `update_pair_repr: True`
-# (one update every 3 layers, no triangle mult) on top of sparse-K40.
-# Everything else mirrors the sparse-K40 baseline run.
-run_name_: ca_only_sparse_K40_pairupdate
+# CA-only baseline + use_downsampling=True. Recipe locked to the canonical
+# old recipe (wd=0.05, constant LR=2e-4, no scheduler) — see CLAUDE.md.
+# Only delta vs training_ca_only.yaml: run_name_ and defaults.nn.
+run_name_: ca_only_downsampled
 
 hardware:
   ncpus_per_task_train_: 24
@@ -19,7 +12,7 @@ hardware:
 
 defaults:
   - dataset: pdb/pdb_train_ucond
-  - nn: ca_only_sparse_pairupdate_160M
+  - nn: ca_only_downsampled_160M
   - generation: validation_local_latents
   - _self_
 
@@ -53,10 +46,6 @@ training:
   self_cond: True
   p_folding_n_inv_folding_iters: 0.0
   use_precomputed_latents: False
-  # Fix C2 (opt-in): build sparse neighbors from x_sc instead of x_t when t < threshold.
-  # Default off; existing runs reproduce bit-exactly.
-  sc_neighbors: False
-  sc_neighbors_t_threshold: 0.4
 
 lora:
   r: null
@@ -64,9 +53,6 @@ lora:
   lora_dropout: 0.0
   train_bias: none
 
-# OLD recipe — DO NOT change wd or add a scheduler block.
-# Constant LR=2e-4 is achieved by omitting `scheduler:` entirely.
-# See proteina.py:228 — sched_cfg=None → returns optimizer alone (no LR schedule).
 opt:
   lr: 0.0002
   max_epochs: 10000000
@@ -83,7 +69,7 @@ log:
   log_every_n_steps: 1
   checkpoint: True
   checkpoint_every_n_steps: 10000
-  last_ckpt_every_n_steps: 500
+  last_ckpt_every_n_steps: 1500
 
 seed: 42
 

@@ -119,6 +119,18 @@ class LocalLatentsTransformer(torch.nn.Module):
         self.n_spatial_neighbors = kwargs.get("n_spatial_neighbors", 8)
         self.n_random_neighbors  = kwargs.get("n_random_neighbors",  16)
 
+        # Fix C2: optionally build the sparse neighbor list from the self-conditioning
+        # coordinates (x_sc) instead of the noisy x_t when t is below a threshold. Plumbed
+        # in from cfg_exp.training in proteina.py — source of truth lives next to self_cond.
+        self.sc_neighbors = kwargs.get("sc_neighbors", False)
+        self.sc_neighbors_t_threshold = kwargs.get("sc_neighbors_t_threshold", 0.4)
+        if self.sc_neighbors:
+            print(
+                f"[Fix C2] sc_neighbors=True (t_threshold={self.sc_neighbors_t_threshold}): "
+                f"sparse neighbors will be built from x_sc when t < threshold and x_sc is "
+                f"present; otherwise falls back to x_t."
+            )
+
         self.latent_dim = kwargs.get("latent_dim", None)
         if self.latent_dim is not None:
             self.local_latents_linear = torch.nn.Sequential(
@@ -252,23 +264,54 @@ class LocalLatentsTransformer(torch.nn.Module):
             mask_float = mask.float().unsqueeze(1)  # [b, 1, n]
             mask = F.max_pool1d(mask_float, kernel_size=2, stride=2).squeeze(1) > 0.5  # [b, n/2]
 
-            # 4. Build pair representation directly at n/2. Coordinate-like fields
-            #    (CA, latents) are mask-weighted CENTROID-pooled so the pair channel
-            #    sees midpoints informed by both children rather than only every-other
-            #    residue. Categorical / bool fields fall back to stride-2.
-            input_ds = self._subsample_input(input, original_n, mask=full_mask, stride=2)
-            if self.sparse_attention:
-                neighbor_idx, slot_valid = self._build_neighbor_idx(input_ds["x_t"]["bb_ca"], mask)
-            else:
-                neighbor_idx, slot_valid = None, None
-            pair_rep = self.pair_repr_builder(input_ds, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
+            # 4. Build pair_rep at full N then 2D mask-aware pool to N/2 — trunk
+            #    attends with biases from real residue distances (and full-stride
+            #    seq separation), not midpoint-CA distances. Padded (i,j) cells in
+            #    pair_full are zero (re-masked at feature_factory.py:2038 and
+            #    adaptive_ln_scale.py:40), so avg_pool2d on values + avg_pool2d on
+            #    the pair-mask gives the correct mask-renormalized average — the
+            #    /4 factors cancel. Shapes unchanged so old checkpoints load, but
+            #    warm-starting from a pooled-coord-path checkpoint will diverge.
+            assert not self.sparse_attention, \
+                "use_downsampling + sparse_attention not supported on this path."
+
+            pair_full = self.pair_repr_builder(input, neighbor_idx=None, slot_valid=None)
+            fm = full_mask.to(pair_full.dtype)
+            pm_full = (fm[:, :, None] * fm[:, None, :]).unsqueeze(1)                  # [b, 1, N, N]
+            num = F.avg_pool2d(pair_full.permute(0, 3, 1, 2).contiguous(), 2, 2)      # [b, d, N/2, N/2]
+            den = F.avg_pool2d(pm_full, 2, 2)                                          # [b, 1, N/2, N/2]
+            pair_rep = (num / den.clamp(min=1e-6)).permute(0, 2, 3, 1).contiguous()
+            hm = mask.to(pair_rep.dtype)
+            pair_rep = pair_rep * (hm[:, :, None] * hm[:, None, :])[..., None]
+            neighbor_idx, slot_valid = None, None
 
             # Re-apply mask to sequence
             seqs = seqs * mask[..., None]
         else:
             # Compute sparse neighbor indices on current CA coords if needed
             if self.sparse_attention:
-                neighbor_idx, slot_valid = self._build_neighbor_idx(input["x_t"]["bb_ca"], mask)
+                # Default: build neighbors from x_t (noisy current-step coords).
+                coords_for_neighbors = input["x_t"]["bb_ca"]
+                # Fix C2: at low t (high noise), x_t is essentially noise and the
+                # spatial+random neighbors carry no information. When sc_neighbors is on
+                # AND x_sc is present in the batch (training: 50% of batches per the
+                # self-cond coin flip; inference step>=1, or step==0 if bootstrap), swap
+                # in x_sc per-protein for samples whose t is below the threshold. The
+                # 50% no-x_sc training case intentionally falls back to x_t — we want
+                # the model to remain robust to x_sc-absent at all t (matches the
+                # inference step==0 no-bootstrap path).
+                if self.sc_neighbors and "x_sc" in input \
+                        and isinstance(input.get("x_sc"), dict) \
+                        and "bb_ca" in input["x_sc"]:
+                    t_bb_ca = input["t"]["bb_ca"]                     # [B]
+                    use_sc = t_bb_ca < self.sc_neighbors_t_threshold  # [B] bool
+                    x_sc_ca = input["x_sc"]["bb_ca"]                  # [B, N, 3]
+                    coords_for_neighbors = torch.where(
+                        use_sc[:, None, None],
+                        x_sc_ca,
+                        coords_for_neighbors,
+                    )
+                neighbor_idx, slot_valid = self._build_neighbor_idx(coords_for_neighbors, mask)
             else:
                 neighbor_idx, slot_valid = None, None
             pair_rep = self.pair_repr_builder(input, neighbor_idx=neighbor_idx, slot_valid=slot_valid)

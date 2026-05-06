@@ -579,6 +579,8 @@ class ProductSpaceFlowMatcher(L.LightningModule):
         ag_ratio: float = 0.0,
         measure_straightness: bool = False,
         steering_guide=None,
+        sc_neighbors_active: bool = False,
+        sc_neighbors_bootstrap: bool = True,
     ) -> Dict[str, Tensor]:
         """
         Generates samples by simulating the
@@ -706,6 +708,28 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 # self conditioning
                 if step > 0 and self_cond:
                     batch["x_sc"] = x_1_pred
+
+                # Fix C2 bootstrap: at step==0, the existing self-cond wiring above
+                # leaves x_sc absent, so the sc_neighbors path inside the transformer
+                # falls back to x_t (= pure noise). When sc_neighbors_active and
+                # sc_neighbors_bootstrap are both True, do an extra no-grad forward
+                # with x_sc absent (matching the existing "step==0 / no-x_sc" code
+                # path) to produce a clean-sample estimate, then write it into x_sc
+                # so the real step-0 forward below builds neighbors from a non-noise
+                # coord source. Outer torch.no_grad already wraps full_simulation;
+                # the nested no_grad here is harmless and self-documenting.
+                if step == 0 and self_cond and sc_neighbors_active and sc_neighbors_bootstrap:
+                    with torch.no_grad():
+                        nn_out_boot = self.get_clean_pred_n_guided_vector(
+                            batch=batch,
+                            predict_for_sampling=predict_for_sampling,
+                            guidance_w=guidance_w,
+                            ag_ratio=ag_ratio,
+                        )
+                        x_1_pred_boot = self.nn_out_to_clean_sample_prediction(
+                            batch=batch, nn_out=nn_out_boot
+                        )
+                    batch["x_sc"] = x_1_pred_boot
 
                 # get clean prediction and guided vector
                 nn_out = self.get_clean_pred_n_guided_vector(
