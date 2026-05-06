@@ -1,0 +1,37 @@
+# E025-followup variant: 5-fold ensemble + Gaussian-smoothed gradient.
+# Tests whether the predictor-vs-real-property gap (predictor Δ ~10× larger
+# than real-property Δ in the original sweep) is partly due to gradient
+# hacking — adversarial directions in the latent space that fool one fold's
+# regression head. Ensemble + smoothing should attenuate those directions.
+steering:
+  enabled: true
+  # 5-fold ensemble (gradient = mean of z-scored predictions across folds).
+  checkpoint:
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_0_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_1_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_2_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_3_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_4_best.pt
+
+  objectives:
+    - property: camsol_intrinsic
+      direction: maximize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 1.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  # Randomized smoothing — average gradient over 4 N(0, 0.1^2) noise draws.
+  # sigma=0.1 ≈ 10% of latent std (latents are ~unit-scale from the AE prior).
+  smoothing:
+    sigma: 0.1
+    n_samples: 4
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

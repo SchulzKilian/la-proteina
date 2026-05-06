@@ -1,0 +1,27 @@
+# Noise-aware predictor smoke (fold 2 only — best of the noise-aware fine-tune,
+# r2_noisy=0.5942 on logs/multitask_t1_noise_aware/20260505_110348).
+# Mirrors sweep_camsol_tango_ensemble_smoothed/tango_min_w16.yaml in every
+# detail except the checkpoint and the smoothing block (the predictor itself
+# now sees the steering-window distribution, so external smoothing is
+# redundant for this test). Single fold so we can isolate the
+# noise-aware-training effect from the ensemble effect.
+steering:
+  enabled: true
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_2_best.pt
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 16.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

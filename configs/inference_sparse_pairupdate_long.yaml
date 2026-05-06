@@ -1,0 +1,24 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_pairupdate_long
+config_name: inference_sparse_pairupdate_long
+
+# Same step-1133 ckpt as E021 (sparse-K40 + pair-update CA-only, run 1777463843).
+# Extends E021's L ∈ {50, 100, 200} probe to L ∈ {300, 400}.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000011_000000001133.ckpt
+autoencoder_ckpt_path:
+
+# Long-L probe: nsteps=400 (canonical inference_base default; E022 baseline
+# at L=300/400 also used nsteps=400). Note this differs from E021's nsteps=200.
+generation:
+  args:
+    nsteps: 400
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 3
+    nlens_cfg:
+      nres_lens: [300, 400]

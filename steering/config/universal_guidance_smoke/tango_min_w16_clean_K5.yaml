@@ -1,0 +1,40 @@
+# Universal-guidance probe — original 5-fold clean ensemble + sigma=0.1 smoothing
+# (i.e. byte-identical to sweep_camsol_tango_ensemble_smoothed/tango_min_w16.yaml)
+# PLUS denoising_steps=5: at each outer steering step, replace the one-step
+# Tweedie estimate `x_1_est = z_t + (1 - t) * v` with 5 Euler steps of the
+# latent flow ODE from t to 1. Predictor sees a much closer-to-clean x_1.
+#
+# Compared head-to-head against the corresponding cell of the May-04 ensemble
+# run (same 4 seeds, same length, same w_max). Same defensive machinery
+# (5 folds + smoothing) — only universal guidance is new.
+steering:
+  enabled: true
+  checkpoint:
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_0_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_1_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_2_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_3_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_4_best.pt
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 16.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  smoothing:
+    sigma: 0.1
+    n_samples: 4
+
+  denoising_steps: 5
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true
