@@ -54,7 +54,7 @@ def per_protein_freq(seqs: list[str]) -> np.ndarray:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--gen", type=Path,
-                    default=Path("results/generated_stratified_300_800/sequences.fasta"))
+                    default=Path("results/generated_stratified_300_800_nsteps400/sequences.fasta"))
     ap.add_argument("--ref", type=Path,
                     default=Path("data/pdb_train/seq_df_pdb_f1_minl50_maxl500_mtprotein_etdiffractionEM_minoNone_maxoNone_minr0.0_maxr5.0_hl_rl_rnsrTrue_rpuFalse_l_rcuFalse_latents.fasta"))
     ap.add_argument("--length-min", type=int, default=300)

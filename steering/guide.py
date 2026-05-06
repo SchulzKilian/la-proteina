@@ -65,6 +65,34 @@ class SteeringGuide:
         self.gradient_norm = config.get("gradient_norm", "unit")
         self.gradient_clip = config.get("gradient_clip", 10.0)
 
+        # Predictor input mode.
+        # False (default, legacy): feed `x_1_est = z_t + (1-t)*v` with t=1.0.
+        #   The standard reconstruction-guidance trick; appropriate for a
+        #   predictor trained on CLEAN t=1 latents (it has never seen noisy z_t).
+        # True (preferred for noise-aware predictors): feed z_t directly with
+        #   the real `t_scalar`. Removes the (input + t) double-mismatch when
+        #   the predictor was trained on (z_t, t∈[t_min, t_max]).
+        self.feed_z_t_directly = bool(config.get("feed_z_t_directly", False))
+
+        # Randomized smoothing (anti-gradient-hacking).
+        # When sigma > 0, the predictor sees x1_est + N(0, sigma^2 I) and the
+        # gradient is averaged over `n_samples` noise draws. Forces the
+        # gradient direction to be robust to local perturbations — adversarial
+        # directions tend not to be.
+        smoothing_cfg = config.get("smoothing", {}) or {}
+        self.smoothing_sigma = float(smoothing_cfg.get("sigma", 0.0))
+        self.smoothing_n_samples = int(smoothing_cfg.get("n_samples", 1))
+        if self.smoothing_sigma > 0 and self.smoothing_n_samples < 2:
+            self.smoothing_n_samples = 2  # avoid 1-sample "average"
+
+        # Universal-guidance K-step denoising: replace the one-step Tweedie
+        # estimate `x_1_est = z_t + (1 - t) * v` with K iterative Euler steps
+        # of the latent flow ODE from t to 1. K=1 is the original behaviour.
+        # Requires the caller to pass `flow_step_fn` to .guide().
+        self.denoising_steps = int(config.get("denoising_steps", 1))
+        if self.denoising_steps < 1:
+            raise ValueError(f"denoising_steps must be >= 1, got {self.denoising_steps}")
+
     @property
     def diagnostics(self) -> List[dict]:
         return self._diagnostics
@@ -78,6 +106,7 @@ class SteeringGuide:
         v_theta: torch.Tensor,
         t_scalar: float,
         mask: torch.Tensor,
+        flow_step_fn=None,
     ) -> tuple[torch.Tensor, Optional[dict]]:
         """Compute guidance gradient to add to the velocity field.
 
@@ -86,6 +115,8 @@ class SteeringGuide:
             v_theta: [B, L, 8] velocity predicted by flow model (detached)
             t_scalar: scalar float, the local_latents schedule time for this step
             mask: [B, L] bool mask
+            flow_step_fn: optional callable (z_iter, t_iter) -> v_local_latents.
+                Required when self.denoising_steps > 1; ignored when K=1.
 
         Returns:
             guidance: [B, L, 8] gradient to ADD to v_theta. Detached, safe for no_grad context.
@@ -109,46 +140,87 @@ class SteeringGuide:
             z_t_grad = z_t.detach().clone().requires_grad_(True)
             v_det = v_theta.detach()
 
-            # Clean estimate: x1_est = z_t + (1 - t) * v
-            x1_est = z_t_grad + (1.0 - t_scalar) * v_det  # [B, L, 8]
-
-            # Predictor forward pass (z-scored output for consistent gradient scale)
-            t_ones = torch.ones(B, device=z_t.device)
-            preds_zscore = self.predictor.predict_with_grad(x1_est, mask, t_ones)  # [B, 13]
-
-            # Compute objective scalar
-            objective = torch.zeros(B, device=z_t.device)
-            for obj_cfg in self.objectives:
-                idx = PROPERTY_TO_INDEX[obj_cfg["property"]]
-                direction = obj_cfg.get("direction", "maximize")
-                weight = obj_cfg.get("weight", 1.0)
-
-                if direction == "target":
-                    # Minimise squared distance to target (in z-score space)
-                    target_raw = obj_cfg["target_value"]
-                    target_z = (target_raw - self.predictor.stats.mean[idx]) / self.predictor.stats.std[idx]
-                    # Negative because we maximise the objective, and want to minimise distance
-                    objective = objective - weight * (preds_zscore[:, idx] - target_z) ** 2
-                elif direction == "target_range":
-                    # Squared hinge: no gradient inside [target_min, target_max];
-                    # penalty grows quadratically with distance outside.
-                    pred_z = preds_zscore[:, idx]
-                    mean_i = self.predictor.stats.mean[idx]
-                    std_i = self.predictor.stats.std[idx]
-                    penalty = torch.zeros_like(pred_z)
-                    if obj_cfg.get("target_min") is not None:
-                        tmin_z = (obj_cfg["target_min"] - mean_i) / std_i
-                        penalty = penalty + torch.relu(tmin_z - pred_z) ** 2
-                    if obj_cfg.get("target_max") is not None:
-                        tmax_z = (obj_cfg["target_max"] - mean_i) / std_i
-                        penalty = penalty + torch.relu(pred_z - tmax_z) ** 2
-                    objective = objective - weight * penalty
+            if self.feed_z_t_directly:
+                # Noise-aware-predictor path: feed z_t at the real t. No Tweedie,
+                # no K-step inner loop — the predictor was trained for exactly
+                # this distribution.
+                x1_est = z_t_grad
+                t_input = torch.full((B,), float(t_scalar), device=z_t.device)
+            else:
+                # Legacy reconstruction-guidance path (clean-predictor era).
+                # K=1: one-step Tweedie     x_1 ≈ z_t + (1 - t) * v(z_t, t)
+                # K>1: K-step Euler integration of the latent flow ODE from t to 1,
+                #      reusing the cached outer v at the first inner step.
+                K_d = self.denoising_steps
+                if K_d == 1 or flow_step_fn is None:
+                    x1_est = z_t_grad + (1.0 - t_scalar) * v_det
                 else:
-                    sign = DIRECTION_SIGN[direction]
-                    objective = objective + weight * sign * preds_zscore[:, idx]
+                    z_iter = z_t_grad
+                    t_iter = float(t_scalar)
+                    dt_inner = (1.0 - t_scalar) / K_d
+                    for k_step in range(K_d):
+                        if k_step == 0:
+                            v_iter = v_det
+                        else:
+                            v_iter = flow_step_fn(z_iter, t_iter)
+                        z_iter = z_iter + dt_inner * v_iter
+                        t_iter = t_iter + dt_inner
+                    x1_est = z_iter
+                t_input = torch.ones(B, device=z_t.device)
+
+            # Decide how many predictor calls to make. Without smoothing, K=1
+            # (the original single-sample path). With smoothing, K samples
+            # of N(0, sigma^2) noise are added to x1_est; the objective is
+            # averaged across K and a single backward pass produces the
+            # smoothed gradient w.r.t. z_t_grad.
+            K = self.smoothing_n_samples if self.smoothing_sigma > 0 else 1
+
+            # Sum, then divide once at end → matches mean_obj.sum().backward()
+            # but avoids materialising a [K, B] tensor.
+            objective_sum = torch.zeros(B, device=z_t.device)
+
+            for k in range(K):
+                if self.smoothing_sigma > 0:
+                    noise = torch.randn_like(x1_est) * self.smoothing_sigma
+                    x1_in = x1_est + noise
+                else:
+                    x1_in = x1_est
+
+                preds_zscore = self.predictor.predict_with_grad(x1_in, mask, t_input)  # [B, P]
+
+                # Compute objective scalar (averaged over K outside the loop)
+                objective = torch.zeros(B, device=z_t.device)
+                for obj_cfg in self.objectives:
+                    idx = PROPERTY_TO_INDEX[obj_cfg["property"]]
+                    direction = obj_cfg.get("direction", "maximize")
+                    weight = obj_cfg.get("weight", 1.0)
+
+                    if direction == "target":
+                        target_raw = obj_cfg["target_value"]
+                        target_z = (target_raw - self.predictor.stats.mean[idx]) / self.predictor.stats.std[idx]
+                        objective = objective - weight * (preds_zscore[:, idx] - target_z) ** 2
+                    elif direction == "target_range":
+                        pred_z = preds_zscore[:, idx]
+                        mean_i = self.predictor.stats.mean[idx]
+                        std_i = self.predictor.stats.std[idx]
+                        penalty = torch.zeros_like(pred_z)
+                        if obj_cfg.get("target_min") is not None:
+                            tmin_z = (obj_cfg["target_min"] - mean_i) / std_i
+                            penalty = penalty + torch.relu(tmin_z - pred_z) ** 2
+                        if obj_cfg.get("target_max") is not None:
+                            tmax_z = (obj_cfg["target_max"] - mean_i) / std_i
+                            penalty = penalty + torch.relu(pred_z - tmax_z) ** 2
+                        objective = objective - weight * penalty
+                    else:
+                        sign = DIRECTION_SIGN[direction]
+                        objective = objective + weight * sign * preds_zscore[:, idx]
+
+                objective_sum = objective_sum + objective
+
+            mean_objective = objective_sum / K
 
             # Sum over batch (each sample gets its own gradient)
-            objective.sum().backward()
+            mean_objective.sum().backward()
             raw_grad = z_t_grad.grad  # [B, L, 8]
 
         # --- Post-processing (all outside enable_grad, all detached) ---
@@ -183,12 +255,16 @@ class SteeringGuide:
         # Build diagnostics
         diag = None
         if self.log_diagnostics:
-            # Get de-normalised predictions for interpretability
+            # Get de-normalised predictions for interpretability — match the
+            # predictor input mode used for the gradient.
             with torch.no_grad():
-                preds_denorm = self.predictor.predict(
-                    z_t.detach() + (1.0 - t_scalar) * v_theta.detach(),
-                    mask, t_ones,
-                )  # [B, 13]
+                if self.feed_z_t_directly:
+                    diag_input = z_t.detach()
+                    diag_t = torch.full((B,), float(t_scalar), device=z_t.device)
+                else:
+                    diag_input = z_t.detach() + (1.0 - t_scalar) * v_theta.detach()
+                    diag_t = torch.ones(B, device=z_t.device)
+                preds_denorm = self.predictor.predict(diag_input, mask, diag_t)
 
             from steering.registry import PROPERTY_NAMES
             pred_dict = {

@@ -14,7 +14,7 @@ defined by `COLUMN_MAP`.
 Usage (from repo root):
     python proteinfoundation/analysis/compare_properties.py \\
         --ref laproteina_steerability/data/properties.csv \\
-        --gen results/generated_stratified_300_800/properties_generated.csv \\
+        --gen results/generated_stratified_300_800_nsteps400/properties_generated.csv \\
         --out results/property_comparison/stratified_vs_pdb
 """
 
@@ -178,7 +178,7 @@ def main() -> None:
                     default=Path("laproteina_steerability/data/properties.csv"),
                     help="Reference (training-set) developability panel CSV.")
     ap.add_argument("--gen", type=Path,
-                    default=Path("results/generated_stratified_300_800/properties_generated.csv"),
+                    default=Path("results/generated_stratified_300_800_nsteps400/properties_generated.csv"),
                     help="Generated developability panel CSV.")
     ap.add_argument("--out", type=Path,
                     default=Path("results/property_comparison/latest"),

@@ -18,7 +18,7 @@ Tier 2 — TemStaPro ML predictor (opt-in, GPU recommended):
 Usage:
     # Tier 1 only:
     python proteinfoundation/analysis/thermal_stability.py \\
-        --gen results/generated_stratified_300_800/sequences.fasta \\
+        --gen results/generated_stratified_300_800_nsteps400/sequences.fasta \\
         --ref pdb_cluster_all_seqs.fasta \\
         --out results/thermal_stability/stratified_vs_pdb
 
@@ -320,7 +320,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gen", type=Path,
-                    default=Path("results/generated_stratified_300_800/sequences.fasta"))
+                    default=Path("results/generated_stratified_300_800_nsteps400/sequences.fasta"))
     ap.add_argument("--ref", type=Path,
                     default=Path("pdb_cluster_all_seqs.fasta"))
     ap.add_argument("--out", type=Path,

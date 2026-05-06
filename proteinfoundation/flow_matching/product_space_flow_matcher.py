@@ -752,9 +752,29 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 if steering_guide is not None and "local_latents" in nn_out:
                     _v_key = "v_guided" if "v_guided" in nn_out["local_latents"] else "v"
                     _t_ll = t["local_latents"].flatten()[0].item()
+
+                    # Closure for K-step universal guidance — only needed when
+                    # `steering.denoising_steps > 1`. Runs the full flow forward
+                    # with the local_latents channel rewritten to (z_iter, t_iter)
+                    # while the other modes stay at the outer step's state.
+                    _t_template = t["local_latents"]
+                    _outer_batch = batch
+                    def _flow_step_fn(z_iter, t_iter):
+                        batch_inner = {**_outer_batch}
+                        batch_inner["x_t"] = {**_outer_batch["x_t"], "local_latents": z_iter}
+                        batch_inner["t"] = {
+                            **_outer_batch["t"],
+                            "local_latents": torch.full_like(_t_template, t_iter),
+                        }
+                        nn_out_inner = predict_for_sampling(batch_inner, mode="full")
+                        nn_out_inner = self.nn_out_add_clean_sample_prediction(batch_inner, nn_out_inner)
+                        nn_out_inner = self.nn_out_add_simulation_tensor(batch_inner, nn_out_inner)
+                        return nn_out_inner["local_latents"]["v"]
+
                     _guidance, _ = steering_guide.guide(
                         z_t=x["local_latents"], v_theta=nn_out["local_latents"][_v_key],
                         t_scalar=_t_ll, mask=mask,
+                        flow_step_fn=_flow_step_fn,
                     )
                     nn_out["local_latents"][_v_key] = nn_out["local_latents"][_v_key] + _guidance
                 # --- End steering ---

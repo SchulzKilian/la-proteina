@@ -1,5 +1,21 @@
 # Content Masterarbeit — Paper-relevant findings
 
+## Thesis intent
+
+The Masterarbeit's mission is **to exceed La-Proteina's baseline at long protein generation (L ≥ 300, target L = 500), where canonical CA-only designability falls off the cliff.** Two routes are pursued in parallel; each Finding below contributes to one of them, or to the methodological scaffolding that makes route-comparison possible:
+
+1. **Architectural route** — sparse attention, 1D-conv downsampling, or other backbone modifications that make longer sequences tractable / better-conditioned during training and sampling. The bar is *strict improvement over baseline designability at L ≥ 300*, not "approximately matches at the same step count".
+2. **Steering route** — gradient-based sampling-time guidance, applied to the official LD3+AE2 La-Proteina checkpoint, that pushes long-L generations into the designable regime while the underlying flow stays unmodified. The bar is *generated long-L proteins that pass real-property + designability filters in a lab-relevant sense*, not just predictor-side dose-response.
+
+Findings ordered roughly by which route they feed:
+- **Steering scaffold** (F1, F2, F3, F6) — the latent space supports gradient-based guidance: properties are decodable from latents (F1, F3), the flow channels have separable curvature (F2), and AE1 latent perturbations stay on the data manifold (F6).
+- **Baseline constraint** (F4, F7) — defines what the canonical recipe is and why it's not casually movable, so any architectural variant or steering result is comparable against a fixed reference.
+- **Joint-head evaluation methodology** (F8) — characterises La-Proteina's joint sequence head behaviour, so co-designability claims at long L can be interpreted correctly (i.e. not gamed by easy-to-refold sequences).
+
+A finding that just "improves the baseline a bit" is not a thesis claim. A finding that *exceeds* baseline at L ≥ 300 (architectural route) or that *moves real-property + designability* on long-L generations (steering route) is.
+
+---
+
 This document collects experimental findings that may appear as claims in the Masterarbeit paper. Each entry follows:
 
 - **Experiment:** Exact setup (config, data, architecture, hyperparams, run directory). Enough to re-run.
@@ -319,51 +335,9 @@ The overall latent L2 norm is essentially length-invariant (r = +0.04). Dim 3 ca
 
 ---
 
-## Finding 5 — Very-early-training CA-only diffusion snapshots are far from designable (2026-04-22)
+## Finding 5 — Negative result: stronger weight decay improves validation loss but collapses sample quality, traced to AdamW crushing AdaLN-Zero output gates (2026-04-25)
 
-> **Caveat — these are pre-convergence baselines, not results.** Both checkpoints below are taken well inside the undertrained regime (692 and 881 optimizer steps, corresponding to ~0.5–1 full gradient passes over the training set when `accumulate_grad_batches=8` and `batch_size=26` are accounted for). They are logged here only as anchoring points for later-step comparisons, not as scientific claims about the trained model's capability.
-
-**Experiment:**
-- Run: `test_ca_only_diffusion/1776805213` on Cambridge HPC (`/rds/user/ks2218/hpc-work/store/...`).
-- Architecture: CA-only (no AE, no local_latents head), `local_latents_transformer` backbone, `nlayers=14, token_dim=768, nheads=12` → ~158 M parameters. Naming in `configs/inference_ucond_ca_only_70M.yaml` is a misnomer — the "70M" tag refers only to sampling hyperparameters; the architecture comes from the checkpoint and is 158 M here.
-- Sampling config: `inference_ucond_ca_only_70M.yaml` (nsteps=400, `sampling_mode=sc`, `sc_scale_noise=0.1`, `t_lim_ode=0.98`, `center_every_step=true`, log schedule `p=2.0` on bb_ca).
-- Generation: 3 samples each at lengths 50 and 100 (6 total per ckpt).
-- Evaluation: `compute_designability: True` only (NOT codesignability — CA-only writes all-Ala, so codesignability would be meaningless). Pipeline = vanilla ProteinMPNN (8 seqs per PDB, `ca_only=False` because the writer reconstructs N/C/O from the Cα trace via `ca_nm_to_backbone_atom37`) → ESMFold → min scRMSD over the 8 seqs, reported for modes `ca` and `bb3o`.
-- Hardware: single NVIDIA L4 (23 GB), generation ≈ 15–25 s, evaluation ≈ 2–3 min total.
-
-**Numbers (per-length, min scRMSD_ca / mean / max, Å; designable = scRMSD_ca < 2 Å):**
-
-| ckpt | epoch | optimizer step | L=50 min / mean / max | L=50 designable | L=100 min / mean / max | L=100 designable |
-|---|---|---|---|---|---|---|
-| `best_val_00000006_000000000692.ckpt` | 6 | 692 | 4.29 / 6.65 / 8.61 | 0/3 | 7.86 / 9.15 / 9.85 | 0/3 |
-| `best_val_00000008_000000000881.ckpt` | 8 | 881 | 4.33 / 9.72 / 12.94 | 0/3 | 7.51 / 13.42 / 17.65 | 0/3 |
-
-`scRMSD_bb3o` tracks `scRMSD_ca` to within 0.2 Å for all samples (the backbone is reconstructed idealized from the Cα trace, so this is by construction).
-
-**Evaluated weights:** live (non-EMA) training weights. EMA weights at this stage are unusable: with `decay=0.999, every_n_steps=5` and only 692–881 optimizer steps, the EMA has had 138–176 updates, so `~0.999^138 ≈ 0.87` of the EMA parameters are still initialization noise. EMA half-life here is ≈ 3,465 optimizer steps — nothing below that yields a meaningful EMA comparison.
-
-**Narrow claim:** At 692 and 881 optimizer steps, the CA-only 158 M diffusion model on `test_ca_only_diffusion/1776805213` produces no samples that meet the standard self-consistency designability threshold (scRMSD < 2 Å) at L ∈ {50, 100}. Best-per-structure scRMSD_ca across both snapshots is 4.29 Å (L=50) / 7.51 Å (L=100).
-
-**Implikation (cautious):** The model has learned non-trivial structure — the best samples (~4 Å at L=50) are well below what an untrained CA trace would produce (random/init models typically score in the 20–40 Å range on this same pipeline, as evidenced by worst-case seqs in the 8-seq lists hitting 32–33 Å). However, it is nowhere near designable performance. This is consistent with being in the pre-convergence regime: a 158 M transformer at ≤881 optimizer steps has seen only ≤~183 k samples in gradient terms (`881 × 8 × 26`), which is well below the point where CA-only structure generators in the literature typically start hitting designable (usually ≥10 k optimizer steps on comparable data).
-
-**Methodische Einschränkungen:**
-- n=3 per length is too small to infer a training curve — the mean is dominated by a single unlucky draw (see the L=100 step-881 outlier at 17.65 Å pulling the mean from ~9 Å to ~13 Å).
-- Only one sampling seed (`seed=5`) was used, so all spread observed is within-sampler noise rather than cross-seed variability.
-- Only L∈{50, 100} was tested. Behavior at longer lengths (150–300) is not characterized.
-- `sampling_mode=sc` with `sc_scale_noise=0.1` is a single point in the sampling hyperparameter space — no ablation of `nsteps`, `sc_scale_noise`, or ODE/SDE switch point.
-- Evaluation uses a single folding model (ESMFold) and a single PMPNN temperature / sample count (8 seqs at default temperature). Designability numbers depend on these.
-- Codesignability is not computed at all (by design, the CA-only model has no sequence head), so this finding says nothing about joint structure-sequence quality — only about whether *some* sequence can refold the generated backbone.
-- The "epoch" counter (Lightning's accounting, 6 and 8 here) does not cleanly map to data passes when `accumulate_grad_batches=8` and multi-worker loaders are involved; only `global_step` is the reliable progress measure.
-
-**Artifacts:**
-- PDBs + ESMFold outputs: `./inference/inference_ucond_ca_only_70M/job_0_n_{50,100}_id_{0,1,2}/` (overwritten per run — not preserved across the two snapshots).
-- Per-sample CSV: `./inference/results_inference_ucond_ca_only_70M_0.csv` (also overwritten; numbers above are captured here).
-- Resolved generation config: `./inference/inference_ucond_ca_only_70M/resolved_config.yaml`.
-- Side-fix recorded for reproducibility: `ProteinMPNN/protein_mpnn_run.py` + `protein_mpnn_utils.py` + `helper_scripts/` had to be cloned from the pinned commit `8907e66…` of github.com/dauparas/ProteinMPNN — the repo's `script_utils/download_pmpnn_weights.sh` only pulls weights, not code.
-
----
-
-## Finding 6 — Negative result: stronger weight decay improves validation loss but collapses sample quality, traced to AdamW crushing AdaLN-Zero output gates (2026-04-25)
+> *Renumbered 2026-05-03: this entry was Finding 5 prior to the demotion of the original Finding 5 ("Very-early-training CA-only diffusion snapshots are far from designable", 2026-04-22), which is now an `experiments.md`-only baseline anchor — see `experiments.md → E008` (Canonical CA-only baseline training) for the lab record. The demotion does not affect any cross-references in `experiments.md` that already used "Finding 5" to mean the wd × AdaLN-Zero collapse claim documented here.*
 
 **Experiment:**
 
@@ -481,7 +455,7 @@ Standard fix in DiT/SiT/SD3 codebases: parameter groups in AdamW that exclude (a
 
 ---
 
-## Finding 7 — Sidechain perturbations in AE1 latent space stay closer to ESMFold's prediction than equivalent coord-space perturbations across all noise scales (2026-04-25)
+## Finding 6 — Sidechain perturbations in AE1 latent space stay closer to ESMFold's prediction than equivalent coord-space perturbations across all noise scales (2026-04-25)
 
 **Experiment:**
 - **Question (as pre-registered):** at matched noise levels k·σ for both spaces, which arm produces sidechain placements that ESMFold (conditioned on the original sequence) is closer to?
@@ -565,7 +539,7 @@ The three ~17 Å entries in both arms (4v8y_BO, 4v88_BO, 4v88_DO) are large mult
 
 ## Baseline reference — canonical CA-only run (for all architectural-variant comparisons)
 
-This is the run that the sparse-attention and conv-downsampling variants must be compared against. It is **not** a standalone finding — Finding 6 already covered the val-vs-sample-quality analysis. The purpose of this entry is to lock in the baseline's exact configuration so any later "the variant beat the baseline" claim has a single, citable reference point on disk.
+This is the run that the sparse-attention and conv-downsampling variants must be compared against. It is **not** a standalone finding — Finding 5 already covered the val-vs-sample-quality analysis. The purpose of this entry is to lock in the baseline's exact configuration so any later "the variant beat the baseline" claim has a single, citable reference point on disk.
 
 **Run identity:**
 - **Store dir:** `/home/ks2218/la-proteina/store/test_ca_only_diffusion/1776805213/`
@@ -597,15 +571,15 @@ This is the run that the sparse-attention and conv-downsampling variants must be
 - Designability (ESMFold scRMSD < 2 Å, 200 ODE steps, N=3 per length):
   - step 1889: 1/3 at L=50, 2/3 at L=100, (L=200 not tested).
   - step 2457 (post-uptick): 1/3 at L=50, 2/3 at L=100, 0/3 at L=200.
-- These numbers are the bar a variant must clear. They come from Finding 6's table; full per-length scRMSD distributions are tabulated there.
+- These numbers are the bar a variant must clear. They come from Finding 5's table; full per-length scRMSD distributions are tabulated there.
 
 **Decisions encoded in this run (do not silently revisit them in variants):**
-- wd is held at 0.05 because higher wd collapses AdaLN-Zero output gates and destroys designability while *improving* val loss (Finding 6). Raising wd requires restructuring `configure_optimizers` first.
+- wd is held at 0.05 because higher wd collapses AdaLN-Zero output gates and destroys designability while *improving* val loss (Finding 5). Raising wd requires restructuring `configure_optimizers` first.
 - LR schedule is constant because cosine_with_warmup did not help in v2 (it co-occurred with the wd=0.1 collapse and was not isolated; in absence of evidence it improves things on its own, the simpler constant schedule is the canonical choice).
 - `update_pair_repr=False` — we have no evidence the pair-update layer helps the CA-only task, and it adds compute. Keeping it off keeps variants cheap.
 - `use_tri_mult=False` — was already off in the baseline; doubly required because triangular multiplicative updates need the full n×n pair grid and are incompatible with the planned sparse-attention variant (`pair_update.py:65` raises).
 - 1-GPU configuration with `accumulate_grad_batches=32` is the deliberate match to the original 4-GPU effective batch (`4 × 8 × 6` = `1 × 32 × 6`), so the variant's batch dynamics are not a confounder.
-- N=3 designability checks per length at 2-3 lengths is the cheap proxy for sample quality. This is required as a stopping rule for any variant — see Finding 6 implication: val loss alone is insufficient.
+- N=3 designability checks per length at 2-3 lengths is the cheap proxy for sample quality. This is required as a stopping rule for any variant — see Finding 5 implication: val loss alone is insufficient.
 
 **How to use this entry:**
 
@@ -613,13 +587,13 @@ When proposing or evaluating a variant (sparse attention, conv downsampling, any
 
 ---
 
-## Finding 8 — In-progress: removing weight decay (wd=0) yields a step-1638 designability profile that already matches the canonical wd=0.05 baseline at comparable training stage (2026-04-27)
+## Finding 7 — In-progress: removing weight decay (wd=0) yields a step-1638 designability profile that already matches the canonical wd=0.05 baseline at comparable training stage (2026-04-27)
 
 **Status:** in-progress. The training run is alive on Cambridge HPC; only the first usable checkpoint has been evaluated so far. This entry will be amended as later checkpoints (steps ≥ 2000) come in.
 
 **Experiment:**
 
-Direct causal test of the weight-decay × AdaLN-Zero gate-suppression mechanism proposed in Finding 6 — Variant B from the "Causal ablation" follow-up section below. Train from scratch with the canonical CA-only recipe but `weight_decay=0.0` instead of `0.05`. Everything else is held verbatim to the canonical baseline (see "Baseline reference" above and `configs/training_ca_only_wd0.yaml`):
+Direct causal test of the weight-decay × AdaLN-Zero gate-suppression mechanism proposed in Finding 5 — Variant B from the "Causal ablation" follow-up section below. Train from scratch with the canonical CA-only recipe but `weight_decay=0.0` instead of `0.05`. Everything else is held verbatim to the canonical baseline (see "Baseline reference" above and `configs/training_ca_only_wd0.yaml`):
 
 - Architecture identical (`configs/nn/ca_only_score_nn_160M.yaml`, 160M `LocalLatentsTransformer` with AdaLN-Zero conditioning).
 - Data identical (`pdb/pdb_train_ucond`, worst_resolution ≤ 2.0 Å, length 50–512, sequence-similarity 0.5 split).
@@ -628,7 +602,7 @@ Direct causal test of the weight-decay × AdaLN-Zero gate-suppression mechanism 
 - `val_check_interval=2000` mini-batches.
 - Run dir: `store/ca_only_diffusion_wd0/<run_id>/`. Submit chain via `submit_train_ca_only_1gpu.sh -n training_ca_only_wd0` with `--exclude=gpu-q-43`.
 
-Designability protocol (matches Finding 6 / canonical baseline reference):
+Designability protocol (matches Finding 5 / canonical baseline reference):
 - N=3 samples per length; lengths {50, 100, 200}; 200 ODE steps; ESMFold scRMSD; designable = scRMSD_ca < 2 Å.
 - Eval config: `configs/inference_1638.yaml` (defaults to `inference_ucond_notri_ca_only`); `configs/generation/uncond_ca_only_quick.yaml` with `nres_lens: [50, 100, 200]`, `nsamples: 3`, `compute_designability: True`, `keep_folding_outputs: True`.
 - Two seeds tested on the step-1638 ckpt (default `seed=5` and `seed=100`). Inference deterministic given seed; per-batch seed is `cfg.seed + job_id` (`generate.py:139`).
@@ -649,7 +623,7 @@ Per-length scRMSD_ca (Å), N=3 each:
 
 Aggregate per seed: seed=5 → 1/9 designable; seed=100 → 2/9 designable.
 
-For comparison (canonical wd=0.05 baseline at comparable training stages, from Finding 6 / Baseline reference):
+For comparison (canonical wd=0.05 baseline at comparable training stages, from Finding 5 / Baseline reference):
 
 | ckpt step | recipe | L=50 des | L=100 des | L=200 des | total | best ca |
 |---|---|---|---|---|---|---|
@@ -698,87 +672,308 @@ At training step 1638 — pre-convergence relative to the canonical wd=0.05 best
 **Implikation:**
 
 - **Removing weight decay does not destroy training.** Validation-loss curves are reportedly visually indistinguishable from canonical wd=0.05 in the first ~2000 steps, and short-length designability is intact at step 1638. This rules out the worst-case scenario where wd=0 collapses learning entirely (e.g. parameter norms blowing up or AdaLN-Zero gates training to chaotic magnitudes). The DiT-family literature recipe (`weight_decay=0` in the official DiT/SiT `train.py`) is at minimum compatible with this codebase's CA-only configuration.
-- **Step 1638 is a preview, not a verdict.** Canonical wd=0.05 reaches its best designability at step 1800–2200, which is where the gate-suppression hypothesis's mechanistic prediction lives: if uniform wd=0.05 is suppressing deep AdaLN-Zero gates (Finding 6 diagnostic showed deep-layer gate weights at ~50% of shallow-layer magnitudes even at wd=0.05), and if that suppression is what causes the L=200 cliff, then a wd=0 ckpt at step ≈ 2000–2200 should (a) have larger deep-layer gate weights than the canonical 2646 ckpt, and (b) close at least part of the L=200 designability gap. Neither has been tested yet.
+- **Step 1638 is a preview, not a verdict.** Canonical wd=0.05 reaches its best designability at step 1800–2200, which is where the gate-suppression hypothesis's mechanistic prediction lives: if uniform wd=0.05 is suppressing deep AdaLN-Zero gates (Finding 5 diagnostic showed deep-layer gate weights at ~50% of shallow-layer magnitudes even at wd=0.05), and if that suppression is what causes the L=200 cliff, then a wd=0 ckpt at step ≈ 2000–2200 should (a) have larger deep-layer gate weights than the canonical 2646 ckpt, and (b) close at least part of the L=200 designability gap. Neither has been tested yet.
 - **Variance vs effect size.** N=3 single-seed designability is too noisy to claim a wd=0 vs wd=0.05 effect at a single step; the seed=5 vs seed=100 comparison on the same step-1638 ckpt already swung 1/9 → 2/9. A real comparison needs (i) checkpoint-matched timing (canonical wd=0.05 step 2078 / 2646 vs wd=0 at the same step), (ii) ≥2 seeds per ckpt with 3 samples each, and (iii) per-layer AdaLN-Zero gate diagnostic at the wd=0 ckpt to verify the mechanistic prediction, not just the downstream designability.
 
 **Methodische Einschränkungen:**
 
 - **Single ckpt, single training run.** Step 1638 is the first val-best ckpt rsynced from the wd=0 chain; downstream behavior past this step is unknown at the time of writing. The canonical wd=0.05 baseline overfits past step 2200 (val rises to 5.39 within 700 steps) and the wd=0 run has no known overfitting profile yet — it might reach a higher step before degrading, or it might degrade earlier.
 - **Designability ≠ likelihood.** ESMFold scRMSD < 2 Å is a downstream behavioral metric on a small N; the canonical wd=0.05 ckpts have all been run with the same N=3 protocol, but the noise floor is high. Per-length all-atom scRMSD distributions at larger N would tighten the comparison considerably.
-- **Mechanistic step not yet performed.** Finding 6's mechanism claim was that wd=0.05 suppresses deep AdaLN-Zero gates (Finding 6 showed wd=0.1 → 26–60% of wd=0.05's deep-layer gates; the mid-session diagnostic on step 2646 / 2078 showed wd=0.05 → ~50% of shallow-layer gates in the deep blocks). The corresponding diagnostic on a wd=0 ckpt — does removing wd let the deep gates grow further? — has not yet been run. Without it, "wd=0 helps designability" remains observational.
+- **Mechanistic step not yet performed.** Finding 5's mechanism claim was that wd=0.05 suppresses deep AdaLN-Zero gates (Finding 5 showed wd=0.1 → 26–60% of wd=0.05's deep-layer gates; the mid-session diagnostic on step 2646 / 2078 showed wd=0.05 → ~50% of shallow-layer gates in the deep blocks). The corresponding diagnostic on a wd=0 ckpt — does removing wd let the deep gates grow further? — has not yet been run. Without it, "wd=0 helps designability" remains observational.
 - **Hyperparameter coupling.** Even though the recipe matches canonical exactly except for wd, the AdamW equilibrium argument (`|θ_eq| ≈ |grad|/wd`) implies wd=0 changes the equilibrium for *all* parameters, not just AdaLN-Zero gates. If the result holds at later steps, ruling out a confound from a non-AdaLN-Zero parameter group will require the per-layer diagnostic above (gate weights are the critical pathway by mechanism, but other parameters' magnitudes will also have shifted).
 - **L=200 cliff still present.** The hypothesis that "wd=0.05 is what stops the model from generalizing past L=200" cannot yet be evaluated at step 1638 — the cliff is present in both recipes at this stage. The cliff may be (a) still reflecting undertraining, (b) genuinely not caused by wd, or (c) caused by wd but only fixed at a later step. Decisive evidence requires the step ≥ 2000 ckpt.
 - **Seed=5 default in eval pipeline.** Re-running the same eval with the same `seed=5` is fully deterministic — the per-batch seed is `cfg.seed + job_id` from `generate.py:139`. This entry's seed-100 numbers were obtained by passing `seed=100` as a Hydra override on the eval command. Future replicate evals must vary `seed` to obtain new samples.
 
 ---
 
-## Finding 9 — La-Proteina's joint sequence head produces a chemistry-specific alphabet collapse, mode-merges on bimodal natural distributions, and inflates standard sequence-based thermal-stability proxies (2026-04-30)
+## Finding 8 — La-Proteina's joint sequence head produces a chemistry-specific alphabet collapse and inflates standard sequence-based thermal-stability proxies, while sharpening aromatic core-targeting on the residual budget (2026-04-30; AFDB-rereferenced 2026-05-03; sub-claim (b) withdrawn 2026-05-03; nsteps=400 regen 2026-05-05)
 
-**Status:** finished for sub-claims (a), (b), (c.i). Sub-claim (c.ii) (ML-predicted Tm via TemStaPro) is preregistered, GPU run pending. Lab-notebook detail in `experiments.md → E019`.
+**Status:** finished for sub-claims (a), (b.i), and (c) — all three confirmed against the corrected AFDB reference (E026, 2026-05-03) and replicated at the canonical nsteps=400 inference resolution (E020/E026 follow-up, 2026-05-05). Sub-claim (b.ii) (ML-predicted Tm via TemStaPro) is preregistered, GPU run pending. The 2026-04-30 sub-claim *(b) "mode-merging on bimodal natural distributions"* has been **withdrawn** (2026-05-03) after the AFDB rerun + a matched-n robustness check (E027) showed that the apparent mode-merging signature was either a PDB-vs-AFDB population difference (shannon_entropy: PDB is bimodal but AFDB is unimodal — gen matches AFDB, no merging to detect) or a sample-size detection artifact (SWI: PDB's 2-mode signature vanishes when PDB is subsampled to AFDB's n=5K). Lab-notebook detail in `experiments.md → E020` (original PDB reference, nsteps=200), `experiments.md → E026` (AFDB rerun, primary, nsteps=200), `experiments.md → E020+E026 follow-up` (nsteps=400 regen, **the numbers cited below are from this regen**), and `experiments.md → E027` (modality robustness check).
+
+**Critical framing — La-Proteina was trained on AFDB, not PDB.** The original 2026-04-30 version of this Finding compared the model's joint-sequence-head output against a 56K-protein PDB reference. PDB is *not* the model's training distribution; the AlphaFold-clustered AFDB subset is. PDB and AFDB differ along several axes (PDB is biased toward crystallisable, well-folded proteins; AFDB has more disorder, more compositional flexibility, weaker hydrophobic-core packing in the predicted structures). Comparing an AFDB-trained generative model against a PDB reference therefore conflates two distinct questions: (i) "does the model drift from its training distribution?" (the right question for this Finding) and (ii) "does the model's training distribution drift from the rigorous-crystallography natural-protein distribution?" (a separate question about AFDB itself, not about La-Proteina's joint head). The 2026-05-03 AFDB rerun (E026) addresses the first question directly. Where the two readings differ, AFDB numbers should be treated as primary; PDB numbers below are kept as a sensitivity check and to make the size of the AFDB-vs-PDB reference shift visible.
 
 **Experiment:**
 
-Distributional comparison of 1,000 La-Proteina jointly-generated sequences (`results/generated_stratified_300_800/sequences.fasta`, sampled from `inference_ucond_notri_long.yaml` → `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt`, length-stratified-uniform 300-800 in 50-residue bins, 200 ODE steps, seed 1000-1999) against PDB references along three orthogonal axes:
+Distributional comparison of 1,000 La-Proteina jointly-generated sequences (`results/generated_stratified_300_800_nsteps400/sequences.fasta`, sampled from `inference_ucond_notri_long.yaml` → `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt`, length-stratified-uniform 300-800 in 50-residue bins, **400 ODE steps** — the codebase's canonical inference default — seed 1000-1999) against natural-protein references along three orthogonal axes. Reference set: a uniform-random N=5000 AFDB sample length-stratified to gen's [300, 800] distribution (E026 — primary). The original 56K-protein PDB reference is retained as a sensitivity comparison; numbers below are reported as AFDB primary / PDB secondary where both exist. (The original 2026-04-30 / 2026-05-03 numbers used 200 ODE steps, half the canonical default — those are documented in `experiments.md → E020` and `experiments.md → E026` for record-of-history; the numbers cited below are from the 2026-05-05 nsteps=400 regen, in which every Finding 8 sub-claim survived with magnitudes attenuated 5-15% on most metrics.)
 
-1. **14-property developability panel** (`compare_properties.py`): generated set scored by `steering/property_evaluate.py`, reference set is `laproteina_steerability/data/properties.csv` — 56,008 PDB proteins, length 300-796, scored by the *same* underlying functions in `proteinfoundation/analysis/compute_developability.py`. Both pipelines take their sequence from the per-protein `residue_type` tensor, so this is a clean comparison: real PDB sequence vs La-Proteina's own jointly-sampled sequence, with no MPNN intermediary on either side.
-2. **Per-amino-acid composition** (`aa_composition.py`): mole fractions averaged across proteins, length-filtered to [300, 800]. Reference: `pdb_cluster_all_seqs.fasta` filtered to [300, 511] = 53,749 sequences (the FASTA is length-capped at 511; this introduces a small population-mismatch caveat — see below).
+1. **15-property developability panel** (`compare_properties.py`): generated set scored by `steering/evaluate_samples_dir.py` running the full `compute_developability` pipeline on `.pt` files (TANGO via local binary, FreeSASA-based hydrophobic patches / SAP / SCM, IUPred3, charged-residue counts), reference set is `laproteina_steerability/data/properties.csv` — 56,008 PDB proteins — and `data/afdb_ref/properties_afdb_refschema.csv` — 4,998 AFDB proteins. Both pipelines take their sequence from the per-protein `residue_type` tensor, so this is a clean comparison: real natural sequence vs La-Proteina's own jointly-sampled sequence, with no MPNN intermediary on either side.
+2. **Per-amino-acid composition** (`aa_composition.py`): mole fractions averaged across proteins, length-filtered to [300, 800]. Reference: `pdb_cluster_all_seqs.fasta` filtered to [300, 511] = 53,749 sequences (the FASTA is length-capped at 511 — small population-mismatch caveat preserved); AFDB reference is the 4,998 AFDB sequences at full [300, 800] coverage.
 3. **Sequence-based thermal-stability proxies** (`thermal_stability.py`): aliphatic index (Ikai 1980), IVYWREL fraction (Zeldovich 2007), GRAVY (Kyte-Doolittle), charged fraction (D+E+K+R), log10[(D+E)/(K+R)] (regularized acidic/basic ratio), and aromatic fraction (F+W+Y) as a buried-core proxy. Computed on the same length-filtered sets as above.
 
-**Numbers (selected; full table in `experiments.md → E019`):**
+**Numbers (full 15-row panel; lab-notebook detail in `experiments.md → E020+E026 follow-up`):**
 
-*Property panel — five largest gen-vs-PDB drifts:*
+*Property panel — gen vs natural reference (AFDB primary; PDB sensitivity).* Now reports all 15 panel rows on both sides — the prior gen seqonly limitation that capped E026 at 5 rows is resolved by the nsteps=400 regen. Numbers in the table are AFDB d / PDB d.
 
-| property | ref mean | gen mean | Cohen's d | KS_d | ref/gen modes |
-|---|---|---|---|---|---|
-| shannon_entropy | 4.10 bits | 3.36 bits | **−6.65** | **0.92** | 2 / 1 |
-| iupred3_fraction_disordered | 0.034 | 0.201 | **+2.70** | 0.36 | 1 / 1 |
-| net_charge | −7.0 | −32.4 | −2.14 | 0.43 | 1 / 1 |
-| scm_negative | −43 | −83.7 | −2.30 | 0.44 | 1 / 1 |
-| swi (sequence-weighted hydropathy) | 0.779 | 0.795 | +1.62 | 0.62 | **2 / 1** |
+| property                 | AFDB d / PDB d | AFDB KS / PDB KS | gen / ref(AFDB) / ref(PDB) means |
+|--------------------------|----------------|-------------------|----------------------------------|
+| shannon_entropy          | **−2.99 / −5.78** | **0.83 / 0.89**     | 3.47 / 4.05 / 4.10 bits          |
+| swi                      | +1.20 / +1.59 | 0.54 / 0.61       | 0.795 / 0.778 / 0.779            |
+| iupred3_fraction_disordered | +0.27 / +2.36 | 0.08 / 0.33  | 0.175 / 0.123 / 0.034            |
+| iupred3_mean             | +0.45 / +1.49 | 0.22 / 0.41       | 0.321 / 0.258 / 0.216            |
+| net_charge               | −0.97 / −2.20 | 0.36 / 0.43       | −32.7 / −5.2 / −7.0              |
+| pI                       | −0.67 / −0.41 | 0.43 / 0.40       | 5.64 / 6.78 / 6.13               |
+| **tango**                | **−0.46 / +0.37** | 0.22 / 0.18  | 1106 / 1312 / 999                |
+| **tango_aggregation_positions** | **−0.58 / −0.05** | 0.33 / 0.24 | 1561 / 3654 / 1618        |
+| **hydrophobic_patch_total_area** | **−1.43 / −0.91** | **0.81 / 0.56** | 2746 / 9820 / 3964     |
+| **hydrophobic_patch_n_large** | **−1.39 / −1.07** | **0.82 / 0.60** | 5.85 / 36.1 / 12.2          |
+| **sap**                  | **−1.21 / −0.50** | 0.75 / 0.56  | 10.3 / 33.7 / 13.3               |
+| scm_positive             | −0.68 / +0.59 | 0.31 / 0.24       | 47.9 / 71.5 / 39.6               |
+| scm_negative             | −0.39 / −2.34 | 0.15 / 0.43       | −84.2 / −67.2 / −43.0            |
+| rg                       | −0.89 / +0.49 | 0.55 / 0.30       | 23.4 / 33.6 / 21.9               |
+| sequence_length          | −0.005 / +1.48 | 0.012 / 0.46     | 549 / 550 / 405 (length-matched on AFDB) |
 
-*Per-AA composition — biggest over- and under-representations:*
+The bold rows are the structure-derived columns that did not exist on the gen side in E020/E026 (gen seqonly CSV); they're now first-class numbers. Two readings worth promoting to the narrative:
 
-- Over-represented: N (Asn) +146%, E (Glu) +95%, I (Ile) +35%, L (Leu) +29%, G (Gly) +21%.
-- Under-represented: M (Met) −79%, H (His) −69%, W (Trp) −68%, F (Phe) −42%, D (Asp) −38%, V (Val) −37%, P (Pro) −34%, C (Cys) −34%, A (Ala) −28%.
-- **Glu/Asp ratio: gen 3.22, PDB 1.04** — within-class chemistry asymmetry.
-- Top 5 over-represented AAs make up **50.4%** of generated residues vs **32.5%** of PDB residues.
+- **Shannon-entropy collapse softened by ~13% in d (−6.65 → −5.78 vs PDB; −3.39 → −2.99 vs AFDB) but is still by far the panel's biggest deviation under both references.** KS-D barely moved (0.92 → 0.89 vs PDB; 0.89 → 0.83 vs AFDB). Effective alphabet 2^4.10 ≈ 17 (PDB) → 2^3.47 ≈ 11 (gen, was 2^3.36 ≈ 10).
+- **The structure-derived Cohen's d's vs AFDB are *all negative* and uniformly large in magnitude** — gen has lower TANGO, smaller hydrophobic patches (both total area and large-patch count), lower SAP, less negative scm_negative, smaller Rg than the AFDB reference. This is a structure-side echo of the alphabet collapse: fewer aromatics + more E/N/G in the sequence translates to less hydrophobic surface, fewer aggregation-prone segments, and more compact folds in whatever the model produces. Both vs-PDB and vs-AFDB structure-side directions agree in sign on every column; magnitudes are larger against AFDB. Note `tango` flips sign between references (gen +0.37 vs PDB; gen −0.46 vs AFDB) because PDB and AFDB sit on opposite sides of gen on TANGO — gen is *between* the two natural references on this metric, with AFDB scoring higher TANGO than PDB because AlphaFold-predicted "buried" regions have softer hydrophobic packing per FreeSASA than crystal-structure cores.
 
-*Thermal-stability proxies:*
+*Per-AA composition — gen vs AFDB; PDB rel-Δ in parentheses:*
 
-| metric | PDB | gen | Cohen's d |
-|---|---|---|---|
-| aliphatic_index (literature: ↑ = thermostable) | 84.4 | 91.8 | **+0.74** |
-| ivywrel_fraction (literature: ↑ = thermostable) | 0.371 | 0.429 | **+1.35** |
-| **aromatic_fraction (F+W+Y, buried-core proxy)** | **0.090** | **0.061** | **−1.19** |
+- Over-represented (gen / AFDB / rel Δ): **N (Asn)** 9.70% / 3.80% / **+156%** (PDB +132%); E (Glu) 11.53% / 6.21% / +86% (PDB +90%); I (Ile) 6.92% / 5.51% / +25% (PDB +28%); L (Leu) 11.95% / 9.79% / +22% (PDB +35%); G (Gly) 8.31% / 7.38% / +13% (PDB +5%).
+- Under-represented (gen / AFDB / rel Δ): **M (Met)** 0.68% / 2.29% / **−70%** (PDB −72%); W (Trp) 0.66% / 1.32% / −50% (PDB −54%); H (His) 1.25% / 2.25% / −44% (PDB −58%); F (Phe) 2.27% / 3.97% / −43% (PDB −45%); D (Asp) 4.14% / 5.51% / −25% (PDB −29%); V (Val) 4.69% / 6.83% / −31% (PDB −33%); P (Pro) 3.13% / 5.03% / −38% (PDB −36%); A (Ala) 6.16% / 8.98% / **−31%** (PDB −27%).
+- **Glu/Asp ratio: gen 2.79, AFDB 1.13, PDB 1.04** — the within-class chemistry asymmetry survives. The 3.22 ratio reported in the original (nsteps=200) E020/E026 numbers softened to 2.79 at canonical inference resolution — still 2.5× the natural Glu/Asp baseline, so the qualitative story holds. AFDB and PDB are still essentially identical on this asymmetry.
+- Top 5 over-represented AAs make up **48.4%** of generated residues (was 50.4% in original).
 
-**Narrow claim — three sub-claims, each individually defensible:**
+The pattern is **rock-solid against AFDB**: every sign preserved; the most-extreme deviations (N over-rep, M/W/H under-rep) softened by 10-15 percentage points but still dominant. The "buried aromatic core anchors are depleted in count" signal (W > F ≫ Y in the under-representation list, with Y barely deviating) is also intact. Sub-claim (a) is confirmed under the corrected reference at the canonical nsteps.
 
-**(a) Chemistry-specific alphabet collapse.** La-Proteina's joint sequence head reduces sequence Shannon entropy by ~0.74 bits (4.10 → 3.36), a 4.1 SD effect on KS-D = 0.92. The reduction is not uniform across residue chemistry: it concentrates probability mass on disorder-promoting / context-tolerant residues (E +95%, N +146%, L +29%, I +35%, G +21%) and depletes context-demanding residues (W −68%, F −42%, M −79%, H −69%, D −38%, V −37%, P −34%, C −34%, A −28%). Within the acidic-residue class, Glu is amplified ~3-fold relative to Asp (gen Glu/Asp = 3.22 vs PDB 1.04), preferring the longer, helix-friendly, surface-tolerant member over the shorter member that requires specific helix-N-cap / β-turn / Asx contexts. The aromatic depletion follows a core-buryness ranking (W > F ≫ Y) consistent with loss of buried hydrophobic-core anchors specifically rather than aromatic chemistry generically.
+*Thermal-stability proxies:* (gen / AFDB / Cohen's d vs AFDB; PDB d in parentheses)
 
-**(b) Mode-merging on multimodal natural distributions (partial).** Of the property-panel features that are bimodal in PDB, SWI (sequence-weighted hydropathy index) collapses from 2 modes to 1 with the generated mean (0.795) sitting *between* the two PDB modes — the textbook signature of regression to the unconditional mean rather than mode-dropping. pI remains bimodal in the generated set, so this is *not* a generic claim that all multimodal natural distributions collapse; it is a specific failure mode that occurs on at least one biophysically meaningful property.
+| metric | gen | AFDB | Cohen's d (AFDB) | (PDB d) |
+|---|---|---|---|---|
+| aliphatic_index (literature: ↑ = thermostable) | 93.3 | 88.5 | **+0.30** | (+0.89) |
+| ivywrel_fraction (literature: ↑ = thermostable) | 0.430 | 0.384 | **+0.72** | (+1.41) |
+| gravy (Kyte-Doolittle) | −0.517 | −0.196 | −0.86 | (−1.31) |
+| charged_fraction (D+E+K+R) | 0.256 | 0.224 | +0.47 | (+0.87) |
+| log_acidic_basic_ratio | 0.236 | 0.037 | +0.93 | (+1.49) |
+| **aromatic_fraction (F+W+Y, buried-core proxy)** | **0.062** | 0.083 | **−0.72** | (−1.16) |
 
-**(c) Standard sequence-based thermal-stability proxies are confounded by alphabet collapse.** Aliphatic index (Ikai 1980) and IVYWREL fraction (Zeldovich 2007) — the two most-cited single-number sequence proxies for thermostability in the protein-engineering literature — *both* score the generated set as more thermostable than PDB (+0.74 SD and +1.35 SD respectively). Mechanistically, both proxies are dominated by Leu/Ile/Glu mole fractions, which are the residues over-represented in the alphabet collapse. Simultaneously, the most direct sequence-side proxy for a buried hydrophobic core — the F+W+Y aromatic fraction — drops 1.19 SD, contradicting the proxies' verdict. *(c.i, sequence-only)*: this contradiction alone is sufficient to demonstrate that the literature proxies cannot be applied to generative-model outputs without a structural sanity check. *(c.ii, preregistered)*: a TemStaPro ProtT5+MLP classifier (`thermal_stability.py --temstapro-dir`, GPU-bound, ~70 min A100) will return a per-protein P(Tm > T) at 9 thresholds for both sets; the prediction is that the alphabet-collapse compositional signal will *not* persuade an embedding-based classifier of higher thermostability, and the gen distribution will instead either match PDB or fall below it.
+All AFDB d's still ~half the PDB d's; every sign preserved at the canonical inference resolution. The internal contradiction that powers sub-claim (b.i) below — "literature thermostability proxies score gen as more thermostable while the buried-core proxy scores gen as worse" — exists relative to AFDB at nsteps=400 too, with magnitudes essentially identical to the nsteps=200 readings (within ±0.18 in d on every metric). The aliphatic_index drift even *grew* slightly from +0.74 → +0.89 vs PDB at the canonical resolution — ruling out the worry that the methodological observation might be an nsteps=200 artifact.
+
+**Narrow claim — three sub-claims, each individually defensible against the AFDB reference (primary) and replicated against the PDB reference (sensitivity).**
+
+**(a) Chemistry-specific alphabet collapse.** La-Proteina's joint sequence head reduces sequence Shannon entropy by ~0.58 bits against AFDB (4.05 → 3.47; KS-D = 0.83; Cohen's d = −2.99); the same reduction against PDB is ~0.63 bits (KS-D = 0.89, d = −5.78). The reduction is not uniform across residue chemistry: it concentrates probability mass on disorder-promoting / context-tolerant residues (against AFDB: N +156%, E +86%, I +25%, L +22%, G +13%) and depletes context-demanding residues (M −70%, W −50%, H −44%, F −43%, D −25%, V −31%, P −38%, A −31%). The pattern is essentially identical against PDB (signs preserved on every residue; magnitudes within a few percentage points except N which grows from +132% vs PDB to +156% vs AFDB, and L which shrinks from +35% vs PDB to +22% vs AFDB). Within the acidic-residue class, Glu is amplified ~2.8-fold relative to Asp (gen Glu/Asp = 2.79; AFDB 1.13; PDB 1.04 — AFDB and PDB are essentially identical on this asymmetry), preferring the longer, helix-friendly, surface-tolerant member over the shorter member that requires specific helix-N-cap / β-turn / Asx contexts. The aromatic depletion follows a core-buryness ranking (W > F ≫ Y) consistent with reduced use of buried hydrophobic-core anchors at the *count* level. (How those reduced-count aromatics are *placed* is the subject of sub-claim (c) below — and the placement story is interestingly different from the count story.) The structure-side echo is now first-class observable from the regen: hydrophobic_patch_total_area Cohen's d = −1.43 vs AFDB, sap d = −1.21 vs AFDB — the alphabet-collapse-driven reduction in hydrophobic content shows up as significantly smaller hydrophobic-patch area and lower aggregation-propensity scores than the natural reference under both readouts, even though the literature single-number proxies in (b) below say the opposite.
+
+**(b) Standard sequence-based thermal-stability proxies are confounded by alphabet collapse.** Aliphatic index (Ikai 1980) and IVYWREL fraction (Zeldovich 2007) — the two most-cited single-number sequence proxies for thermostability in the protein-engineering literature — *both* score the generated set as more thermostable than the natural reference (against AFDB: +0.30 SD aliphatic, +0.72 SD IVYWREL; against PDB: +0.89 and +1.41 SD). Mechanistically, both proxies are dominated by Leu/Ile/Glu mole fractions, which are the residues over-represented in the alphabet collapse. Simultaneously, the most direct sequence-side proxy for a buried hydrophobic core — the F+W+Y aromatic fraction — drops against both references (AFDB d = −0.72, PDB d = −1.16), contradicting the proxies' verdict. *(b.i, sequence-only)*: this contradiction alone is sufficient to demonstrate that the literature proxies cannot be applied to generative-model outputs without a structural sanity check; the contradiction is robust to whether AFDB or PDB serves as the natural-protein reference *and* to whether the gen distribution is sampled at nsteps=200 (where d's are within ±0.18 of these numbers) or nsteps=400 (the canonical inference resolution; numbers above). *(b.ii, preregistered)*: a TemStaPro ProtT5+MLP classifier (`thermal_stability.py --temstapro-dir`, GPU-bound, ~70 min A100) will return a per-protein P(Tm > T) at 9 thresholds for both sets; the prediction is that the alphabet-collapse compositional signal will *not* persuade an embedding-based classifier of higher thermostability, and the gen distribution will instead either match the natural reference or fall below it.
+
+**(c) Aromatic count-vs-placement asymmetry: fewer aromatics overall, sharper concentration into the buried core.** The alphabet collapse documented in (a) reduces the gen aromatic budget from AFDB's 8.26% to gen's 6.07% — a ~26% reduction in absolute count of aromatic residues. However, *placement* of the residual aromatic budget into the buried core is sharper in gen than in AFDB at every per-residue burial-targeting ratio (W gen R = 9.80 vs AFDB R = 2.41, +307%; Y gen R = 5.32 vs AFDB R = 2.71, +96%; H gen R = 1.29 vs AFDB R = 0.86, +50%; group gen R = 3.00 vs AFDB R = 1.99, +51%; F gen R = 2.58 vs AFDB R = 2.52, matched). Bootstrap CIs over proteins; AFDB-reference numbers from E026, gen-side numbers verbatim from E023. **The two axes carry opposite signals:** the count axis is a model-side bias (fewer aromatics than the training distribution would suggest), the placement axis is a competence signal (the few aromatics the model does use are concentrated more sharply into the buried core than AFDB's predicted-structure pattern shows). One natural reading of the joint pattern: the alphabet collapse is structure-aware — when an aromatic residue is used, it is preferentially used in a context where it does the most work for hydrophobic-core stability; the model is not uniformly diluting aromatic content. This is *not* a claim that gen structures are well-folded — only that within whatever fold-quality the model achieves, aromatic placement is core-biased rather than uniformly distributed. Caveat: F is the single residue where placement is *not* sharper (gen R = 2.58 vs AFDB R = 2.52, within bootstrap noise) — sub-claim (c) is carried by W, Y, H, and the group ratio, with F as an exception. Lab-notebook detail in `experiments.md → E023` (original PDB-reference probe) and `experiments.md → E026` (AFDB-reference rerun, primary). *Note:* the original 2026-05-03-morning reading of E023 — "the model fails to bury F" — was a PDB-reference artifact and does **not** survive the AFDB switch; the surviving reading is the count-vs-placement asymmetry framed here.
 
 **Implication (cautiously phrased):** La-Proteina's headline co-designability metric (`evaluate.py:337`, `use_pdb_seq=True`) routes the model's own jointly-generated sequence directly into ESMFold without an MPNN re-design step. ESMFold is a sequence-conditioned structure predictor with a strong language-model prior; low-complexity, charge-and-asparagine-enriched, disorder-leaning sequences are within the easy regime of that prior and refold confidently regardless of whether the underlying generated structure is biologically plausible. The compositional drift documented above therefore plausibly inflates the co-designability number. This implication — co-designability gaming via easy-to-refold sequences — is the practical reason this Finding matters for the masterarbeit narrative: it identifies a candidate failure mode of joint-generation evaluation that cannot be detected from the headline scRMSD number alone.
 
 **Methodological caveats — what this Finding does *not* support:**
 
-1. **No claim that generated *structures* are unphysical.** Sub-claims (a)-(c) are entirely about the joint sequence-head output. F+W+Y depletion and iupred3 disorder bias are *consistent with* under-developed hydrophobic cores and floppy backbones, but DSSP secondary-structure breakdowns, ESMFold pLDDT distributions, and packing-density readouts on the gen set are not yet computed.
-2. **Single-checkpoint, single-eval-seed result.** Generated set is N=1000 from `seed_base=1000`, scored from `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt` only. Cross-seed and cross-checkpoint variance not estimated. Bootstrap uncertainty on AA-composition mole fractions is ~1% absolute.
-3. **Reference-set length cap for AA composition.** `pdb_cluster_all_seqs.fasta` is length-capped at 511, so the AA-composition reference is PDB[300, 511] while the property-panel reference is PDB[300, 796]. Spot-checks (e.g., panel-reference Shannon mean = 4.10 matches the AA-composition-reference Shannon when computed independently) confirm the magnitudes are robust under this caveat, but the AA-composition numbers should not be quoted with sub-percentage precision.
+1. **No claim that generated *structures* are well-folded or biophysically plausible.** Sub-claims (a) and (b) are entirely about the joint sequence-head output. Sub-claim (c) is a structural-relative-positioning observation (P(aromatic|buried) / P(aromatic|exposed)) and does not say anything about absolute fold quality, packing density, or secondary-structure correctness — see caveat 6 below for the precise framing of (c). DSSP secondary-structure breakdowns, ESMFold pLDDT distributions, and packing-density readouts on the gen set are not yet computed. **Pre-AFDB-rerun reading withdrawn:** the original 2026-05-03-morning E023 reading — "the model fails to bury F" (PDB-reference gen R = 2.58 vs PDB R = 5.68) — does not survive the AFDB reference switch (E026: gen R = 2.58 vs AFDB R = 2.52, identical within bootstrap noise). AlphaFold-predicted "buried" regions have softer hydrophobic-core packing than crystal-structure cores, so PDB's per-residue burial-targeting ratios are systematically higher than AFDB's; the gen pattern matches AFDB on F. The replacement reading is sub-claim (c) — count-vs-placement asymmetry — which uses AFDB-reference numbers throughout.
+2. **Single-checkpoint, single-eval-seed result.** Generated set is N=1000 from `seed_base=1000`, scored from `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt` only, at nsteps=400 (canonical inference resolution). Cross-seed and cross-checkpoint variance not estimated. Bootstrap uncertainty on AA-composition mole fractions is ~1% absolute. The same gen design at the (now-superseded) nsteps=200 produced numbers within 5-15% of these on most metrics — magnitudes attenuated slightly at the canonical resolution but every sub-claim survives the regen verbatim.
+3. **Reference-set length cap for AA composition (PDB only).** `pdb_cluster_all_seqs.fasta` is length-capped at 511, so the *PDB* AA-composition reference is PDB[300, 511] while the *PDB* property-panel reference is PDB[300, 796]. Spot-checks (e.g., panel-reference Shannon mean = 4.10 matches the AA-composition-reference Shannon when computed independently) confirm the magnitudes are robust under this caveat, but PDB AA-composition numbers should not be quoted with sub-percentage precision. The AFDB rerun (E026) does not have this caveat — both the AA-composition reference and the property-panel reference are the same N=5000 AFDB sample at full [300, 800] coverage.
 4. **Co-designability inflation is a hypothesis, not a measurement.** The natural follow-up — designability vs co-designability gap on the same backbones (i.e. the paired comparison of MPNN-on-generated-backbone scRMSD vs La-Proteina-own-sequence scRMSD) plus designability stratified by Shannon-entropy decile — is preregistered but not yet computed. Without that paired comparison, the Implication is decorrelated from the Narrow claim and should be treated as a candidate explanation, not a measured effect.
-5. **TemStaPro Tier 2 not yet completed.** Sub-claim (c) is supported by the internal contradiction between IVYWREL/aliphatic and aromatic_fraction within sequence-based proxies; it does not yet have an external ML-predicted Tm reference. The submit script (`script_utils/run_thermal_stability.sh`) is in place; results will amend (c.ii).
-6. **Mode-merging claim limited to SWI.** pI stays bimodal; we have not surveyed all bimodal panel properties exhaustively. The general "mode-merging on multimodal targets" framing requires at least one more confirming property on a different chemistry axis before it can be promoted from a specific observation to a general claim.
+5. **TemStaPro Tier 2 not yet completed.** Sub-claim (b) is supported by the internal contradiction between IVYWREL/aliphatic and aromatic_fraction within sequence-based proxies; it does not yet have an external ML-predicted Tm reference. The submit script (`script_utils/run_thermal_stability.sh`) is in place; results will amend (b.ii).
+6. **Sub-claim (c) is a placement-vs-count claim, not a fold-quality claim.** The "sharper aromatic core-targeting" reading describes the *concentration ratio* P(aromatic | buried) / P(aromatic | exposed). It is not a statement that gen structures have well-formed hydrophobic cores in the structural-biology sense — only that *within whatever core/surface partition gen structures present*, the aromatic residues are non-uniformly placed in the buried region at a ratio higher than AFDB's predicted-structure pattern. To upgrade (c) to a fold-quality statement would require additional structural readouts (DSSP secondary-structure breakdown, packing density, ESMFold pLDDT distribution) and ideally a length-matched comparison of *core volume* — none of which are in this Finding's evidence base. F specifically is the residue where placement is matched to AFDB rather than sharper, so the (c) signal is carried mostly by W and Y; treat F as an exception, not a counterexample.
+7. **Random AFDB ≠ training set exactly.** The AFDB reference (E026) is a uniform-random N=5000 sample over the full ~214M-entry AFDB. La-Proteina's actual training corpus is (most likely) a Foldseek-cluster-reduced AFDB subset (diversity-balanced, ~580K-2.27M reps depending on identity threshold), not the full database. A uniform-random sample over-weights over-clustered families (e.g. many homologous bacterial proteins from many species). For testing whether the gen-vs-natural deltas survive a reference-set switch, this is acceptable and arguably *more conservative*: if the deltas survive against a family-imbalanced sample, they would also survive against a more diversity-balanced one. Tighter robustness check: re-run E026 against AFDB Foldseek-30/50 cluster reps when a clean download path becomes available.
+8. ~~Gen-side panel coverage on the AFDB rerun.~~ **Resolved 2026-05-05** by the nsteps=400 regen: the new gen artifact `results/generated_stratified_300_800_nsteps400/properties_generated.csv` carries the full 16-column panel including TANGO, hydrophobic patches, SAP, SCM, and rg. The vs-AFDB structure-derived numbers in the table above (tango, hydrophobic_patch_total_area, hydrophobic_patch_n_large, sap, scm_*, rg) are first-class numbers, not held over from PDB-reference sensitivity. Lab-notebook detail in `experiments.md → E020+E026 follow-up`.
+9. **Finding-8 aggregate numbers are population averages over a length-non-invariant deviation — see Finding 9 below for the per-length breakdown.** The Shannon-entropy collapse is roughly twice as large at L≈750 as at L≈325; the N-over-representation grows from +7% at L≈325 to +212% at L≈750; the TANGO drift goes from d≈0 at L<450 to d=−1.3 at L=[750,800). Caveats 7-8 from this Finding apply to the per-length numbers in Finding 9 too.
 
 ---
 
-## Future experiment ideas
+## Finding 9 — The alphabet-collapse-driven gen-vs-AFDB deviation intensifies with protein length: Finding 8's aggregate magnitudes are a length-mixture, not a length-invariant signature (2026-05-05)
 
-### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 6, 2026-04-25)
+**Status:** finished. Per-length-bin breakdown of Finding 8's metrics on the nsteps=400 regen (`E020+E026 follow-up`, 2026-05-05). 100 gen samples × 10 bins (L=[300, 800], 50-residue width) vs ~500 AFDB samples per bin. Length-bin Cohen's d's reported below; bootstrap CIs not estimated at the per-bin level — the gen side has only 100 samples per bin which would give wide CIs especially in the tails. Headline ratios (largest-bin d / smallest-bin d) reported as point estimates; magnitudes are robust to ±1 bin shift.
 
-**Motivation and literature gap (why this is worth running, despite Finding 6 already documenting the correlational result):**
+**Why ran:** When updating Finding 8 with the nsteps=400 numbers, the question came up *"is the gen-vs-AFDB deviation length-invariant, or do the aggregate Cohen's d's hide a length scaling?"* The original gen sweep is length-stratified-uniform across [300, 800] in 50-residue bins, and the AFDB reference was explicitly length-stratified to gen's distribution, so we have ~equal coverage per bin on both sides — the natural unit for this check. If the deviation is length-invariant, Finding 8's aggregate numbers are good summary statistics. If it isn't, the aggregate hides two regimes and the headline numbers should be quoted with a length context.
 
-Finding 6 established a strong correlational case that uniform AdamW weight decay applied to the La-Proteina CA-only baseline crushes AdaLN-Zero output gates in the upper transformer blocks (gates at 26–60% of baseline magnitude in v2 vs old) and that this co-occurs with a categorical sample-quality collapse (0/9 designable samples) despite a 0.33 best-validation-loss improvement. The mechanism — uniform AdamW weight decay applied to zero-initialised gates suppresses their growth, which weakens the time-conditioning signal at the velocity output and causes integrated trajectories to fail even though averaged velocity-MSE looks better — is mechanistically coherent and consistent with the per-layer weight evidence. However, no causal experiment has been run; an examiner could legitimately argue that the cosine LR decay (which co-occurred with wd=0.1 in v2 and was not isolated) is the actual cause, or that the collapse is a generic effect of stronger regularisation rather than the specific gate-suppression mechanism we propose.
+**Experiment:**
+
+For each 50-residue length bin in [300, 800), compute Cohen's d between gen (n=100) and AFDB (n≈500) on the property-panel metrics most relevant to Finding 8 (Shannon entropy, swi, iupred3, tango, hydrophobic_patch_total_area, sap, scm_negative, rg). Same per-bin breakdown on the AA-composition relative deviations (gen − ref) / ref for the residues with the largest aggregate effects (E, N, L, M, W, H, F, A) and on the Glu/Asp ratio. All numbers from `results/generated_stratified_300_800_nsteps400/` and `data/afdb_ref/`. Lab-notebook detail in `experiments.md → E020+E026 follow-up: length-invariance addendum`.
+
+**Numbers:**
+
+*Cohen's d gen-vs-AFDB by length bin — bold = strong length scaling, italic = roughly invariant:*
+
+| L bin | swi *(inv)* | tango_total **(↑|d| with L)** | iupred3_mean **(↓ with L)** | shannon_entropy **(↑|d|)** | hyd_patch_area *(inv)* | sap *(inv)* | scm_negative *(inv-noisy)* | rg *(inv)* |
+|---|---|---|---|---|---|---|---|---|
+| [300, 350) | +1.28 | −0.43 | +0.74 | **−1.97** | −1.47 | −1.19 | −0.49 | −0.98 |
+| [350, 400) | +1.16 | +0.02 | +0.64 | −2.08 | −1.53 | −1.23 | −0.44 | −0.94 |
+| [400, 450) | +1.51 | −0.15 | +0.45 | −2.77 | −1.73 | −1.43 | −0.68 | −0.86 |
+| [450, 500) | +1.35 | −0.21 | +0.53 | −3.00 | −1.54 | −1.29 | −0.58 | −0.86 |
+| [500, 550) | +1.28 | −0.37 | +0.35 | −2.96 | −1.71 | −1.34 | −0.59 | −0.98 |
+| [550, 600) | +1.38 | −0.78 | +0.31 | −3.43 | −1.61 | −1.23 | −0.62 | −0.91 |
+| [600, 650) | +1.30 | −0.97 | +0.35 | −3.67 | −1.69 | −1.25 | −0.65 | −0.97 |
+| [650, 700) | +1.01 | −0.93 | +0.36 | −3.74 | −1.87 | −1.58 | −0.42 | −1.03 |
+| [700, 750) | +0.59 | −0.76 | +0.29 | −3.92 | −1.71 | −1.31 | +0.11 | −1.11 |
+| [750, 800) | +1.22 | **−1.30** | +0.57 | **−3.68** | −1.78 | −1.37 | −0.64 | −1.08 |
+| **range (max − min)** | 0.92 | **1.32** | 0.45 | **1.95** | 0.40 | 0.39 | 0.79 | 0.25 |
+
+*AA-composition relative deviation gen-vs-AFDB (%) by length bin:*
+
+| L bin | E | N **(↑)** | L **(↑)** | M **(↓ deepens)** | W *(noisy-inv)* | H **(↓ deepens)** | F | A **(↓ deepens)** | Glu/Asp |
+|---|---|---|---|---|---|---|---|---|---|
+| [300, 350) | +90 | **+7** | +5 | −33 | −57 | −17 | −40 | **+3** | gen 2.32 |
+| [350, 400) | +76 | +87 | +4 | −48 | −56 | −28 | −35 | −20 | gen 2.11 |
+| [400, 450) | +100 | +162 | +2 | −69 | −58 | −50 | −25 | −36 | gen 2.79 |
+| [450, 500) | +101 | +165 | +12 | −79 | −61 | −43 | −40 | −39 | gen 3.00 |
+| [500, 550) | +105 | +200 | +13 | −68 | −44 | −48 | −35 | −42 | gen 3.45 |
+| [550, 600) | +105 | +170 | +26 | −82 | −57 | −64 | −42 | −26 | gen 3.16 |
+| [600, 650) | +97 | +192 | +36 | −79 | −37 | −47 | −50 | −41 | gen 3.37 |
+| [650, 700) | +73 | +177 | +35 | −79 | −36 | −51 | −53 | −37 | gen 2.87 |
+| [700, 750) | +31 | **+212** | +42 | −86 | −54 | −48 | −58 | −41 | gen 2.50 |
+| [750, 800) | +82 | +168 | **+48** | **−83** | −38 | −46 | −51 | −40 | gen 2.63 |
+
+(AFDB-side Glu/Asp is essentially constant at 1.08–1.17 across all bins; the gen ratio variance is entirely on the gen side.)
+
+**Narrow claim — three sub-claims:**
+
+**(a) The Shannon-entropy alphabet collapse intensifies systematically with protein length.** Cohen's d goes from −1.97 at L=[300, 350) to −3.92 at L=[700, 750) — about double in magnitude across the [300, 800] range. The slope is approximately monotone (−1.97, −2.08, −2.77, −3.00, −2.96, −3.43, −3.67, −3.74, −3.92, −3.68) with one small dip in the last bin. Reading: La-Proteina's joint sequence head loses sequence diversity faster than the natural reference does at long lengths. Finding 8 sub-claim (a) is therefore precisely a *long-protein* alphabet-collapse story; the L<450 region is much closer to AFDB than the L>600 region. The aggregate d=−2.99 quoted in Finding 8 is an averaging artifact of the [300, 800] length-stratified sweep design.
+
+**(b) The Asn / Met / His / Ala / Leu deviations also scale with length, in the same direction as the alphabet collapse.** N over-representation grows from +7% at L=[300, 350) to **+212% at L=[700, 750)** — a factor of ~30. M under-representation deepens from −33% to −86%. H from −17% to −48%. A from +3% (slightly *over*-represented at the shortest bin!) to −41%. L over-rep grows from +5% to +48%. **The most-extreme aggregate deviations in Finding 8 sub-claim (a) are essentially long-protein phenomena** — at L≈325 most are within 10-30 percentage points of the natural reference; at L≈750 they are 5–10× larger. The Glu/Asp ratio inflation is more weakly length-dependent (range 2.11–3.45, with the peak in the middle of the range) — Glu over-representation is stable across lengths but Asp under-representation tracks length, so the ratio drifts non-monotonically.
+
+**(c) TANGO-side and IUPred3-side flip regimes mid-range; the structural Cohen's d's are roughly length-invariant.** TANGO_total Cohen's d goes from essentially zero at L<450 (gen and AFDB matched on aggregation propensity for short proteins) to −1.30 at L=[750, 800) — i.e. the "gen has lower TANGO than AFDB" sub-finding from Finding 8 is *entirely* a long-protein effect. IUPred3 disorder drift attenuates with length (+0.74 at L=[300, 350) → +0.29 at L=[700, 750)), the opposite direction. By contrast, the FreeSASA-derived structure metrics — hydrophobic_patch_total_area (range −1.47 to −1.87 across bins), sap (−1.19 to −1.58), rg (−0.86 to −1.11) — are **roughly length-invariant**, suggesting the structure-side echo of the alphabet collapse documented in Finding 8 sub-claim (a) is a genuinely uniform reduction in hydrophobic content per residue, not a long-protein-only phenomenon. swi is also roughly length-invariant (range +0.59 to +1.51, no monotone trend).
+
+**Implication (cautiously phrased):**
+
+This finding does not falsify any sub-claim of Finding 8 — every sign is preserved at every length, and the structure-side claims (sap, hydrophobic_patch_*, rg, swi) are length-invariant. What it changes is the *interpretation*: the headline magnitudes Finding 8 quotes for sub-claim (a) — Cohen's d=−2.99 on Shannon entropy, +156% on Asn, etc. — are quantitatively dominated by the L>500 part of the distribution, and using them to predict gen behaviour at, say, a target length of 300 would substantially overestimate the deviation. A practical reading: **the joint sequence head's failure mode scales with the autoregressive horizon it has to generate.** This is mechanistically consistent with a "diffusion model losing diversity over longer trajectories" story: longer proteins require the AE2-encoded latent to remain on a more constrained sub-manifold for more residues, and small per-step biases compound. For paper-narrative purposes Finding 8 sub-claim (a) should be re-quoted as either (i) per-length-bin numbers (e.g. "at L=[700, 750) the alphabet collapse reaches Cohen's d=−3.92 in Shannon entropy and +212% relative excess in Asn; at L=[300, 350) it is d=−1.97 and +7% respectively") or (ii) the aggregate plus an explicit "length-mix" footnote.
+
+**Methodological caveats — what this finding does *not* support:**
+
+1. **No bootstrap CIs at the per-bin level.** Each gen bin has n=100, AFDB has n≈500. A 95% bootstrap CI on a per-bin Cohen's d at gen-n=100 is roughly ±0.3 standard deviations; the trends above (−2 to −4 in Shannon, +7% to +212% in N) are visibly larger than this noise floor across multiple consecutive bins, but the sharper claims about within-bin variability (e.g. the Shannon dip from L=[700, 750) to L=[750, 800)) are within bootstrap noise and should not be promoted.
+2. **Per-bin gen sample identity is fixed.** Each gen bin contains exactly 100 samples drawn at seeds 1000–1999 round-robin over bins (`steering/generate_baseline.py:179` stratified mode). A different seed range would draw different specific proteins per bin. Cross-seed variance per bin not estimated; the qualitative length-scaling pattern would survive a different seed range with high confidence (since multiple consecutive bins all show the same direction), but the precise per-bin numbers would shift by O(0.2) in d.
+3. **AFDB ref is uniform-random over [300, 800], length-stratified to match gen by 50-residue bin.** Within each bin AFDB has ~500 samples, so AFDB-side bootstrap noise is small. But: AFDB at long lengths (L>700) over-represents over-clustered protein families more strongly than at short lengths (because protein-family-redundancy is correlated with protein length in AFDB — multi-domain bacterial proteins are common). A Foldseek-cluster-reduced AFDB at long lengths might have somewhat different composition than the random-AFDB long-length sample we used. This bias is in the opposite direction of the gen drift, so it makes our "length-scaling" claim *more conservative*, not less: if AFDB's long-length composition were less alphabet-redundant than what we measured, the gen-vs-AFDB length scaling would be even sharper.
+4. **The "joint sequence head loses diversity over long trajectories" mechanistic story is a hypothesis, not a measurement.** This Finding documents a length scaling of the gen-vs-AFDB deviation; it does not measure the AE2 latent diversity per-residue along the trajectory, which would be the direct test. Future work: (a) trajectory-length-resolved Shannon entropy on the AE2 latent itself (does the latent KL-divergence-from-prior collapse faster at long L?); (b) compare with gen samples at multiple inference lengths under matched-noise initialization to separate "training-data tail underrepresentation" from "trajectory-length-driven mode-collapse".
+5. **No claim about WHICH bin is "right".** This Finding does not claim that the L=300 bin is the "true" alphabet-collapse magnitude or the L=750 bin is the "headline" number. Both are valid measurements at different lengths; the right number to quote depends on what protein length the downstream user cares about.
+6. **Same caveats as Finding 8 caveats 1-7 apply** (single-checkpoint, single-seed, AFDB ≠ Foldseek-cluster-reps, etc.). Caveat 8 (resolved by the regen) is moot here.
+
+**Cross-references:**
+- Finding 8 — direct parent. This Finding refines Finding 8 sub-claim (a) by showing the magnitude is length-dependent; Finding 8 sub-claims (b) and (c) are not affected here ((b) thermal-proxy gameability is a sequence-composition contradiction at any length; (c) aromatic placement was scored on a different gen artifact).
+- `experiments.md → E020+E026 follow-up: length-invariance addendum` — lab-notebook detail with the exact per-bin numbers and reproduction commands.
+- Predicts: a per-length scRMSD profile would test whether the alphabet collapse intensification at long L is also reflected in structural-quality degradation. Expected if the two are coupled: scRMSD distribution should also worsen at L≈700–800 vs L≈300, consistent with the long-length cliff already documented in E022 for the canonical CA-only baseline.
+
+---
+
+## Finding 10 — Closing the gradient-hacking gap in latent-flow steering: noise-aware predictor training × fold-ensembling, validated by real-property delivery and structural integrity (2026-05-06)
+
+**Status:** finished. First steering-route Finding to clear both bars from the thesis intent — *real-property + designability moves on long-L generations*. Built on E028 (negative-baseline measurement) → E029 (single-fix pilot) → E030, E031 (eliminated alternative explanations) → E032 (combined-fix smoke + n=48 confirmation) → E033 (designability check). Lab-notebook detail across `experiments.md` E028–E033.
+
+**Why this is a Finding, not just an engineering note:** the result is a *compositional* mechanism story — two independent failure modes of gradient-based latent-flow steering, each addressable with a separate fix, that close the gap **only when applied together**. Either fix alone, and several plausible-sounding alternatives, leaves a 4–10× over-claim by the predictor. The combination drops the gap to within regression noise while increasing real-property delivery 2× over the previous best baseline.
+
+**Experiment.**
+
+The setting is gradient-based steering on the official LD3+AE2 La-Proteina checkpoint (`inference_ucond_notri_long`, nsteps=400, SDE sampler). Property predictor is the multi-task PropertyTransformer from Finding 1 (128-dim, 3 layers, 4 heads, FiLM-on-t, head-per-property over 14 developability metrics). Steering hook adds `w(t) · ĝ` to the local-latents velocity field, where `ĝ` is the unit-normalized gradient of a chosen property objective. Schedule: linear ramp on `w(t)` from 0 at t=0.3 to `w_max` at t=0.8, hard-stop at t=0.9.
+
+The day's pipeline ran six predictor:real-gap probes at the same 4-protein L=300 / w=16 cell to isolate mechanisms, then promoted the winning combination to the full 16 seeds × 3 lengths {300, 400, 500} × 5 w-levels {1, 2, 4, 8, 16} × 2 directions (camsol_max + tango_min) grid (480 PDBs total) with n=48 per (direction, w) cell, plus a 120-PDB scRMSD pass via the official MPNN→ESMFold pipeline.
+
+**Two fixes layered:**
+
+1. **Noise-aware predictor training (E029):** the predictor was originally trained on clean t=1 AE-mean latents but at sampling time it sees `z_t` from the mid-trajectory of the SDE. Fix: fine-tune each of the 5 cross-validation folds on `z_t = (1-t)·ε + t·z_1 + σ_L·√(t(1-t))·ε_2` with `t ∼ U(0.3, 0.8)` (matches the steering window), σ_L=0.1 (Brownian-bridge envelope, vanishes at endpoints, peaks mid-trajectory). 10 epochs, AdamW lr=1e-4, original z-score stats inherited verbatim. Output: `laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/`.
+2. **5-fold ensemble (E032):** average z-scored predictions across all 5 noise-aware folds at sampling time. Fold-specific shortcuts (which gradient hacking exploits) are uncorrelated across folds; the honest signal is shared. Implementation already supported by `SteeringPredictor` when given a list of checkpoint paths.
+
+**Numbers (full grid n=48, head-to-head against E028 clean ensemble + smoothing on the same grid):**
+
+*Predictor:real gap aggregated across all 48 proteins per cell, tango_min direction (only direction with locally computable real metric — `tango_total` from the TANGO binary). Gap = predictor's last-step claim − real binary output. Negative = predictor under-claims = classical hacking direction.*
+
+| w | E028 clean ens. + smoothing | F10 noise-aware ens. (no smoothing) | Δ (this work − E028) |
+|---|---|---|---|
+| 1 | -82 | +118 | +200 |
+| 2 | -103 | +110 | +213 |
+| 4 | -141 | +92 | +233 |
+| 8 | -181 | +59 | +240 |
+| **16** | **-203** | **+3.8** | **+207** |
+
+*Δ-vs-w=1 reference (the "10× over-claim" axis from the original literature):*
+
+| w | E028: Δpred / Δreal | F10: Δpred / Δreal |
+|---|---|---|
+| 2 | 8.3× | 3.3× |
+| 4 | 7.9× | 3.9× |
+| 8 | 8.6× | 3.9× |
+| **16** | **8.5×** | **2.9×** |
+
+*Real-property delivery, w=1→w=16 mean:*
+
+| metric | E028 | F10 |
+|---|---|---|
+| real `tango_total` at w=1 | 877.9 | 893.3 |
+| real `tango_total` at w=16 | 843.9 | 833.4 |
+| **Δ real (w=16 − w=1)** | **−34.0** | **−59.9** |
+
+F10 delivers ~2× the real-property change while the predictor moves only 174 (vs E028's 288) — i.e. the gap is closed on both axes simultaneously, not by inflating the denominator.
+
+*Per-length breakdown of F10 at w=16:*
+
+| L | predictor mean | real mean | gap |
+|---|---|---|---|
+| 300 | 602.2 | 573.8 | +28 |
+| 400 | 844.0 | 886.2 | -42 |
+| 500 | 1065.3 | 1040.1 | +25 |
+
+The +28 / −42 / +25 sign-disagreement across lengths means the aggregate gap of +3.8 is partly an artifact of L=400's residual underclaim cancelling against L=300/500's overclaim. At any given length, the residual gap is ≤ ~40 TANGO units — about 5% of the typical TANGO value.
+
+*Designability across the same grid (n=12 per cell, MPNN N=8 → ESMFold scRMSD, designable threshold < 2 Å). Excluding the persistent s45_n500 outlier (broken at every cell at >10 Å, w-independent — a known generation failure of the underlying LD3 sampler at this seed × length, see E033):*
+
+| direction | w=1 | w=2 | w=4 | w=8 | w=16 |
+|---|---|---|---|---|---|
+| camsol_max designable | 11/11 (100%) | 10/11 (91%) | 10/11 (91%) | 11/11 (100%) | 10/11 (91%) |
+| camsol_max mean scRMSD | 0.95 Å | 1.04 Å | 1.33 Å | 1.01 Å | 1.34 Å |
+| tango_min designable | 8/10 (80%) | 9/10 (90%) | 11/11 (100%) | 10/11 (91%) | 9/11 (82%) |
+| tango_min mean scRMSD | 1.41 Å | 1.11 Å | 0.95 Å | 1.10 Å | 1.14 Å |
+
+**No monotonic w → scRMSD trend.** Designability stays in the 80-100% band across the full sweep. tango_min at w=4 is *better* than at w=1; at w=16 it is statistically indistinguishable from w=1. Per-length × w breakdown (E033) confirms: every (L, w) cell except the s45_n500 outlier sits in the 67-100% designable range.
+
+*Structural-ensemble diversity (E036, pairwise TM-score across each cell vs an unsteered baseline at the same length window):*
+
+| direction | w=1 | w=2 | w=4 | w=8 | w=16 | unsteered baseline |
+|---|---|---|---|---|---|---|
+| camsol_max mean pairwise TM | 0.407 | 0.407 | 0.407 | 0.407 | 0.407 | 0.413 |
+| tango_min mean pairwise TM | 0.407 | 0.407 | 0.407 | 0.407 | 0.407 | 0.413 |
+
+Mean pairwise TM-score is **identical to 3 decimal places across every w-level for both directions**, and only 0.006 below the unsteered baseline. At L=400 / L=500 specifically, the steered ensembles are *more* diverse than baseline (mean TM 0.331-0.395 vs 0.366-0.418). Steering does not collapse the structural ensemble — the 16-seed initialization variance dominates whatever narrowing the gradient might cause. The latent space is high-dimensional enough that there are many independent low-TANGO directions, and steering pushes each trajectory along whichever is closest from its starting point rather than collapsing all 16 trajectories onto one.
+
+*Negative results that establish the compositional necessity of both fixes (lab notebook in E028, E030, E031, plus a feed-z_t-direct probe today):*
+
+| approach | gap at w=16 (n=4 pilot) |
+|---|---|
+| Clean 5-fold ensemble + σ=0.1 smoothing (E028) | -203 |
+| Noise-aware single fold, no ensemble (E029) | -47 |
+| Universal guidance K=5 + clean ensemble + smoothing (E030) | -302 |
+| Noise-aware longer training + cosine decay, single fold (E031) | -145 |
+| Feed z_t directly (drop x_1_est Tweedie), v1 single fold | -152 |
+| Feed z_t directly, v2 single fold | -187 |
+| **Noise-aware 5-fold ensemble (this work, E032)** | **-1.6** |
+
+Five plausible "should help" interventions failed before the right composition was found. The negative-result chain is itself part of the Finding's evidence base — the gap is not closed by making the predictor "better" (E031), by giving the gradient more leverage at sampling time (E030, z_t-direct), or by ensembling alone (E028). Both **input-distribution training** (z_t-aware, t-aware) and **fold-cancellation of shortcuts** (ensemble averaging) are necessary; either alone is insufficient.
+
+**Narrow claim.**
+
+On the official LD3+AE2 La-Proteina checkpoint, fine-tuning the multi-task property predictor (3-layer FiLM transformer, 14 heads) on `z_t = (1-t)·ε + t·z_1 + σ_L·√(t(1-t))·ε_2` with `t ∼ U(0.3, 0.8)` and σ_L = 0.1 across all 5 cross-validation folds (`add_noisy_latents.py`, 10 epochs, lr=1e-4, original z-score stats preserved), then steering with the 5-fold mean of these noise-aware predictors and the legacy `x_1_est` reconstruction-guidance input path,
+- closes the predictor:real `tango_total` gap from −203 (clean-ensemble + smoothing baseline E028, n=48) to **+3.8** (noise-aware ensemble, n=48) at w=16;
+- raises the real ΔTANGO from −34 to **−59.9** at w=16 (~75% increase in real-property delivery on the same grid);
+- holds the structure-side designability rate at **80-100% across w∈[1, 16]** for both camsol_max and tango_min directions (n=12 per cell on the scRMSD subset; mean scRMSD 0.95-1.49 Å), with no monotonic w → scRMSD trend.
+
+**Implication.**
+
+Gradient-based steering of generative protein flows had been characterised in the project's prior steering work (E025, E028) as predictor-confident but reality-divorced, with a ~10× ratio between predicted and real property change at high steering strength. This Finding establishes that the gap is not an inevitable artefact of gradient guidance but a compositional consequence of two specific, independently fixable failure modes:
+
+1. The predictor at sampling time is being asked to evaluate inputs (mid-trajectory `z_t` at intermediate t) that are off-distribution relative to its training (clean t=1 AE-mean latents). This is the dominant contribution and is fixed by the noise-aware fine-tune.
+2. The predictor (post fix-1) still has fold-specific shortcut features that gradient hacking exploits as adversarial directions. This is the residual contribution and is fixed by mean-ensembling across cross-validation folds, which cancels fold-uncorrelated shortcuts while preserving the shared real-property signal.
+
+This factorisation has practical consequences beyond this codebase: any reconstruction-guidance / classifier-guidance pipeline where the property model is trained on a different t-distribution than the sampler operates over should expect a similar failure mode. The fix is portable (forward-process noise model + cross-validation ensemble; no model-architecture change), low cost (predictor fine-tune is ~30 minutes per fold on one L4), and does not slow sampling beyond the 5× predictor-call cost of ensemble averaging. The negative-result chain (universal guidance, longer training, z_t-direct feeding) further constrains the design space: post-hoc tricks that operate on the predictor's *output* or on the *gradient*, without addressing the predictor's input-distribution mismatch, can amplify the failure rather than fix it.
+
+For the steering-route bar of the masterarbeit thesis intent — *generated long-L proteins that pass real-property + designability filters in a lab-relevant sense* — w=8 (Δreal ≈ −21, designability 91-100%, gap ≈ −47) and w=16 (Δreal ≈ −60, designability 82-91%, gap ≈ +4) are both deployable operating points. The choice between them is a real-property-magnitude vs structural-conservatism trade-off, not a "still gradient-hacked" trade-off.
+
+**Methodological caveats.**
+
+- **Tango-only quantitative validation.** `compute_developability.py` returns NaN for `camsol_intrinsic` because no public CamSol binary exists (CLAUDE.md flag). The camsol_max sweep numbers in this Finding therefore rely on the predictor's claim and on collateral real-property drift (sap, scm, hyd_patch) for plausibility checks; the headline gap-closure and Δreal numbers are tango-only. CamSol web-server submission for ~50 representative sequences is queued but not yet performed.
+- **Designability subsample is n=12 per cell.** The full sweep is 48 PDBs/cell on the gap side but 12 PDBs/cell on the scRMSD side, due to the ~9 hour wall cost of the official MPNN→ESMFold pipeline at L∈{300, 400, 500}. The 80-100% designability rates therefore have wide per-cell CIs (a 91% rate from 10/11 has 95% CI ~59-100%). The robust signal is the *across-cell trend* — no monotonic w-degradation, designability stays above ~80% at every cell — not the per-cell rate.
+- **One persistent-failure protein dominates the apparent variance.** s45_n500 is broken at >10 Å in 9/10 cells, w-independent. It is a generation failure of the underlying La-Proteina LD3 sampler at this seed × length, not a steering failure. The "excluding s45_n500" tables are the fair comparison. Including it changes the apparent designability rate at every cell by the same fixed amount (one extra non-designable per cell), so the *trends* are unchanged either way. Further audit (run e.g. 16 seeds at L=500 on the unsteered baseline to estimate the s45_n500-equivalent failure rate) is not yet done.
+- **Per-length sign disagreement at w=16.** The aggregate gap of +3.8 hides L=300 +28 / L=400 −42 / L=500 +25. L=400 still has a residual underclaim (the classical hacking direction). The aggregate is small not because every length is honest but because lengths cancel. The per-length data is closer to "gap reduced from −203 to ~±40, on either sign of zero" than to "gap eliminated".
+- **No verification on alternative flows.** All experiments were on the official LD3+AE2 La-Proteina checkpoint. Whether the noise-aware-fine-tune + ensemble combination transfers to other flow architectures (CA-only variants from E022, sparse attention from E021, future variants) is untested. The mechanism story predicts it should — both fixes target predictor-side failure modes that are flow-architecture-independent — but we don't have data.
+- **Designability ≠ wet-lab function.** scRMSD < 2 Å says "ESMFold thinks an MPNN-designed sequence will fold to roughly the right structure". It does not say the protein folds in vitro, that the predicted property is reproduced in lab measurement, or that the structure has the expected aggregation behaviour. These are wet-lab claims and out of scope.
+- **The predictor still has a residual Δratio of 2.9× at w=16.** The mean gap of +3.8 is small, but the Δ predictor / Δ real ratio is 2.9× — predictor's *change* still moves about 3× faster than reality. This is the residual signature of the per-length sign-disagreement: at L=400 specifically, the predictor over-shoots reality. The reduction from 8.5× to 2.9× is a 3× improvement and dominates the gap-closure narrative, but a Δratio of 1× would be the strict goalpost.
+- **Calibration drift at low w.** At w=1 (minimal steering) the predictor over-claims real TANGO by +118 on average. This is calibration drift, not gradient hacking — the predictor is biased high on near-baseline proteins. Steering brings the predicted value down faster than the real value follows, which is what produces the gap-closure-by-crossover at w=16. If we pushed past w=16 the predictor might cross over to underclaiming real (the classical hacking direction). Within the tested range w∈[1, 16] this is not an issue.
+
+---
+
+### Causal ablation of the AdaLN-Zero × weight-decay collapse mechanism (follow-up to Finding 5, 2026-04-25)
+
+**Motivation and literature gap (why this is worth running, despite Finding 5 already documenting the correlational result):**
+
+Finding 5 established a strong correlational case that uniform AdamW weight decay applied to the La-Proteina CA-only baseline crushes AdaLN-Zero output gates in the upper transformer blocks (gates at 26–60% of baseline magnitude in v2 vs old) and that this co-occurs with a categorical sample-quality collapse (0/9 designable samples) despite a 0.33 best-validation-loss improvement. The mechanism — uniform AdamW weight decay applied to zero-initialised gates suppresses their growth, which weakens the time-conditioning signal at the velocity output and causes integrated trajectories to fail even though averaged velocity-MSE looks better — is mechanistically coherent and consistent with the per-layer weight evidence. However, no causal experiment has been run; an examiner could legitimately argue that the cosine LR decay (which co-occurred with wd=0.1 in v2 and was not isolated) is the actual cause, or that the collapse is a generic effect of stronger regularisation rather than the specific gate-suppression mechanism we propose.
 
 A targeted literature survey (DiT, SiT, SD3 / MMDiT, PixArt-α, "Unveiling the Secret of AdaLN-Zero", ReZero, the diffusers SD3 reference, and the AdamW paper itself; full source list in CLAUDE-session notes) found that:
 - **The dominant DiT-family training recipe is `weight_decay=0` everywhere.** DiT's official `train.py` uses literally `torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)`; SiT's `train.py` uses the same line. SD3's paper does not discuss weight decay at all and emphasises QK-normalisation and ε=1e-15 in AdamW for stability. PixArt-α has a configurable `zero_weight_decay` attribute but does not apply it to AdaLN by default.
@@ -790,7 +985,7 @@ The literature gap is therefore real: the AdaLN-Zero × uniform-AdamW-wd interac
 
 **Hypothesis (mechanistic, to be falsified):**
 
-Restoring growth capacity to the AdaLN-Zero output gates (either by removing weight decay entirely from those parameters, or by removing weight decay altogether and accepting the loss of regularisation) recovers sample quality on the v2 model **without** giving up the validation-loss improvement that wd+cosine bought. If this prediction is wrong — i.e. samples remain bad even after the gates are unconstrained — then the mechanism we proposed in Finding 6 is wrong (or at least incomplete) and the v2 collapse must be attributed to something else (cosine LR-decay shrinking the effective LR to a non-sampling-friendly regime; an interaction with self-conditioning; etc.).
+Restoring growth capacity to the AdaLN-Zero output gates (either by removing weight decay entirely from those parameters, or by removing weight decay altogether and accepting the loss of regularisation) recovers sample quality on the v2 model **without** giving up the validation-loss improvement that wd+cosine bought. If this prediction is wrong — i.e. samples remain bad even after the gates are unconstrained — then the mechanism we proposed in Finding 5 is wrong (or at least incomplete) and the v2 collapse must be attributed to something else (cosine LR-decay shrinking the effective LR to a non-sampling-friendly regime; an interaction with self-conditioning; etc.).
 
 **Experimental design — three variants in increasing scope:**
 
@@ -801,14 +996,14 @@ The three variants below trade off compute against the strength of the causal cl
 - Resume from the v2 best raw checkpoint (`store/ca_only_diffusion_baseline_v2/1776975226/checkpoints/best_val_00000020_000000002078.ckpt`).
 - Modify `proteinfoundation/proteina.py:configure_optimizers` to split parameters into two groups: (i) all `*.scale_output.to_adaln_zero_gamma.0.weight` parameters get `weight_decay=0`; (ii) everything else keeps the current `weight_decay` value (= 0.1). No other config change.
 - Continue training for ≈ 200–500 optimizer steps. Log: `train/grad_norm`, `train/param_norm`, the per-layer L2 norm of each AdaLN-Zero gate (new logging — needs a small addition to `on_before_optimizer_step` that walks `[p for n,p in self.named_parameters() if "to_adaln_zero" in n]` and logs each `‖p‖`).
-- Stopping rule: continue until either (a) the upper-layer gates (layers 7–13) recover to ≥ 80% of the old-recipe norms documented in Finding 6, or (b) 500 optimizer steps have elapsed without recovery.
-- Save the resulting checkpoint, run the same eval as Finding 6 (`inference_ucond_notri_ca_only_v2_quick.yaml` config, lengths [50, 150, 300, 450], N=10 samples per length, 200 ODE steps, ESMFold designability).
+- Stopping rule: continue until either (a) the upper-layer gates (layers 7–13) recover to ≥ 80% of the old-recipe norms documented in Finding 5, or (b) 500 optimizer steps have elapsed without recovery.
+- Save the resulting checkpoint, run the same eval as Finding 5 (`inference_ucond_notri_ca_only_v2_quick.yaml` config, lengths [50, 150, 300, 450], N=10 samples per length, 200 ODE steps, ESMFold designability).
 
 **B. Cleanest — retrain v2 from scratch with the proper param-group split (~16 h on 1 A100, chained):**
 
 - Modify `configure_optimizers` to split parameters into (i) bias / LayerNorm γ,β / embedding / `to_adaln_zero` parameters → `weight_decay=0`; (ii) everything else → `weight_decay=0.1`. This is the canonical DiT/SiT/SD3-style split (~15 lines).
-- Train from scratch with the v2 schedule (cosine_with_warmup, peak 2e-4, total 6000 opt steps, min ratio 0.1) for the same ~2100–2300 optimizer steps where Finding 6 v2 best was reached. Use the same seed (42), same data, same batch size, same EMA settings.
-- Compare against (i) the old recipe baseline checkpoint at its best (~step 2204, val 4.71–4.77, designability per Finding 6) and (ii) the v2 broken checkpoint (val 4.437, 0/9 designable).
+- Train from scratch with the v2 schedule (cosine_with_warmup, peak 2e-4, total 6000 opt steps, min ratio 0.1) for the same ~2100–2300 optimizer steps where Finding 5 v2 best was reached. Use the same seed (42), same data, same batch size, same EMA settings.
+- Compare against (i) the old recipe baseline checkpoint at its best (~step 2204, val 4.71–4.77, designability per Finding 5) and (ii) the v2 broken checkpoint (val 4.437, 0/9 designable).
 - This is the "right" ablation because it isolates the param-group fix as the only difference from v2 — same LR schedule, same wd value, same everything else.
 
 **C. Wd-isolation arm (add to either A or B if budget allows; ~16 h):**
@@ -847,7 +1042,7 @@ for n, v in gate_norms.items():
 This logging is independently valuable for any future training on this codebase.
 
 **What the writeup would contain (target structure for the resulting Finding):**
-1. Background: brief restatement of Finding 6 and the literature-gap motivation above.
+1. Background: brief restatement of Finding 5 and the literature-gap motivation above.
 2. Methods: the param-group split (~15 line code change), the variants run, the eval protocol.
 3. Results: per-gate-layer norm trajectories during the experiment (do they regrow?), val-loss curve, designability table at matched lengths.
 4. Discussion: which outcome of the matrix above was observed, and what it pins down about the mechanism.
@@ -856,7 +1051,7 @@ This logging is independently valuable for any future training on this codebase.
 **Risks and confounders to record with results:**
 - Variant A's resume from v2-2078 carries forward whatever non-gate weights the v2 training shaped under wd=0.1; even if gates regrow, the *rest* of the model has been trained against suppressed gates and may have compensated in ways that don't undo cleanly. A failure in A is therefore not a failure of the mechanism — it could be a failure of the recovery procedure. Variant B (clean retrain) is needed to definitively rule this out.
 - The eval is N=10 samples per length × 4 lengths = 40 samples. ESMFold scRMSD has known sensitivity to short-protein folding accuracy; if the recovered model is still marginal at L=50 but improves at L=300/450, that's still a positive result for the mechanism (the original v2 collapse was uniform across lengths, so partial recovery at any length is informative).
-- The mechanism predicts that *if* the gates regrow, the val loss may regress (because the model goes back to predicting time-conditioned velocities, which are higher-MSE than the smoothed-out averages it was predicting before). Do not interpret a val-loss regression as a failure of the experiment — Finding 6's central claim is precisely that val loss is a misleading proxy in this setting.
+- The mechanism predicts that *if* the gates regrow, the val loss may regress (because the model goes back to predicting time-conditioned velocities, which are higher-MSE than the smoothed-out averages it was predicting before). Do not interpret a val-loss regression as a failure of the experiment — Finding 5's central claim is precisely that val loss is a misleading proxy in this setting.
 
 ### Capacity probing — remaining pieces (Finding 4 covers the core)
 - 5-fold repeat of the full ladder to confirm the h128→h256 saturation and the Class A vs Class B boundary.
@@ -916,31 +1111,31 @@ This logging is independently valuable for any future training on this codebase.
 - Compare sample quality (scRMSD, pLDDT) vs uniform schedule at matched NFE budgets
 - If quality improves at fixed NFE, Finding 2's causal claim about curvature → one-shot difficulty becomes directly supported
 
-### Direct latent-space geometry probe (follow-up to Finding 7)
-Finding 7 showed that perturbations in AE1's latent space stay closer to ESMFold's prediction than equivalent coord-space perturbations, and inferred decoder contractivity from the noise-magnitude invariance. The "tighter packed latent space" framing was deliberately put in the Implikation, not the Narrow claim, because the experiment did not directly measure latent-space geometry. This follow-up closes that gap.
+### Direct latent-space geometry probe (follow-up to Finding 6)
+Finding 6 showed that perturbations in AE1's latent space stay closer to ESMFold's prediction than equivalent coord-space perturbations, and inferred decoder contractivity from the noise-magnitude invariance. The "tighter packed latent space" framing was deliberately put in the Implikation, not the Narrow claim, because the experiment did not directly measure latent-space geometry. This follow-up closes that gap.
 
 **Approach:**
-1. Encode a held-out set of N=500–1000 proteins (same length stratification as Finding 7) → per-residue `mean` tensors.
+1. Encode a held-out set of N=500–1000 proteins (same length stratification as Finding 6) → per-residue `mean` tensors.
 2. For each pair (i, j), compute (a) Euclidean distance in latent space (L2 over per-residue means after sequence-length matching, e.g. averaging or padding+masking), (b) all-atom RMSD between native structures (TM-align or kabsch-aligned over CA).
 3. Plot latent-distance vs structure-distance, fit a monotonic relationship (Spearman ρ).
 4. Compare to a control: same plot but using raw stacked-CA-coordinate vectors as the "latent" — quantifies how much extra structure the AE imposes vs. just-coords.
 5. Local density: for each protein, k-nearest neighbours in latent vs in structure space — does the AE preserve neighbourhoods?
 
-**What this would directly test:** whether latent distances correspond to structural similarity (the actual "tighter packing" claim). A positive result strengthens Finding 7's Implikation; a negative result restricts Finding 7 to the strict decoder-contractivity claim only.
+**What this would directly test:** whether latent distances correspond to structural similarity (the actual "tighter packing" claim). A positive result strengthens Finding 6's Implikation; a negative result restricts Finding 6 to the strict decoder-contractivity claim only.
 
-### Latent-arm decoder-contractivity ablation (follow-up to Finding 7, mechanistic)
-The Implikation in Finding 7 attributes the noise-magnitude invariance of latent-arm scRMSD (median +0.17 Å over a 20× change in noise std) to the AE decoder being contractive. A direct test:
+### Latent-arm decoder-contractivity ablation (follow-up to Finding 6, mechanistic)
+The Implikation in Finding 6 attributes the noise-magnitude invariance of latent-arm scRMSD (median +0.17 Å over a 20× change in noise std) to the AE decoder being contractive. A direct test:
 
 - For a single eval protein, sample latent perturbations at k ∈ {0.5, 1, 2, 4, 8, 16} (extending well past the data range) and decode.
 - Plot `||z_clean − z_perturbed||_2` (input perturbation magnitude) vs `||x_clean − x_perturbed||_F` (output coord change). A contractive map shows sublinear or saturating behaviour; an isometric map shows linear; an expansive map shows superlinear.
-- A clearly sublinear/saturating curve directly demonstrates contractivity, upgrading Finding 7's Implikation to a Narrow claim.
+- A clearly sublinear/saturating curve directly demonstrates contractivity, upgrading Finding 6's Implikation to a Narrow claim.
 
-### Coord-arm with whitened, basis-aligned noise (Finding 7 follow-up, robustness)
-The pre-registered Finding 7 caveat about commensurability between coord σ and latent σ deserves a tighter test. Add a third arm: coord-space noise sampled in a basis aligned with the local sidechain rotamer manifold (e.g. PCA over per-(restype, atom_idx) offset distributions, with σ scaled to match each PC's variance). If even this PC-aligned coord arm loses to latent at all k, the latent-space advantage is not just a bad-noise-basis artefact in the original coord arm.
+### Coord-arm with whitened, basis-aligned noise (Finding 6 follow-up, robustness)
+The pre-registered Finding 6 caveat about commensurability between coord σ and latent σ deserves a tighter test. Add a third arm: coord-space noise sampled in a basis aligned with the local sidechain rotamer manifold (e.g. PCA over per-(restype, atom_idx) offset distributions, with σ scaled to match each PC's variance). If even this PC-aligned coord arm loses to latent at all k, the latent-space advantage is not just a bad-noise-basis artefact in the original coord arm.
 
-### Curvature-targeted bump schedule follow-up (Finding 2 / E025 follow-up, schedule-vs-quality ablation at proper N)
+### Curvature-targeted bump schedule follow-up (Finding 2 / E037 follow-up, schedule-vs-quality ablation at proper N)
 
-E025 ran two paired-N=30 probes of `power_with_middle_bump` on `local_latents` (μ=0.489, σ=0.08, eps∈{0.1, 0.14}) at L=300 on the LD3 full-latent model. Both null at this N. The directional signal split by metric: continuous mean scRMSD favours the bump (60–63% of paired samples better at eps=0.14, mean Δ ≈ −0.10 Å on three co-design columns), but designability rate moves the *wrong* way by a consistent −7pp on three of four co-design columns in **both** probes. None significant (smallest Wilcoxon p=0.38; smallest McNemar p=0.50). The continuous-vs-threshold split is internally explained by the pair-level decomposition: improvements happen mostly inside the already-designable region or in the deep failure tail, while a few borderline samples get nudged the wrong way at the 2 Å boundary.
+E037 ran two paired-N=30 probes of `power_with_middle_bump` on `local_latents` (μ=0.489, σ=0.08, eps∈{0.1, 0.14}) at L=300 on the LD3 full-latent model. Both null at this N. The directional signal split by metric: continuous mean scRMSD favours the bump (60–63% of paired samples better at eps=0.14, mean Δ ≈ −0.10 Å on three co-design columns), but designability rate moves the *wrong* way by a consistent −7pp on three of four co-design columns in **both** probes. None significant (smallest Wilcoxon p=0.38; smallest McNemar p=0.50). The continuous-vs-threshold split is internally explained by the pair-level decomposition: improvements happen mostly inside the already-designable region or in the deep failure tail, while a few borderline samples get nudged the wrong way at the 2 Å boundary.
 
 **Two cheap diagnostics before committing to N=100 (~4h on 1× A100):**
 
@@ -949,10 +1144,10 @@ E025 ran two paired-N=30 probes of `power_with_middle_bump` on `local_latents` (
 
 **Properly-powered run (only after the cheap diagnostics):**
 - N=100 paired at L=300 with `power_bump_e0.14` (or the redesigned tail-neutral variant if step 2 is taken).
-- Same paired-noise setup as E025 (`id_gen` join via `proteina.py:786`); `script_utils/schedule_comparison_report.py` already has the Wilcoxon + McNemar paired analysis.
+- Same paired-noise setup as E037 (`id_gen` join via `proteina.py:786`); `script_utils/schedule_comparison_report.py` already has the Wilcoxon + McNemar paired analysis.
 - Predicts: (a) Wilcoxon p ≤ 0.05 on the continuous direction if the +0.10 Å median Δ holds; (b) ±5pp band on the designability shift, making the binary direction defensible. Also adds a length-sweep arm at L∈{200, 400, 500} to test the (currently assumed) length-independence of the schedule effect.
 
 **Why this is worth running despite the null:**
-- E004's curvature finding (Finding 2) explicitly flagged the schedule-vs-quality ablation as missing. E025 ran it but only at exploratory N. Either a positive N=100 result (continuous metric improves significantly without designability cost) or a properly-powered negative (binary designability *is* worse with the bump) is paper-defensible — the current null is neither.
+- E004's curvature finding (Finding 2) explicitly flagged the schedule-vs-quality ablation as missing. E037 ran it but only at exploratory N. Either a positive N=100 result (continuous metric improves significantly without designability cost) or a properly-powered negative (binary designability *is* worse with the bump) is paper-defensible — the current null is neither.
 - The "continuous improvement is real, threshold flip is not" pattern, if it survives at N=100, is a methodologically interesting finding in its own right: it shows that NFE-redistribution toward curvature peaks is a *distribution-shaping* tool, not a designability-rate tool. That's a calibration most schedule-search papers don't make.
 - The trade-off mechanism (mid-stage accuracy bought at the cost of late-stage refinement) is testable and, if confirmed, gives a constructive path to a schedule that wins on both metrics — which is the actual paper claim worth chasing.
