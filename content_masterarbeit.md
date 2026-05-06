@@ -937,3 +937,22 @@ The Implikation in Finding 7 attributes the noise-magnitude invariance of latent
 
 ### Coord-arm with whitened, basis-aligned noise (Finding 7 follow-up, robustness)
 The pre-registered Finding 7 caveat about commensurability between coord σ and latent σ deserves a tighter test. Add a third arm: coord-space noise sampled in a basis aligned with the local sidechain rotamer manifold (e.g. PCA over per-(restype, atom_idx) offset distributions, with σ scaled to match each PC's variance). If even this PC-aligned coord arm loses to latent at all k, the latent-space advantage is not just a bad-noise-basis artefact in the original coord arm.
+
+### Curvature-targeted bump schedule follow-up (Finding 2 / E025 follow-up, schedule-vs-quality ablation at proper N)
+
+E025 ran two paired-N=30 probes of `power_with_middle_bump` on `local_latents` (μ=0.489, σ=0.08, eps∈{0.1, 0.14}) at L=300 on the LD3 full-latent model. Both null at this N. The directional signal split by metric: continuous mean scRMSD favours the bump (60–63% of paired samples better at eps=0.14, mean Δ ≈ −0.10 Å on three co-design columns), but designability rate moves the *wrong* way by a consistent −7pp on three of four co-design columns in **both** probes. None significant (smallest Wilcoxon p=0.38; smallest McNemar p=0.50). The continuous-vs-threshold split is internally explained by the pair-level decomposition: improvements happen mostly inside the already-designable region or in the deep failure tail, while a few borderline samples get nudged the wrong way at the 2 Å boundary.
+
+**Two cheap diagnostics before committing to N=100 (~4h on 1× A100):**
+
+1. **Late-t density check.** The schedule renormalisation means more density at μ=0.489 implies less density elsewhere. Compare baseline vs `power_bump_e0.14` step density in the late-t window (t > 0.85). `script_utils/plot_straightness.py` already supports this. If late-t density is meaningfully lower with the bump, it's positive evidence for the trade-off hypothesis — the bump is buying mid-stage curvature accuracy at the cost of late-stage refinement, which is exactly when borderline samples need to make their final crossing of the 2 Å bar.
+2. **Tail-neutral schedule design.** If the late-t check confirms the tail-stealing pattern, the right next variant is a bump that takes its density from the calm region near t=0.2 instead — e.g. an asymmetric bump (Gaussian × `(1−u)^2` weighting), or a wider σ that pulls density only from the early-t plateau. `optimise_bump.py` can be adapted to constrain the late-t density.
+
+**Properly-powered run (only after the cheap diagnostics):**
+- N=100 paired at L=300 with `power_bump_e0.14` (or the redesigned tail-neutral variant if step 2 is taken).
+- Same paired-noise setup as E025 (`id_gen` join via `proteina.py:786`); `script_utils/schedule_comparison_report.py` already has the Wilcoxon + McNemar paired analysis.
+- Predicts: (a) Wilcoxon p ≤ 0.05 on the continuous direction if the +0.10 Å median Δ holds; (b) ±5pp band on the designability shift, making the binary direction defensible. Also adds a length-sweep arm at L∈{200, 400, 500} to test the (currently assumed) length-independence of the schedule effect.
+
+**Why this is worth running despite the null:**
+- E004's curvature finding (Finding 2) explicitly flagged the schedule-vs-quality ablation as missing. E025 ran it but only at exploratory N. Either a positive N=100 result (continuous metric improves significantly without designability cost) or a properly-powered negative (binary designability *is* worse with the bump) is paper-defensible — the current null is neither.
+- The "continuous improvement is real, threshold flip is not" pattern, if it survives at N=100, is a methodologically interesting finding in its own right: it shows that NFE-redistribution toward curvature peaks is a *distribution-shaping* tool, not a designability-rate tool. That's a calibration most schedule-search papers don't make.
+- The trade-off mechanism (mid-stage accuracy bought at the cost of late-stage refinement) is testable and, if confirmed, gives a constructive path to a schedule that wins on both metrics — which is the actual paper claim worth chasing.

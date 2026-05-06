@@ -46,6 +46,7 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E022](#e022--long-length-designability-probe-of-canonical-baseline-l300400500-fixed-mpnn-re-eval-2026-05-02) | 2026-05-02 | finished | Long-length designability probe of canonical baseline (L=300/400/500), fixed-MPNN re-eval | non-narrative — feeds Finding 8's "L cliff" picture |
 | [E023](#e023--aromatic-burial-targeting-gen-vs-pdb-rsa-via-freesasa-2026-05-03) | 2026-05-03 | finished | Aromatic burial-targeting comparison: La-Proteina full-atom unconditional gen vs length-matched PDB ref, RSA via FreeSASA + Tien et al. 2013 max ASA | potential narrative — flags F under-burial in joint-gen samples |
 | [E024](#e024--aromatic-burial-followups-composition-decomposition--curve-shape--per-protein-distribution-2026-05-03) | 2026-05-03 | finished | Three follow-up analyses on top of E023's per-residue RSA: (1) aromatic-pool composition + counterfactual reweighting; (2) F/Y curve shape vs amplitude (KDE + logistic slope); (3) per-protein burial-targeting distribution. | refines Finding 9 — group-level preservation is NOT explained by composition reweighting; F/Y placement *shapes* are statistically indistinguishable in slope (amplitude-limited story); per-protein analysis underpowered |
+| [E025](#e025--curvature-targeted-bump-schedule-paired-n30-probes-2026-05-05--2026-05-06) | 2026-05-05 → 2026-05-06 | finished | Paired-noise schedule comparison (N=30, L=300, LD3-800): baseline vs `power_with_middle_bump` at eps∈{0.1, 0.14}, μ=0.489, σ=0.08 — extra NFEs at the `local_latents` curvature peak from E004/Finding 2 | non-narrative — null at N=30 with directional split (continuous mean improves, designability rate slightly worse); flags N=100 follow-up |
 
 ---
 
@@ -1684,3 +1685,91 @@ KS two-sample test on the two distributions: D = 0.506, p = 1.5e-4. The KS p-val
 - Finding 9 in `content_masterarbeit.md` — the joint-sequence-head bias narrative that E024 strengthens (composition decomposition) and qualifies (curve shape + per-protein distribution underpowered).
 - Implementation: `proteinfoundation/analysis/aromatic_burial.py` (now also dumps `per_residue.parquet`); `proteinfoundation/analysis/aromatic_burial_followups.py` (CLI: `--in-file`, `--out-dir`, `--seed`).
 - Predicts: re-running on a paramgroups-arm gen set (when its inference is large enough) would test whether the per-residue *heterogeneous* preservation (F broken, Y preserved) survives the wd-split optimizer fix, or whether it was an artifact of the joint-sequence head specifically. The composition decomposition (EXP1) is the cheap diagnostic to run first on any new arm.
+
+## E025 — Curvature-targeted bump schedule, paired N=30 probes (2026-05-05 → 2026-05-06)
+
+**Status:** finished. Two paired-noise inference runs at N=30, L=300, on the LD3 full-latent model. Null result at this N; directional signal split by metric.
+
+**Why ran:** E004 / Finding 2 measured that the `local_latents` ODE field has a curvature peak around t≈0.489 while `bb_ca` is nearly straight, and explicitly flagged the schedule-vs-quality ablation as missing — the causal claim "more NFEs near the curvature peak should improve sample quality at fixed budget" was plausible but untested. E025 is that ablation: redistribute the integration grid of `local_latents` so that more steps land near t=0.489, holding `bb_ca` and total NFE budget (`nsteps=400`) fixed. Decision input for whether the bump-schedule line of work is worth committing to a properly-powered run before paper-writing.
+
+**Setup (both runs):**
+- Model: `LD3_ucond_notri_800.ckpt` + `AE2_ucond_800.ckpt`, full-latent (joint sequence head present).
+- Inference config: `inference_ucond_notri_long` (defaults: `nsteps=400`, `self_cond=True`, `guidance_w=1.0`).
+- Sampler: `proteinfoundation/generate.py`, single A100, `nsamples=30`, length list `[300]`, `seed=5` (`inference_base.yaml`).
+- Pairing: `proteina.py:783-788` re-seeds at the start of every `predict_step` with `base_seed + batch_idx`, so two rows with the same `id_gen` across the baseline and variant CSVs come from identical initial noise. This is the design feature that makes the comparison paired.
+- Driver: `script_utils/submit_schedule_comparison.sh --config inference_ucond_notri_long --ckpt ./checkpoints_laproteina/LD3_ucond_notri_800.ckpt --schedules baseline,<bump_key> --lengths 300 --nsamples 30`. Generation + designability + co-designability eval per schedule, sequential.
+- SLURM: SL2 / ampere / 1 GPU / `--time=1:30:00 --exclude=gpu-q-43`. Job 28893748 (eps=0.1, 1h13m) → 28898446 (eps=0.14, 1h21m).
+
+**Schedule definition** (`product_space_flow_matcher.py:get_schedule`, `mode="power_with_middle_bump"`):
+```
+F(u) = u^p  +  eps · [ Gauss(u; mu, sigma) − linear endpoint correction ]   (then renormalised to [0,1], monotone-asserted)
+```
+- `bb_ca` schedule unchanged across both runs: `mode=log, p=2.0` (E004 said `bb_ca` is straight, so no need to redistribute).
+- `local_latents` schedule per arm:
+  - **Baseline:** `mode=power, p=2.0`
+  - **eps=0.1:** `mode=power_with_middle_bump, p=2.0, eps=0.10, mu=0.489, sigma=0.08`
+  - **eps=0.14:** same with `eps=0.14` (the maximum eps that stays monotone for `mu=0.489, sigma=0.08`; `eps=0.19` is the ceiling for `sigma=0.10` per `fit_bump_params.py`).
+
+**Eval pipeline:** `proteinfoundation/evaluate.py` with default ProteinMPNN×8 + ESMFold + scRMSD on both single-sequence designability (`_res_scRMSD_*`) and co-designability (`_res_co_scRMSD_*`).
+
+**Engineering artefact (committed in `8e97d7a`):** `script_utils/schedule_comparison_report.py` extended to do paired analysis on `id_gen` joins between schedule CSVs — per `(rmsd_col, variant, length+overall)`: n_pairs, mean Δ, median Δ, % v<b, Wilcoxon signed-rank p, paired designability rates, McNemar exact-binomial p on the binary flip. Output dumped to `inference/schedule_comparison_paired.csv` plus the existing per-length bar charts.
+
+**Results — eps=0.1 vs baseline (N=29 paired, 1 dropped at eval due to `tensor a (300) ≠ b (299)` in `job_0_n_300_id_25`):**
+
+| Metric | Base | Bump 0.1 | Mean Δ | Median Δ | %v<b | Wilcoxon p | des(b) → des(v) | McN p |
+|---|---|---|---|---|---|---|---|---|
+| `scRMSD_ca` (single-seq) | 89.7%, 1.66 Å | 82.8%, 1.42 Å | −0.220 | −0.021 | 55% | 0.67 | 89.7% → 82.8% | 0.50 |
+| `co_scRMSD_ca` | 79.3%, 2.92 Å | 72.4%, 2.94 Å | +0.029 | −0.074 | 53% | 0.45 | 79.3% → 72.4% | 0.625 |
+| `co_scRMSD_bb3o` | 79.3%, 2.90 Å | 72.4%, 2.93 Å | +0.028 | (similar) | 55% | 0.49 | 79.3% → 72.4% | 0.625 |
+| `co_scRMSD_all_atom` | 69.0%, 3.31 Å | 72.4%, 3.39 Å | +0.085 | (similar) | 52% | 0.88 | 69.0% → 72.4% | 1.00 |
+
+**Results — eps=0.14 vs baseline (N=30 paired, no eval drops):**
+
+| Metric | Base | Bump 0.14 | Mean Δ | Median Δ | %v<b | Wilcoxon p | des(b) → des(v) | McN p |
+|---|---|---|---|---|---|---|---|---|
+| `scRMSD_ca` (single-seq) | 90.0%, 1.42 Å | 93.3%, 1.50 Å | +0.083 | +0.047 | 47% | 0.50 | 90.0% → 93.3% | 1.00 |
+| `co_scRMSD_ca` | 76.7%, 2.96 Å | 70.0%, 2.87 Å | **−0.094** | **−0.133** | **60%** | 0.43 | 76.7% → 70.0% | 0.50 |
+| `co_scRMSD_bb3o` | 76.7%, 2.95 Å | 70.0%, 2.85 Å | **−0.098** | **−0.122** | **63%** | 0.38 | 76.7% → 70.0% | 0.50 |
+| `co_scRMSD_all_atom` | 66.7%, 3.36 Å | 60.0%, 3.34 Å | −0.021 | −0.125 | 60% | 0.49 | 66.7% → 60.0% | 0.69 |
+
+**Pair-level decomposition for the cleanest signal column (eps=0.14, `co_scRMSD_ca`, 30 pairs):**
+
+| Subset | n | Mean Δ |
+|---|---|---|
+| both designable (b<2 ∧ v<2) | 21 | −0.091 Å (improvement, but no threshold flip) |
+| both non-designable (b>2 ∧ v>2) | 7 | **−2.092 Å** (large improvement, but still fails 2 Å bar) |
+| rescued (b>2 → v<2) | 0 | — |
+| broken (b<2 → v>2) | 2 | (boundary samples nudged the wrong way) |
+
+So the bump *does* shift mass toward lower scRMSD throughout the distribution — including a 2 Å mean improvement in the failure tail — but the improvements happen mostly far from the 2 Å boundary, while two borderline samples just under 2 Å get pushed slightly above it. Net designability count: −2 → −7pp.
+
+**Cross-run picture:**
+- **Continuous direction** (mean / median Δ on co-design scRMSD) firmed up at eps=0.14: 60–63% v<b, mean Δ ≈ −0.10 Å, median Δ ≈ −0.13 Å on three co-design columns. At eps=0.1 the direction was weaker (52–55% v<b, mean Δ ≈ +0.03).
+- **Designability rate** (binary 2 Å threshold) shifted the *wrong* way on three of four co-design columns in **both** probes (consistent −7pp on `co_scRMSD_ca` and `co_scRMSD_bb3o` at both eps values). Single-seq `scRMSD_ca` is approximately unchanged (one or two protein-flips — RNG-dominated at N=29/30).
+- **No metric in either run reached significance.** Smallest Wilcoxon p across both runs is 0.38; smallest McNemar p is 0.50.
+
+**Possible narrative:** non-narrative for now — N=30 is too small to commit a paper claim. Kept as a decision-feeder for the bump-schedule research line:
+
+- The continuous-vs-threshold split is internally consistent — the bump compresses the scRMSD distribution toward lower values without moving the 2 Å boundary count, because the improvements are concentrated either inside the already-designable region (no threshold cross) or in the far failure tail (still a fail). A few borderline samples flip in either direction with roughly equal probability under H0, and at N=30 the 2 broken / 0 rescued split is consistent with noise.
+- Mechanism hypothesis (untested): the schedule normalisation means more density near μ=0.489 implies *less* density at the t-tails. Late-t (t close to 1) is the refinement window where borderline samples make their final crossing. The bump may be trading late-stage accuracy (helps borderline samples cross 2 Å) for mid-stage accuracy (helps deeply-failed samples avoid wrong-basin trap and improve from 5→3 Å). Consistent with the "improvement is in the tails, designability boundary loses" pattern observed.
+- Direct test that's cheaper than another N=100 run: plot the schedule density against t (`script_utils/plot_straightness.py`) and compare late-t (t > 0.85) density between baseline and `power_bump_e0.14`. If the bump meaningfully reduces late-t step density, the trade-off hypothesis is supported and the right next variant is a bump that doesn't steal from the tail (e.g. keep total bump density but widen σ so more density comes from the calm region near t=0.2 instead).
+- If the trade-off hypothesis is rejected (bump density is roughly tail-neutral), then the +2 broken / 0 rescued is just RNG and N=100 is the only honest move.
+
+**Methodological caveats:**
+- N=30 (and N=29 for eps=0.1) is underpowered for the effect sizes seen. Wilcoxon needs ≥80 paired samples to detect ~0.3σ at α=0.05/80% power; current observed effect on `co_scRMSD_ca` is ~0.2σ. McNemar on a 10pp designability shift needs ~120 paired samples — anything we see at N=30 in designability rate is dominated by a handful of boundary flips.
+- Single length only (L=300). Curvature is t-dependent, not L-dependent in any first-order way per E004, so the schedule effect is expected to be length-independent — but this is an assumption, not a measurement.
+- Single seed (`base_seed=5`). The pairing controls within-run variance but not between-run variance; the *baseline* numbers are not identical across the two probes (89.7% vs 90.0% on `scRMSD_ca`, 79.3% vs 76.7% on `co_scRMSD_ca`), confirming there's residual seed-level noise even at N=30.
+- The paired design controls noise *within* a metric, not *across* metrics. We can't paired-test "single-seq design vs co-design" because they are different scoring pipelines.
+- One sample lost at eval in eps=0.1 run (`job_0_n_300_id_25`, tensor-shape 300 vs 299). Did not recur in eps=0.14. Cause not investigated (1-residue mismatch in some post-gen step).
+- The `power_x2_bump_e0.14` and `power_x2_bump_e0.19` variants (μ=0.50, σ=0.10 from the `fit_bump_params.py` bend-angle window) have not been tested at all yet — any conclusion about "σ=0.08" vs "σ=0.10" is unsupported.
+
+**Cross-references:**
+- E004 / Finding 2 — the curvature measurement that motivated this experiment. E025 is the schedule-vs-quality ablation E004 explicitly flagged as missing.
+- `script_utils/measure_field_straightness.py`, `fit_bump_params.py`, `optimise_bump.py`, `plot_straightness.py` — the tooling for measuring curvature and constructing/diagnosing the bump schedule.
+- `proteinfoundation/flow_matching/product_space_flow_matcher.py:get_schedule` (`mode="power_with_middle_bump"`) — the schedule itself.
+- `script_utils/submit_schedule_comparison.sh`, `script_utils/schedule_comparison_report.py` — the driver and the (now paired-aware) reporting script.
+- Output CSVs (overwritten between runs by design): `inference/results_inference_ucond_notri_long_<schedule>_0.csv`, `inference/schedule_comparison_paired.csv`, `inference/schedule_comparison_*.png`. Per-protein PDBs deliberately not committed.
+- SLURM logs: `slurm_schedule_cmp_28893748.out` (eps=0.1), `slurm_schedule_cmp_28898446.out` (eps=0.14) — not committed (per the standard skip rule).
+- `slurm_schedule_cmp_28000070.out` — the cancelled first attempt from 2026-04-19 (cgroup hung at first generation call); kept on disk for reference but produced no result.
+
+**Predicts:** N=100 paired probe at L=300 with `power_bump_e0.14` would (a) give a Wilcoxon p≤0.05 on the continuous direction if the +0.10 Å median Δ holds, and (b) put a ±5pp band on the designability shift, making the binary direction defensible. Cost: ~4h on 1× A100. Defer until the late-t density check above is done — if it confirms the tail-stealing hypothesis, redesign the schedule first.
