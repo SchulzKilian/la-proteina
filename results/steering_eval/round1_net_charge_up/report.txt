@@ -1,0 +1,31 @@
+============================================================
+STEERING EVALUATION REPORT
+============================================================
+
+Objectives: [{'direction': 'maximize', 'property': 'net_charge', 'weight': 1.0}]
+Proteins evaluated: 5
+
+--- STEERED PROPERTIES ---
+  net_charge_ph7                            delta=+23.4460 +/- 4.6060  p=0.0003***  frac_correct=1.00
+
+--- COLLATERAL EFFECTS (non-steered properties) ---
+  swi                                       delta=-0.0058 +/- 0.0027  p=0.0086*
+  tango_total                               delta=-0.3466 +/- 27.1175  p=0.9786
+  tango_aggregation_positions               delta=-0.2000 +/- 0.4472  p=0.3739
+  pI                                        delta=+0.7935 +/- 0.9294  p=0.1289
+  iupred3_mean                              delta=-0.0404 +/- 0.0385  p=0.0785
+  iupred3_fraction_disordered               delta=-0.0590 +/- 0.0531  p=0.0677
+  shannon_entropy                           delta=-0.0267 +/- 0.0251  p=0.0762
+  hydrophobic_patch_total_area              delta=+182.5300 +/- 338.5342  p=0.2944
+  hydrophobic_patch_n_large                 delta=+0.6000 +/- 1.1402  p=0.3046
+  sap_total                                 delta=-0.3127 +/- 0.4532  p=0.1977
+  scm_positive                              delta=+15.6275 +/- 14.5680  p=0.0745
+  scm_negative                              delta=+12.9215 +/- 3.8765  p=0.0017*
+  radius_of_gyration                        delta=+0.0004 +/- 0.0024  p=0.7354
+
+--- DESIGNABILITY ---
+  ESMFold not available, skipping designability evaluation.
+  Install esm package and re-run to compute scRMSD metrics.
+
+VERDICT: STEERING WORKS: all steered properties shifted significantly in the correct direction.
+============================================================

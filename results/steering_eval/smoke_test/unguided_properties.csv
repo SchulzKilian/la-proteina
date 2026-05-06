@@ -1,0 +1,2 @@
+protein_id,sequence_length,swi,tango_total,tango_aggregation_positions,net_charge_ph7,pI,iupred3_mean,iupred3_fraction_disordered,shannon_entropy,hydrophobic_patch_total_area,hydrophobic_patch_n_large,sap_total,scm_positive,scm_negative,radius_of_gyration
+s42_n300,300,0.8385533333333335,,,-62.16446613702507,4.671846961975096,0.8284953735422501,0.9733333333333334,3.1507409251326477,,,,,,95.25820922851562

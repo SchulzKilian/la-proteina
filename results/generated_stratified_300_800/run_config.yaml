@@ -1,0 +1,15 @@
+bin_width: 50
+device: cuda:0
+length_col: sequence_length
+length_csv: null
+length_mode: stratified
+length_range:
+- 300
+- 800
+n_new_this_run: 319
+n_per_bin: 100
+n_samples_total_in_manifest: 918
+nsteps: 200
+proteina_config: inference_ucond_notri_long
+run_until_timeout: true
+seed_base: 1000

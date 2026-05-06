@@ -1,0 +1,15 @@
+device: cuda:0
+length_col: sequence_length
+length_csv: /rds/user/ks2218/hpc-work/developability_panel.csv
+length_range:
+- 300
+- 800
+length_stats:
+  max: 751
+  mean: 395.35
+  min: 300
+  std: 86.72132090783674
+n_samples: 100
+nsteps: 200
+proteina_config: inference_ucond_notri_long
+seed_base: 1000

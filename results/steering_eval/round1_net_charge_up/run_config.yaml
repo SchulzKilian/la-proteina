@@ -1,0 +1,30 @@
+device: cuda:0
+lengths:
+- 400
+nsteps: 100
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+- 43
+- 44
+- 45
+- 46
+steering:
+  channel: local_latents
+  checkpoint: /rds/user/ks2218/hpc-work/checkpoints_multitask_predictor/latest/checkpoints/fold_0_best.pt
+  device: cuda:0
+  enabled: true
+  gradient_clip: 10.0
+  gradient_norm: unit
+  log_diagnostics: true
+  objectives:
+  - direction: maximize
+    property: net_charge
+    weight: 1.0
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    t_stop: 0.9
+    type: linear_ramp
+    w_max: 2.0
+steering_config: steering/config/net_charge_up_real.yaml

@@ -1,0 +1,25 @@
+device: cuda:0
+lengths:
+- 300
+nsteps: 100
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+steering:
+  channel: local_latents
+  checkpoint: steering/checkpoints/dummy_fold_0_best.pt
+  device: cuda:0
+  enabled: true
+  gradient_clip: 10.0
+  gradient_norm: unit
+  log_diagnostics: true
+  objectives:
+  - direction: maximize
+    property: net_charge
+    weight: 1.0
+  schedule:
+    t_end: 1.0
+    t_start: 0.3
+    type: linear_ramp
+    w_max: 2.0
+steering_config: steering/config/smoke_test.yaml
