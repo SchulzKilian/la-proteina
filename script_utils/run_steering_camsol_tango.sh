@@ -21,7 +21,7 @@ OUT=results/steering_camsol_tango_L500
 LENGTHS="300 400 500"
 SEEDS="42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57"
 PROTEINA_CFG=inference_ucond_notri_long
-NSTEPS=100
+NSTEPS=400  # was 100; flipped 2026-05-07 — nsteps<400 is below the integrator-convergence bar (22 Å vs 0.8 Å scRMSD cliff). See CLAUDE.md "Sampling — nsteps=400 is a HARD RULE". Note: run_steering_camsol_tango_nsteps400.sh is the canonical replacement; this script is kept for historical record only.
 DEVICE=cuda:0
 
 mkdir -p "$OUT"

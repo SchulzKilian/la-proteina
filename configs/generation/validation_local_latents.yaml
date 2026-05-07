@@ -1,7 +1,11 @@
 # General sampling params
 args:
   # some params for sampling
-  nsteps: 200
+  # nsteps=400 is the production minimum (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE").
+  # Was 200 before 2026-05-07; with `compute_fid: True` below, the gearnet-feature
+  # metrics depend on on-manifold structures, so nsteps<400 makes the per-validation
+  # FID/fJSD/IS numbers noisy. Cost: ~2× sampling time per validation pass.
+  nsteps: 400
   self_cond: False
   fold_cond: False
   guidance_w: 1.0   # conditional model weights, 1.0 for conditional generation, 0.0 for unconditional generation. We typically set this value greater than 1

@@ -1,0 +1,32 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_curriculum_n6_nfe400
+config_name: inference_sparse_K40_step1259_curriculum_n6_nfe400
+
+# E0NN curriculum arm — same K=40 ckpt as the baseline companion config. The
+# curriculum knobs progressively unmask spatial then random neighbor groups
+# as t increases:
+#   t < 0.3  → sequential only (effective K=16)
+#   t < 0.6  → sequential + spatial (effective K=24)
+#   t >= 0.6 → full canonical K=40
+# Read-only inference test on a checkpoint that was trained with all 40 slots
+# active at all t — see proteinfoundation/nn/local_latents_transformer.py and
+# generate.py for the wiring.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    curriculum_neighbors: True
+    curriculum_t_thresh_spatial: 0.3
+    curriculum_t_thresh_random: 0.6
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

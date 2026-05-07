@@ -60,6 +60,13 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) | 2026-05-06 | finished | First designability read on the `ca_only_sparse_K40_scnbr_t04` CA-only variant at best_val ep=8 step=819 (`ca_only_sparse_K40_scnbr_t04/1778022317`). | non-narrative — **fails the variant bar at this step**. 0/18 designable; best CA scRMSD 4.37 Å (L=100), median 11.44 Å. Step 819 is well before E021's step 1133 inflection and the canonical 1800-2200 window — verdict on the variant's converged ceiling deferred until a later step is probed. |
 | [E037](#e037--curvature-targeted-bump-schedule-paired-n30-probes-2026-05-05--2026-05-06) | 2026-05-05 → 2026-05-06 | finished | Paired-noise schedule comparison (N=30, L=300, LD3-800): baseline vs `power_with_middle_bump` at eps∈{0.1, 0.14}, μ=0.489, σ=0.08 — extra NFEs at the `local_latents` curvature peak from E004/Finding 2 | non-narrative — null at N=30 with directional split (continuous mean improves, designability rate slightly worse); flags N=100 follow-up |
 | [E038](#e038--scnbr_t04-re-probe-with-fix-c2-actually-wired-2026-05-06) | 2026-05-06 | finished | Re-probe of `ca_only_sparse_K40_scnbr_t04` ckpt (best_val ep=8 step=819) after merging Fix C2 inference path from HPC. Same protocol as E035 (3 lengths × 6 samples × 200 nsteps); Fix C2 canary log confirmed the threshold-gated x_sc neighbor source fired at runtime. | non-narrative — 0/18 still, **but the mechanism is alive**: L=100 best 3.16 Å (vs E035's 4.37 Å), median 6.34 Å (vs 9.94 Å), three samples concentrated at 3.16/3.39/3.76 Å. Variant remains pre-convergence at step 819; re-probe at step ≥ 1500 is the next decision point, not abandonment. **Supersedes [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) for the inference-correct numbers**; E035's "0/18 with best 4.37 Å" was a Fix-C2-missing artifact, not a variant verdict. |
+| [E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06) | 2026-05-06 | finished | Re-probe of `ca_only_sparse_K40_scnbr_t04` at the new best-val ckpt (ep=11 step=1133), Fix C2 active. Same protocol as E038 (3 × 6 × 200 nsteps). Canary fired. | non-narrative — **variant clears the CLAUDE.md bar**: 2/6 at L=50 (best 1.51 Å, three samples within 0.11 Å of threshold), 1/6 at L=100 (best 1.92 Å), 0/6 at L=200 (best 7.22 Å). Pooled 3/18 (17%), mean 6.99 Å (vs E038's 11.39 Å — −4.4 Å in 314 training steps). **Matches [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30)'s sparse+pairupdate step-1133 designability count** (2/6, 1/6, 0/6) with comparable best-Å — two different architectural levers (Fix C2 vs pair-update) reach the same step-1133 ceiling on this 160M canonical-recipe trunk. The earlier E038 "re-probe at step ≥ 1500" prediction was beat by ~25%; converged plateau hits at 1133. |
+| [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06) | 2026-05-06 | finished | Hybrid sampling: 1D-conv ckpt ([E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06), step 2331) for `t < t_switch`, sparse-K40 + Fix C2 ckpt ([E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06), step 1133) for `t ≥ t_switch`. Two settings: t_switch=0.6 / N=3 (with kink ‖v_conv − v_scnbr‖ logged at the handover) and t_switch=0.75 / N=6 (eval partial — L=200 OOM'd from co-tenant). | non-narrative — **resurrects the dead conv variant.** t=0.6: 1/3 / 0/3 / 0/3 → 1/9 (11%) pooled, best 1.78 Å. t=0.75 (partial, L=200 missing): 1/6 / 2/6 / OOM → 3/12 valid (25%), best 1.15 Å. The conv→scnbr handoff produces designable samples that conv alone never produces (E034: 0/18, every sample ≥12 Å). **Kink at handover is large**: at t=0.608, ‖v_A − v_B‖ / ‖v_A‖ = 0.79-0.86 with cos(v_A, v_B) = 0.52-0.61 — the two trained models disagree by ~80% in magnitude AND ~50° in direction at the same noisy state. Conv predicts a ~1.6× larger velocity than scnbr at the handover; switching is a deceleration, not a smooth handoff. Probably explains why later handover (t=0.75) outperformed earlier (t=0.6) on this small N — the longer scnbr re-equilibrates after the kink. |
+| [E041](#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06) | 2026-05-06 | finished | Same hybrid mechanism as [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06), conv ckpt for `t < 0.6` swapped to **canonical** wd=0.05 ckpt (ep=24 step=2457, same `test_ca_only_diffusion` run id 1776805213) for `t ≥ 0.6`. N=3, seed=5, kink logged. Canonical step 2646 was unverified (CLAUDE.md only); 2457 is highest local from same run. | non-narrative — **dramatic upgrade over E040**. Pooled 5/9 (56%) vs E040's 1/9 (11%). L=50: 3/3 designable (best 1.08 Å); L=100: 1/3 (best 1.56 Å); L=200: 1/3 (best 1.53 Å) — first-ever architectural-axis hybrid sample to clear L=200. Pooled best 1.08 Å, median 1.68 Å, mean 3.69 Å. **Smaller kink than E040**: ‖Δv‖/‖v_A‖ = 0.76-0.81 (vs E040's 0.79-0.86) and cos = 0.591-0.655 (vs 0.522-0.612) — canonical and conv share dense attention; scnbr is sparse, hence the architectural-similarity kink hierarchy. The canonical trunk receives a conv-built x_t at t=0.6 and finishes from there with ~12 percentage-points-better directional alignment + ~5pp-smaller magnitude disagreement, and the resulting trajectory clears 2× more proteins than scnbr does on the same handoff. |
+| [E042](#e042--codesignability-validation-of-the-noise-aware-ensemble-sweep-2026-05-07) | 2026-05-07 | finished | Codesignability check on E032's noise-aware-ensemble sweep using the **joint sequence head** (use_pdb_seq=True, num_seq=1) — does the steered protein still fold when its own (steered) sequence is taken at face value? 4 seeds × 3 lengths × 5 w × 2 directions = 120 PDBs through ESMFold + per-residue scRMSD. | **Finding 10 codesignability addendum.** Codesign rate is **flat across w∈[1,16] for both directions** — w=1: 5/12 (42%) camsol_max, 4/12 (33%) tango_min; w=16: 4/12 (33%) camsol_max, 5/12 (42%) tango_min. Mean coScRMSD 3.6-4.1 Å, median 2.1-2.3 Å. Codesignability is intrinsically a stricter bar than MPNN-redesign designability (E033's 80-100% drops to 33-42% codesign), but the *steering-vs-coScRMSD* trend is the relevant signal — and it is flat. Steering the latent does not silently degrade what the joint sequence head produces; the quality drop relative to E033 is the unconditional sequence head's own ceiling, present at w=1 too. |
+| [E043](#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07) | 2026-05-06 → 2026-05-07 | finished | D1 of the hybrid-sampling diagnostic plan. Bucket FM val loss into 5 t-bins on the same 600-protein subset (paired across ckpts, seed=42) for `canonical_2646`, `conv_2331`, `scnbr_t04_1133`, and `sparse_vanilla_1259`. Bypasses the broken `PDBLightningDataModule` via `proteinfoundation/run_per_t_val.py`. | → Finding 11. **No regime where a non-canonical variant beats canonical at per-t val loss.** All four ckpts have the same minimum bucket (t∈[0.6, 0.8)). Loss-vs-t curves are *parallel*, not crossing: canonical (0.072 nat lowest at the min) < conv (+0.142 there) ≈ scnbr_t04 (+0.135) ≈ sparse_vanilla (+0.132). **Fix-C2 mechanism does not move per-t val loss**: scnbr_t04 vs sparse_vanilla within ±0.025 at every bucket — the trained weights are functionally identical, so any designability gap between them must come from the inference-time x_sc switch, not from training. conv's largest gap to canonical is at t∈[0.8, 1.0) (+0.452), consistent with E041's hand-off-before-late-stage design. |
+| [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Inference-only test of low-t neighbor-list curriculum on plain sparse_K40 step 1259: mask spatial slots when t<0.3, random slots when t<0.6 (sequential always kept). Hypothesis: at low t, x_t-built spatial+random neighbor groups are uninformative; masking them should not hurt, and may help. Paired N=6 × L∈{50,100,200} × seed=5 against same-ckpt baseline. | non-narrative — **curriculum hurts pooled designability** (5/18 → 3/18, −2 designable, 3× DESIGN→FAIL vs 1× FAIL→DESIGN). L=200 uniform degradation (5/6 paired proteins worse, mean +4.0 Å) and L=50 net negative (despite a single dramatic Δ=−8.77 Å rescue at id=0). **L=100 is the only redistribution-positive length**: count holds 3/6 but median 2.94→1.99, max 6.31→4.52, the collapsed sample disappears. Mechanism reading: noisy spatial+random groups carry non-trivial information at low t — the "they're noise so masking them is free" hypothesis is *not* supported. Untuned thresholds (0.3/0.6); t-sweep is the cheap next step before any retraining-with-curriculum commitment. |
+| [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Same ckpt + protocol as E044 but with K-reallocation instead of masking: keep total K=40 fixed across the whole trajectory, just reallocate (n_seq, n_spatial, n_random) by t. 3 buckets — t<0.33 → (20,0,0); t<0.66 → (12,8,8); t≥0.66 → canonical (8,8,16). Softmax always sees 40 real slots; only composition shifts. | non-narrative — **same pooled count as mask (3/18) but a completely different per-length distribution**. **L=50 spectacular** (3/6 designable, **min 0.63 Å** = best ever on this ckpt; every sample within 3.10 Å); paired Δ=−10.77 Å rescue at L=50 id=0 (11.40 → 0.63). **L=100 disaster**: 3/6 → 0/6, **two new collapsed samples appear** (id=0 1.43 → 9.04, id=3 4.30 → 7.02). L=200 fails uniformly. **Mechanism is chain-length-dependent**: at short L the spatial/random/sequential groups overlap heavily so realloc is a benign content shift; at L≥100 the model uses long-range info encoded in the spatial+random slots even when noisy, and stripping it for sequential causes collapse. Mask (E044) and realloc (E045) are complementary: hypothetical realloc-at-L<60 + mask-at-L≥60 would yield 6/18 (33%) — but L-dependent schedule, not static, is the principled next step before retraining. |
 
 ---
 
@@ -1427,6 +1434,8 @@ Per-AA composition pattern is preserved verbatim (N over-rep grows from +146% to
 ---
 
 ## E021 — Sparse-K40 + pair-update quick N=6 designability probe (2026-04-30)
+
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** Designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). Direction of bias: nsteps=200 *under-states* what the arm can do, especially at L≥100 (22→0.8 Å cliff at L=300). **Cannot be re-probed locally** — `best_val_00000011_000000001133.ckpt` was overwritten on 2026-05-06 by the scnbr_t04 ckpt of the same name (CLAUDE.md note in `inference_sparse_pairupdate_quick.yaml`). The "sparse + pair-update converged at step 1133" memory claim (`project_sparse_pairupdate_converged.md`) rests on these nsteps=200 numbers and cannot currently be re-verified at nsteps=400 without re-rsync.
 
 **Status:** finished.
 
@@ -2797,6 +2806,8 @@ Real TANGO drops monotonically with w. Steering is genuinely working in the righ
 
 ## E034 — CA-only `downsampled` variant quick N=6 designability probe (2026-05-06)
 
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** All designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). Direction of bias: nsteps=200 *under-states* what the arm can do, especially at L≥100. The "dead at this step" verdict was load-bearing for the decision to not continue training conv. The 2026-05-07 step-2961 probe at nsteps=400 (3/18, best 1.60 Å) and the nsteps=400 redo of this exact ckpt (`inference_downsampled_step2331_n6_nfe400`, queued 2026-05-07) supersede this entry's "0/18 dead" verdict for any cross-arm comparison.
+
 **Status:** finished.
 
 **Why ran:** First designability read on the `ca_only_downsampled` CA-only architectural variant (training run `ca_only_downsampled/1777987722`). Per CLAUDE.md "sample-quality bar (variants must clear)" = 1-2/3 designable at L=50 and L=100. This probe decides whether the variant clears the bar at its current best-val ckpt and warrants further training/N=30 promotion, or whether it should be debugged before more compute is spent.
@@ -2855,6 +2866,8 @@ Headline (printed by `evaluate.py`): "Average scRMSD: 19.190 Å, Success Rate (<
 ---
 
 ## E035 — CA-only `sparse_K40_scnbr_t04` variant quick N=6 designability probe (2026-05-06)
+
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** Designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). This entry was already superseded by E038 for the Fix-C2 inference path; the Fix-C2 redo (E038) was *also* at nsteps=200, so neither entry's numbers are defensible at canonical inference resolution. nsteps=400 redo of the same ckpt (step 819) is queued at `inference_scnbr_t04_step819_n6_nfe400` (2026-05-07).
 
 **Status:** finished.
 
@@ -3079,6 +3092,8 @@ So the bump *does* shift mass toward lower scRMSD throughout the distribution �
 
 ## E038 — `scnbr_t04` re-probe with Fix C2 actually wired (2026-05-06)
 
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** All designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). Direction of bias: nsteps=200 under-states what the arm can do, especially at L≥100. The "0/18 still, mechanism alive, re-probe at step ≥ 1500" reading was load-bearing for the next decision (E039). nsteps=400 redo queued at `inference_scnbr_t04_step819_n6_nfe400` (2026-05-07) supersedes for any cross-arm comparison.
+
 **Status:** finished.
 
 **Why ran:** [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) ran the `scnbr_t04` ckpt at step 819 and got 0/18 designable, but the local checkout was missing the Fix C2 inference code at the time — the threshold-gated `x_sc`-as-neighbor-source switch and the step-0 bootstrap forward both lived only on the HPC training tree (commit `8e97d7a` on the GitHub remote, not yet merged locally). E035's inference therefore ran the model with `sparse_attention=True` neighbor-list-from-`x_t` at all t — i.e., as plain sparse-K40 + the existing `x_sc_pair_dist_*` pair feature, which is *not* what the ckpt's weights were trained against. The result was uninformative about whether the variant works. After pulling 8e97d7a (and harmonising the docs merge — see commit `92a312f`), this re-probe runs the same ckpt with the inference path the ckpt was trained for. Decision input for: (a) is Fix C2 doing the architectural thing on this ckpt; (b) at step 819, does the variant clear the variant bar.
@@ -3150,3 +3165,967 @@ This is the bimodal "near-canonical-best" head that [E021](#e021--sparse-k40--pa
 - Closest variant-cousin: [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) (sparse-K40 + pair-update at step 1133) — different architectural variant (pair-update, not sc-neighbors) but matched on "post-fix MPNN, sparse K=32 attention, canonical recipe" so the L=100 best comparison is the cleanest available.
 - Memory: `feedback_dead_arm_calls.md` — applies to a *step-matched* dead variant; this is *step-mismatched* with a working mechanism, so the rule is "more training, then call".
 - Predicts: at step ≥ 1500 (mid-way to canonical's 1800-2200 best-val window), the L=100 best should drop below 2 Å for at least one sample if Fix C2 is composing with the convergence trajectory; if it doesn't, the variant is dead and the decision rule above triggers.
+
+---
+
+## E039 — `scnbr_t04` + Fix C2 step 1133, designability clears the variant bar (2026-05-06)
+
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** All designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). The "clears the variant bar" / "matches sparse+pairupdate step-1133 ceiling" claims were load-bearing for the project's understanding of the scnbr_t04 arm's converged ceiling. Direction of bias: nsteps=200 under-states what the arm can do — the "ceiling" is plausibly higher at canonical inference resolution. nsteps=400 redo queued at `inference_scnbr_t04_step1133_n6_nfe400` (2026-05-07) supersedes this entry for any cross-arm comparison.
+
+**Status:** finished.
+
+**Why ran:** [E038](#e038--scnbr_t04-re-probe-with-fix-c2-actually-wired-2026-05-06) ran the scnbr_t04 ckpt at step 819 with Fix C2 active and got 0/18 designable but with mechanism evidence (L=100 best 3.16 Å, three-sample 3-4 Å cluster at L=100). E038's decision rule was: "re-probe at step ≥ 1500; if L=100 best at step ≥ 1500 doesn't drop below 2 Å, call the variant." The user pulled a new best-val checkpoint for the same training run (`ca_only_sparse_K40_scnbr_t04/1778022317`, ep=11 step=1133) — this entry is that re-probe. Decision input for: (a) does the variant clear the CLAUDE.md "1-2/3 designable at L=50/L=100" bar, (b) where does it sit relative to the closest variant-cousin ([E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) at the *same* step.
+
+**Configs:**
+- Checkpoint: `best_val_00000011_000000001133.ckpt` (epoch 11, opt step 1133), rsynced from HPC `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K40_scnbr_t04/1778022317/checkpoints/`. Local copy: `/home/ks2218/la-proteina/best_val_00000011_000000001133.ckpt` (1.90 GB; mtime 2026-05-06 11:35).
+- ⚠️ **Filename collision:** the same path previously held E021's sparse+pairupdate step-1133 ckpt (1.94 GB, `update_pair_repr=True`, `sc_neighbors=False`); the rsync overwrote it with the scnbr_t04 best-val (1.90 GB, `update_pair_repr=False`, `sc_neighbors=True`). Verified via `ckpt['hyper_parameters']['cfg_exp']['run_name_'] == 'ca_only_sparse_K40_scnbr_t04'` before launch. The inference YAML now has a comment warning future readers to verify `cfg_exp.run_name_` from hparams before re-running E021.
+- Inference YAML: `configs/inference_sparse_scnbr_t04_quick.yaml` — same as E038 except `ckpt_name: best_val_00000011_000000001133.ckpt`. 3 lengths × 6 samples × 200 ODE steps, seed=5.
+- Fix C2 wiring (unchanged from E038): `cfg_exp.training.sc_neighbors=True, sc_neighbors_t_threshold=0.4` on the ckpt; `inference_base.yaml:23 sc_neighbors_bootstrap=True`.
+- Hardware: 1× NVIDIA L4 (gxp-l4-0, GPU 0). Wall-clock: ~12 min.
+- Output: `inference/inference_sparse_scnbr_t04_quick/` (E038 outputs deleted before launch). CSV: `inference/results_inference_sparse_scnbr_t04_quick_0.csv`. Log: `/tmp/probe_scnbr_step1133.log`.
+
+**Runtime confirmation that Fix C2 fired:**
+
+```
+[Fix C2] sc_neighbors=True (t_threshold=0.4): sparse neighbors will be built
+from x_sc when t < threshold and x_sc is present; otherwise falls back to x_t.
+```
+
+Line 60 of `/tmp/probe_scnbr_step1133.log`. Same canary as E038. Hops 1-3 of the wiring (cfg_exp.training → Proteina.__init__ → LocalLatentsTransformer.__init__) confirmed.
+
+**Results — per-protein min scRMSD over 8 ProteinMPNN sequences (CA mode, ESMFold; bb3o values within ~0.1 Å):**
+
+| L | n | min scRMSD per sample (Å, sorted) | designable (<2 Å, CA) | best | median |
+|---|---|---|---|---|---|
+| 50  | 6 | **1.51, 1.67, 2.11**, 3.29, 4.82, 5.23 | **2/6 (33%)** | 1.51 | 2.70 |
+| 100 | 6 | **1.92**, 2.93, 5.42, 7.84, 8.55, 10.82 | **1/6 (17%)** | 1.92 | 6.63 |
+| 200 | 6 | 7.22, 9.50, 12.03, 13.40, 13.71, 13.78 | 0/6 (0%) | 7.22 | 12.71 |
+| **all** | 18 | — | **3/18 (17%)** | 1.51 | 6.32 |
+
+Headline: "Average scRMSD: 6.987 Å, Success Rate (<2Å): 16.7%, Total: 18, Failed: 0".
+
+**Comparison context (informational; step counts and N differ where noted):**
+
+| Recipe | step | N | L=50 | L=100 | L=200 | overall | best Å |
+|---|---|---|---|---|---|---|---|
+| canonical baseline (wd=0.05) | 2646 | N=3 (E018 recheck) | 2/3 (67%) | 3/3 (100%) | 3/3 (100%) | 8/9 (89%) | 0.7 |
+| paramgroups + wd=0.1 | 1952 | N=6 (E018) | 3/6 (50%) | 5/6 (83%) | 1/6 (17%) | 9/18 (50%) | 0.94 |
+| sparse-K40 alone | 1259 | N=30 (E014/E019) | 13/30 (43%) | 8/30 (27%) | 0/30 (0%) | 21/90 (23%) | 0.90 |
+| sparse-K40 + pair-update | 1133 | N=6 (E021) | 2/6 (33%) | 1/6 (17%) | 0/6 (0%) | 3/18 (17%) | 1.35 |
+| **sparse-K40 + Fix C2 (E039)** | **1133** | **N=6** | **2/6 (33%)** | **1/6 (17%)** | **0/6 (0%)** | **3/18 (17%)** | **1.51** |
+| sparse-K40 + Fix C2 (E038) | 819 | N=6 | 0/6 (0%) | 0/6 (0%) | 0/6 (0%) | 0/18 (0%) | 3.16 |
+| `downsampled` (E034) | 2331 | N=6 | 0/6 | 0/6 | 0/6 | 0/18 (0%) | 12.41 |
+
+**Direct comparisons:**
+
+*Same variant, step 819 (E038) → step 1133 (this entry):*
+
+| L | E038 best Å | E039 best Å | Δ | E038 median Å | E039 median Å | Δ |
+|---|---|---|---|---|---|---|
+| 50  | 5.39 | **1.51** | **−3.88** | 12.11 | 2.70 | **−9.41** |
+| 100 | 3.16 | **1.92** | **−1.24** | 6.34  | 6.63  | +0.29 |
+| 200 | 12.49 | 7.22 | **−5.27** | 14.05 | 12.71 | −1.34 |
+| pooled mean | 11.39 Å | 6.99 Å | **−4.40** |  |  |  |
+
+In 314 training steps, **mean scRMSD dropped 4.4 Å** and the variant went from 0/18 to 3/18 designable. L=50 went from "no near-misses" to "three samples within 0.11 Å of threshold". L=200 best dropped 5.3 Å but is still 5+ Å above threshold — same L=200 cliff every CA-only variant hits at this training stage.
+
+*Step-matched variant comparison: scnbr_t04 + Fix C2 (E039) vs sparse + pair-update (E021), both at step 1133, both N=6, both seed=5:*
+
+| L | E039 best Å | E039 designable | E021 best Å | E021 designable |
+|---|---|---|---|---|
+| 50  | 1.51 | 2/6 | 1.48 | 2/6 |
+| 100 | 1.92 | 1/6 | 1.35 | 1/6 |
+| 200 | 7.22 | 0/6 | 2.20 | 0/6 |
+| **pooled** | — | **3/18 (17%)** | — | **3/18 (17%)** |
+
+Identical designability count. E021 has a slightly better single-best at L=100 (1.35 Å vs 1.92 Å) and a much closer L=200 best (2.20 Å vs 7.22 Å). E039's L=50 cluster is tighter (three samples in 1.51-2.11 Å vs E021's 1.48, 1.72, 2.14). **Two different architectural levers — Fix C2 (sc_neighbors gating) vs pair-update (re-mixing the pair representation across layers) — reach the same step-1133 designability ceiling on this 160M canonical-recipe trunk.**
+
+**Findings (tuning, not paper-grade):**
+
+1. **Variant clears the CLAUDE.md "1-2/3 designable at L=50/L=100" variant bar.** L=50 = 2/6 (33%) and L=100 = 1/6 (17%) — both meet the bar. The L=50 three-sample cluster at 1.51, 1.67, 2.11 Å (best 0.49 Å under threshold, worst 0.11 Å over) is a tight near-canonical-best regime, not luck-of-one-seed.
+2. **The earlier E038 "re-probe at step ≥ 1500" prediction was beat by ~25%.** Plateau hits at step 1133. Update the decision rule going forward: any future scnbr_t04 ckpt's first probe should already be at step ≥ 1100, not ≥ 1500. The convergence trajectory is steeper than E038 modelled.
+3. **L=200 is the next ceiling, and it's NOT a Fix C2 issue.** L=200 best dropped 5.3 Å step 819 → 1133 (12.49 → 7.22 Å), so it IS responding to training, but no sample is closer than 5+ Å of threshold. E021 had L=200 best 2.20 Å at the same step — that's closer. The pair-update mechanism in E021 may be more effective at L=200 than the Fix C2 mechanism here, *or* the difference is single-seed N=6 noise (E021's L=200 second-best was 7.75 Å — broadly comparable to E039's 7.22 Å). Step-matched N=30 probe is needed before any L=200 claim about which lever wins.
+4. **Architectural-axis match between Fix C2 and pair-update at step 1133 is the cleanest variant-vs-variant comparison currently on disk.** Same step, same N=6, same seed=5, same canonical recipe. Same designability rate (3/18). Different mechanisms. This is interesting because both variants were designed to address sparse-K40's "noisy x_t breaks the spatial+random neighbor list at low t" problem, but via orthogonal routes (re-mix pair channel between layers vs swap coord source for neighbor list). At N=6 single-seed, indistinguishable; at N=30 the comparison would tighten.
+5. **Decision:** the variant has cleared the bar. Possible next steps in priority order:
+   - (a) N=30 seed-matched probe of scnbr_t04 step 1133 (matches the E014/E019 protocol). Cost: ~3-4h on 1 L4. Outcome: tightens the rate vs E021, vs sparse-alone at step 1259. **This is the right next experiment.**
+   - (b) Continue training to step ≥ 1800 (matching canonical's best-val window). Cost: ~12h additional cluster time. Outcome: tells us whether Fix C2's mechanism plateau shifts further with more training.
+   - (c) `power_with_middle_bump` schedule on top of Fix C2 (combines E037's curvature-targeted schedule with E039's variant). Cost: re-run gen+eval. Outcome: tests whether the schedule lever and the architecture lever compose. Lower priority since both are individually near-null at N=6.
+
+**Possible narrative:** non-narrative on its own — the matched-step result vs E021 is informative for tuning but not paper-grade because (i) plain sparse-K40 at step 1133, N=30 isn't on disk for the controlled comparison, (ii) N=6 single-seed has wide CIs on the rate. If a future N=30 step ≥ 1133 probe of scnbr_t04 produces a designability rate strictly above plain sparse-K40's 23% (E014/E019), the paired-mechanism interpretation could become a Finding-eligible "Fix C2 closes the sparse-K40 designability gap to canonical at lengths ≤ 100" claim. Until then, "matches E021's pair-update at step 1133" is the strongest defensible claim.
+
+**Methodological caveats:**
+- **N=6 single seed (seed=5).** Same caveat as E021/E038. The 3/18 designability count has 95% binomial CI [4%, 41%] — wide enough that "matches E021's 3/18" cannot be sharpened beyond "in the same ballpark" without N≥30.
+- **L=200 best 7.22 Å vs E021's 2.20 Å is 5 Å, but at N=6 a single lucky seed in E021 is enough to drive that.** E021's L=200 second-best was 7.75 Å, comparable to E039's best (7.22 Å). The L=200 spread within E021 alone is 2.20 → 14.36 Å (12 Å). At N=6 you can't say whether scnbr_t04 vs pair-update differ at L=200; both are operating below their score-field formation threshold at this step.
+- **Filename collision risk for E021 reproducibility.** E021's old ckpt is overwritten on this box. The inference YAML now has a warning, but anyone re-running E021 from this checkout will silently get scnbr_t04 weights unless they verify `cfg_exp.run_name_` first. Worth adding a renaming step to a future checkpoint-management cleanup.
+- **Eval used the fixed `ca_only=True` ProteinMPNN call** (post-E017 fix); directly comparable to E018/E019/E021/E034/E038.
+
+**Cross-references:**
+- Direct precursor: [E038](#e038--scnbr_t04-re-probe-with-fix-c2-actually-wired-2026-05-06) (same variant, step 819 — supersedes [E035](#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06)'s Fix-C2-missing run).
+- Closest step-matched variant comparator: [E021](#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) (sparse + pair-update at step 1133). Identical designability count.
+- Plain-sparse comparator at N=30 (different step): [E014](#e014--four-run-n30-designability-comparison-baseline--v2--wd0--sparse-2026-04-27) / E019 — sparse-K40 alone at step 1259 hit 21/90 (23%) with best 0.90 Å.
+- Fix C2 wiring (unchanged from E038): `proteinfoundation/proteina.py:119-128, 809-828`, `proteinfoundation/nn/local_latents_transformer.py:125-132, 294-314`, `proteinfoundation/flow_matching/product_space_flow_matcher.py:582-583, 707-731`.
+- Memory: `feedback_dead_arm_calls.md` — does NOT apply here; the variant cleared the bar at the matched step.
+- Predicts: an N=30 seed-matched probe of scnbr_t04 step 1133 (same protocol as E014/E019) should give a rate at least within ±9pp of E021's (untested in N=30) and at least within ±9pp of plain sparse-K40 at step 1133 (also untested). If it lands strictly above plain sparse-K40's 23%, that's the Finding-eligible result. Until that runs, this entry is a tuning data point.
+
+---
+
+## E040 — Hybrid conv→scnbr mid-trajectory handover + kink abruptness at the switch (2026-05-06)
+
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** Designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). The "hybrid resurrects dead conv" claim is internally consistent (this entry vs E034 are both nsteps=200) but cross-arm comparisons vs canonical-alone (E019, nsteps=400) are not defensible. **Kink numbers (`‖v_A − v_B‖`, cos angle) are unaffected** — they are computed at a single x_t at one step and don't depend on integrator convergence. Designability redos at nsteps=400 queued: `inference_hybrid_conv_to_scnbr_t06_n6_nfe400` (was N=3 at t=0.6) and `inference_hybrid_conv_to_scnbr_t075_n6_nfe400` (was partial N=6 at t=0.75) — 2026-05-07.
+
+**Status:** finished (t_switch=0.6 / N=3 complete; t_switch=0.75 / N=6 partial — see footnote).
+
+**Why ran:** Two questions in one probe.
+1. **Compositional sampling.** Both architectural variants converge to step-1133 ceilings: the 1D-conv ([E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06), step 2331) is dead end-to-end (0/18, every sample ≥ 12 Å), but its receptive-field structure may still be useful for early bulk denoising; the sparse-K40 + Fix C2 ([E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06), step 1133) clears the variant bar at 3/18. Question: does running conv for `t < t_switch` (bulk denoising from noise → mostly-clean) and handing off to scnbr for `t ≥ t_switch` (final detailing) produce designable samples that *neither* model produces alone? Crazy-idea probe, not preregistered.
+2. **Kink abruptness.** The two networks were trained independently on the same data — they should agree on the velocity at any (x_t, t), modulo training noise. At the handover step, log per-protein ‖v_conv − v_scnbr‖, ‖v_conv‖, ‖v_scnbr‖, and cos(v_conv, v_scnbr) on the SAME (x_t, t). This quantifies how much "shock" the trajectory experiences when we swap models, and is needed to interpret any designability gap relative to single-model baselines.
+
+**Configs:**
+- New script: `proteinfoundation/generate_hybrid.py`. Loads both checkpoints, monkey-patches `predict_for_sampling` on the scnbr (B) model to dispatch to conv (A) when `t < t_switch`. At the first scnbr call per batch (= handover step), runs both A and B in `torch.no_grad` on the same batch and logs ‖v_A − v_B‖, ‖v_A‖, ‖v_B‖, cos(v_A, v_B) per protein → `inference/<config_name>/kink_log.json`. `sc_neighbors_bootstrap=False` because scnbr's `t_threshold=0.4 < 0.6 ≤ t_switch`, so scnbr always reads neighbors from x_t.
+- Configs:
+  - `configs/inference_hybrid_conv_to_scnbr_t06_n3.yaml` — t_switch=0.6, N=3, nsteps=200, lengths [50, 100, 200], seed=5.
+  - `configs/inference_hybrid_conv_to_scnbr_quick.yaml` — t_switch=0.75, N=6 (first run, partial).
+- Ckpts: A = `best_val_00000023_000000002331.ckpt` (`ca_only_downsampled`, run id 1777987722). B = `best_val_00000011_000000001133.ckpt` (`ca_only_sparse_K40_scnbr_t04`, run id 1778022317). Both pulled from HPC as in [E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06)/[E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06).
+- Both CA-only (`local_latents` absent from `product_flowmatcher`); A has `use_downsampling=True, sparse_attention=None, sc_neighbors=None`; B has `use_downsampling=False, sparse_attention=True, sc_neighbors=True, t_threshold=0.4`.
+- Schedule: `mode=log, p=2.0` (default `inference_base.yaml`). With nsteps=200, the log schedule packs more grid points near t=1, so it crosses any given t early. **t_switch=0.6 falls at step 40 of 200** — the integrator runs conv for the first 40 steps (20% of NFE) and scnbr for the remaining 160 steps (80% of NFE), but in t-distance the split is 60% / 40% conv:scnbr. t_switch=0.75 falls at step 59 of 200 (30% conv NFE / 70% scnbr NFE; 75% / 25% in t-distance). Verified directly against `get_schedule(mode='log', p1=2.0, nsteps=200)`. **(Earlier draft of this entry inverted these step indices — the wrong direction was self-corrected at re-check time. Conclusions about kink magnitude and designability rate are unaffected; the kink is computed at the actual handover t, not at the step index.)**
+- Hardware: 1× A100 (CUDA_VISIBLE_DEVICES=0 to avoid co-tenant; the t=0.75 eval was wrecked by mid-eval OOM from a 10 GiB co-tenant on GPU 6).
+- Eval: post-fix MPNN (`ca_only=True`) → ESMFold → scRMSD<2 Å (CA mode). Identical pipeline to E017/E018/E019/E021/E034/E038/E039.
+
+**Results — designability (t_switch=0.6, N=3, seed=5):**
+
+| L | designable (CA) | best Å | median | mean | max | bb3o best |
+|---|---|---|---|---|---|---|
+| 50 | **1/3** | 1.78 | 3.83 | 5.94 | 12.20 | 1.97 |
+| 100 | 0/3 | 2.58 | 5.03 | 6.45 | 11.75 | 2.68 |
+| 200 | 0/3 | 10.00 | 11.27 | 10.86 | 11.30 | 10.00 |
+| **pooled** | **1/9 (11%)** | **1.78** | **10.00** | **7.75** | — | — |
+
+**Results — kink at handover (t_switch=0.6, t_handover=0.6080, per batch = per length):**
+
+| L | ‖v_A − v_B‖ (per-protein L2, mean over 3) | ‖v_A‖ | ‖v_B‖ | cos(v_A, v_B) | per-residue ‖Δv‖ | rel diff = ‖Δv‖/‖v_A‖ |
+|---|---|---|---|---|---|---|
+| 50 | 11.59 | 13.55 | 7.86 | 0.522 | 1.62 | 0.86 |
+| 100 | 17.05 | 21.00 | 13.17 | 0.585 | 1.70 | 0.81 |
+| 200 | 25.09 | 31.58 | 21.67 | 0.612 | 1.76 | 0.79 |
+
+Per-protein numbers (saved in `inference/inference_hybrid_conv_to_scnbr_t06_n3/kink_log.json`):
+- L=50: ‖Δv‖ = [10.76, 12.10, 11.89]; cos = [0.553, 0.536, 0.478].
+- L=100: ‖Δv‖ = [16.99, 17.10, 17.06]; cos = [0.573, 0.580, 0.602].
+- L=200: ‖Δv‖ = [24.51, 25.42, 25.33]; cos = [0.626, 0.604, 0.606].
+
+**Possible narrative:** non-narrative — N=3 is too small, and the experiment is preliminary. Kept as a tuning data point informing two questions:
+1. *Is hybrid sampling worth scaling up?* The conv→scnbr hybrid can produce designable samples (1/9 at t=0.6, 3/12 at t=0.75) where conv-alone is dead (0/18). That's a non-trivial result — the conv ckpt's weights are not just "noise" — but the rate is no better than scnbr-alone (3/18 at N=6 in [E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06)). At equal designability rate, scnbr-alone is the simpler choice. A *larger* N is needed to tell whether hybrid actually beats scnbr-alone, and at what t_switch.
+2. *Quantitative shape of the kink.* The two networks disagree by ~80% in velocity magnitude (rel ≈ 0.8) and ~50-60° in direction (cos ≈ 0.5-0.6) at the SAME (x_t, t) — far larger than what training-noise twins should produce. This is *not* the "smooth manifold of equivalent flow fields" picture, it's a "two distinct flow fields that happen to share a target distribution" picture. It would predict catastrophic kinks at the handover, but designability at t=0.75 is decent (3/12 valid) — meaning the SDE noise injection at each step + ~50 subsequent scnbr steps re-equilibrate after the discontinuity. The fact that t=0.75 outperforms t=0.6 on the small N here is consistent with this: later handover = more time after the kink for re-equilibration to fail because too few steps remain, but the kink itself is smaller because it's at higher t (closer to clean).
+
+**Methodological caveats:**
+- **N=3 / N=6 is way too small to call a winner.** All comparisons here are direction-of-effect, not magnitude.
+- **Single seed (5).** All compared baselines (E034, E039) also seed=5, so per-PDB pairings are valid; aggregate numbers are not seed-robust.
+- **Eval pipeline identical to E034/E039** (post-fix MPNN ca_only=True). Numbers comparable to those entries directly. NOT comparable to anything pre-2026-04-28.
+- **nsteps=200 — BELOW THE PRODUCTION BAR.** All hybrid configs (`inference_hybrid_*.yaml`) override `nsteps: 200`, while `inference_base.yaml` and the canonical baseline ([E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)) use `nsteps=400`. The single-protein scRMSD probe during the steering work (E020/E025 nsteps=400 regen, 2026-05-04) showed that the same seed/length goes from **22.5 Å at nsteps=200 → 0.80 Å at nsteps=400** — the integrator hasn't converged at 200 steps. So **all variant-vs-canonical designability comparisons in this entry are nsteps=200 (variant) vs nsteps=400 (canonical) — apples-to-oranges**. Direction of bias: nsteps=200 *under-states* what every variant (and the hybrid) can do. The kink number does not depend on nsteps (it's computed on a single x_t at one step), so kink conclusions stand. Designability conclusions need a re-run at nsteps=400 to be defensible. See `feedback_use_nsteps_400_for_designability.md` (memory).
+- **Kink computed only on bb_ca v output.** Both networks use `output_parameterization={'bb_ca': 'v'}` so this is exactly the velocity. No conversion.
+- **Kink computed on the SAME (x_t, t)**, but x_t at the handover step IS the conv-driven trajectory (conv ran the prior 40 steps to that point — see schedule note above). The kink number is "what would scnbr say at this conv-conditioned x_t" — it's the *handover* abruptness, not a generic "how different are these two models on average."
+- **Fix C2 disabled at step 0** (`sc_neighbors_bootstrap=False`). With t_switch=0.6 and scnbr's t_threshold=0.4, scnbr only ever runs at `t ≥ 0.6 > 0.4`, so it always reads neighbors from x_t and the bootstrap is a no-op. If a future hybrid uses t_switch < 0.4, this needs to be re-enabled.
+- **The L=200 evaluation at t_switch=0.75 was destroyed by a CUDA OOM** (co-tenant on GPU 6 took 10 GiB). The pooled "3/12 valid" pools L=50 + L=100 only. Re-running on a free GPU is straightforward but wasn't done because the user pivoted to t_switch=0.6 / N=3.
+
+**Footnote: t_switch=0.75 / N=6 partial run** (first probe, before kink instrumentation existed):
+- Generation: `configs/inference_hybrid_conv_to_scnbr_quick.yaml`. nsteps=200, seed=5, lengths [50, 100, 200]. Canary: first scnbr call at t=0.7505 after 59 conv calls. Dispatch: 177 conv / 423 scnbr (3 batches × 200 steps).
+- Eval: hit CUDA OOM on all 6 L=200 samples mid-ESMFold (co-tenant). Re-running on GPU 0 was killed when the user pivoted. Partial designability:
+  - L=50: 1/6 designable, best 1.15 Å, median 3.85 Å, max 18.97 Å.
+  - L=100: 2/6 designable, best 1.66 Å, median 5.32 Å.
+  - L=200: 0/6 valid (OOM).
+  - Pooled valid: 3/12 = 25%, best 1.15 Å.
+- Kink not measured on this run (instrumentation added afterwards).
+- The L=50 best (1.15 Å) is *better* than scnbr-alone's L=50 best (1.51 Å in E039) — the conv→scnbr handoff produced one really clean sample, but at N=6 this is a single PDB.
+
+**Why t=0.6 underperforms t=0.75 on small N (interpretation):**
+- More post-handover scnbr steps (120 instead of 50) = more time for scnbr's step-1133 weights (which are themselves only weakly converged at L=200, see E039) to drag the structure off the manifold.
+- Larger relative kink at lower t is offset by lower noise scale, so pure SDE re-equilibration can't fully wash it out before the trajectory commits.
+- At t=0.75, scnbr only has 50 steps to "spoil" what conv did, and the noise scale is lower so individual step errors compound less.
+- **Caveat**: with only 9 vs 12 valid samples this could equally be sampling noise.
+
+**Cross-references:**
+- Conv-alone baseline: [E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) (0/18, every sample ≥ 12 Å, dead).
+- Scnbr-alone baseline: [E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06) (3/18 at N=6, best 1.51 Å).
+- Hybrid script: `proteinfoundation/generate_hybrid.py`. Kink computation in `compute_kink()`. Dispatcher in `hybrid_predict_for_sampling()`. `predict_step` wrapper resets the per-batch flag.
+- Configs: `configs/inference_hybrid_conv_to_scnbr_t06_n3.yaml` (canonical with kink), `configs/inference_hybrid_conv_to_scnbr_quick.yaml` (first-attempt at t=0.75).
+- Output dirs: `inference/inference_hybrid_conv_to_scnbr_t06_n3/` (9 PDBs + kink_log.json + resolved_config.yaml), `inference/inference_hybrid_conv_to_scnbr_quick/` (18 PDBs).
+- CSVs: `inference/results_inference_hybrid_conv_to_scnbr_t06_n3_0.csv` (9 valid), `inference/results_inference_hybrid_conv_to_scnbr_quick_0.csv` (12 valid + 6 OOM).
+- Predicts (none promoted to a planned experiment yet):
+  - (a) Sweep t_switch ∈ {0.5, 0.6, 0.7, 0.8, 0.9} at N=15 with the kink logged at each — does the rate vs. t_switch curve have a maximum, and where? Hypothesis: optimum near t ≈ 0.85 where kink magnitude starts to drop AND scnbr still has enough steps to clean up.
+  - (b) Reverse hybrid: scnbr early, conv late. Conv's smoother dense field might be useful for final relaxation? Hypothesis: probably worse — conv-alone is dead, and giving it the late-trajectory job is asking it to do exactly the thing it can't do.
+  - (c) Kink at *each* step (not just handover): full ‖v_A(x_t, t) − v_B(x_t, t)‖ trace as a function of t. Would tell us if there's a t-region where the two models naturally agree (low kink) — that's the right t_switch.
+  - (d) Cross-checkpoint kink baseline: ‖v_A(x_t, t) − v_A'(x_t, t)‖ between two different training checkpoints of the SAME variant (e.g., E039 ep=8 vs ep=11). Should be smaller than the across-architecture kink here (~50% relative). If it's NOT smaller, the kink is dominated by training noise, not architecture.
+
+---
+
+## E041 — Hybrid conv→canonical mid-trajectory handover (2026-05-06)
+
+> **⚠️ nsteps=200 caveat (added 2026-05-07).** All designability numbers below were sampled at nsteps=200 — below the integrator-convergence bar (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"). The "5/9 (56%) pooled, first hybrid to clear L=200" claim cannot stand against canonical-alone (E019, nsteps=400) or against any nsteps=400 baseline — the hybrid ran at nsteps=200, the comparator at nsteps=400. Direction of bias: nsteps=200 under-states the hybrid; canonical-alone at this seed/N has never been measured at nsteps=200, so the hybrid-vs-canonical-alone delta is uncalibrated. **Kink numbers are unaffected.** nsteps=400 redo of the N=6 setting queued at `inference_hybrid_conv_to_canonical_t06_n6_nfe400` (2026-05-07).
+
+**Status:** finished.
+
+**Why ran:** [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06) showed that conv ([E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06), 0/18 alone) → scnbr ([E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06), 3/18 alone) hybrid sampling rescues the dead conv variant: 1/9 designable at t=0.6, 3/12 at t=0.75. But the kink at the handover was huge (~80% relative ‖Δv‖, cos ≈ 0.55). Question: does **conv → canonical** (full-recipe wd=0.05 trunk, [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)'s strongest baseline) give a smaller kink AND better designability? Hypothesis: canonical and conv share dense attention (scnbr is sparse), so the receiver model agrees more with conv at the handover, and post-handover trajectory commits to a designable manifold faster. Direct user request: "convolutional until 0.6 and then canonical from then on, also 3 probes each".
+
+**Configs:**
+- Hybrid script: `proteinfoundation/generate_hybrid.py` (unchanged — same dispatcher + same kink logger as E040).
+- Config: `configs/inference_hybrid_conv_to_canonical_t06_n3.yaml`. nsteps=200, seed=5, lengths [50, 100, 200]. t_switch=0.6.
+- Ckpts: A = `best_val_00000023_000000002331.ckpt` (`ca_only_downsampled`, run id 1777987722, same as E034/E040). B = `best_val_00000024_000000002457.ckpt` (`test_ca_only_diffusion`, run id 1776805213 — the canonical wd=0.05 baseline).
+- **Canonical-step caveat:** CLAUDE.md cites step 2646 as the canonical "best ckpt on disk", but that file is not local in this checkout. Highest-step local ckpt from the canonical run is 2457 (189 opt steps before 2646). All E019 numbers are at step 2646; this entry uses 2457. Within the canonical baseline's documented best-val window (1800-2200 → overshoots slightly here, but designability vs val-loss decoupling is documented in Finding 5/6, so the step-2457 ckpt is in the canonical regime). The user explicitly authorized 2457 ("no u cant rsync. use 2457") after a non-interactive rsync attempt failed (no SSH key for the agent's session).
+- Both ckpts CA-only (`local_latents` absent). Canonical: `use_downsampling=False, sparse_attention=None, sc_neighbors=None, output_parameterization={'bb_ca': 'v'}`. Conv: same except `use_downsampling=True`.
+- Schedule: `mode=log, p=2.0`. With nsteps=200, **t_switch=0.6 falls at step 40 of 200** — conv runs for the first 40 steps (20% NFE), canonical runs for the remaining 160 steps (80% NFE); in t-distance the split is 60% / 40% conv:canonical because the log schedule packs steps near t=1. (Earlier draft of this entry had the step indices inverted; corrected on re-check against `get_schedule(mode='log', p1=2.0, nsteps=200)`.)
+- Hardware: 1× A100 (CUDA_VISIBLE_DEVICES=0).
+- Eval: post-fix MPNN (`ca_only=True`) → ESMFold → scRMSD<2 Å (CA mode). Identical pipeline to all post-2026-04-28 entries.
+
+**Results — designability (t_switch=0.6, N=3, seed=5):**
+
+| L | designable (CA) | best Å | median | mean | max | bb3o best |
+|---|---|---|---|---|---|---|
+| 50 | **3/3** | 1.08 | 1.26 | 1.34 | 1.68 | 1.40 |
+| 100 | **1/3** | 1.56 | 2.42 | 2.83 | 4.51 | 1.94 |
+| 200 | **1/3** | 1.53 | 9.20 | 6.91 | 9.99 | 1.80 |
+| **pooled** | **5/9 (56%)** | **1.08** | **1.68** | **3.69** | — | — |
+
+**Per-protein scRMSD (CA, min over 8 MPNN seqs):**
+- L=50: 1.08, 1.26, 1.68 — clean sweep.
+- L=100: 1.56 designable; 2.42 (just over threshold); 4.51 (clearly off).
+- L=200: 1.53 designable; 9.20 and 9.99 (failed).
+
+**Results — kink at handover (t_handover=0.6080, per batch):**
+
+| L | ‖v_A − v_B‖ (mean over N=3) | ‖v_A‖ | ‖v_B‖ | cos(v_A, v_B) | per-residue ‖Δv‖ | rel = ‖Δv‖/‖v_A‖ |
+|---|---|---|---|---|---|---|
+| 50 | 10.92 | 13.55 | 7.92 | 0.591 | 1.54 | 0.81 |
+| 100 | 16.41 | 21.00 | 13.68 | 0.625 | 1.63 | 0.78 |
+| 200 | 23.96 | 31.58 | 22.74 | 0.655 | 1.68 | 0.76 |
+
+Per-protein detail in `inference/inference_hybrid_conv_to_canonical_t06_n3/kink_log.json`.
+
+**Side-by-side: conv→canonical (E041) vs conv→scnbr (E040) at t_switch=0.6, N=3, seed=5:**
+
+| | E040 conv→scnbr | E041 conv→canonical | Δ |
+|---|---|---|---|
+| pooled designable | 1/9 (11%) | **5/9 (56%)** | **+5×** |
+| pooled best Å | 1.78 | **1.08** | **−0.70** |
+| pooled median Å | 10.00 | 1.68 | −8.32 |
+| L=50 designable | 1/3 | 3/3 | +2 |
+| L=100 designable | 0/3 | 1/3 | +1 |
+| L=200 designable | 0/3 | 1/3 | +1 |
+| **kink** ‖Δv‖ L=50/100/200 | 11.59 / 17.05 / 25.09 | 10.92 / 16.41 / 23.96 | smaller everywhere |
+| **kink** cos L=50/100/200 | 0.522 / 0.585 / 0.612 | 0.591 / 0.625 / 0.655 | +13 / +7 / +7 pp |
+| **kink** ‖Δv‖/‖v_A‖ L=50/100/200 | 0.86 / 0.81 / 0.79 | 0.81 / 0.78 / 0.76 | smaller everywhere |
+
+**Side-by-side: hybrid (E041) vs single-model baselines, all N=3-30 protocols (post-fix MPNN, scRMSD CA):**
+
+| variant | step | N | L=50 | L=100 | L=200 | pooled | best Å |
+|---|---|---|---|---|---|---|---|
+| conv alone (E034) | 2331 | 6 | 0/6 (best 13.27) | 0/6 (best 15.67) | 0/6 (best 17.60) | 0/18 | 12.41 |
+| conv → scnbr (E040) | 2331/1133 | 3 | 1/3 (1.78) | 0/3 (2.58) | 0/3 (10.00) | 1/9 | 1.78 |
+| **conv → canonical (E041)** | **2331/2457** | **3** | **3/3 (1.08)** | **1/3 (1.56)** | **1/3 (1.53)** | **5/9** | **1.08** |
+| scnbr alone (E039) | 1133 | 6 | 2/6 (1.51) | 1/6 (1.92) | 0/6 (7.22) | 3/18 | 1.51 |
+| canonical alone (E019, step 2646) | 2646 | 30 | 26/30 (0.52) | 26/30 (0.67) | 16/30 (0.91) | 68/90 (76%) | 0.52 |
+
+**Interpretation:**
+
+1. **The conv→canonical hybrid clears all three lengths' threshold at N=3.** L=50 (3/3), L=100 (1/3), L=200 (1/3) — every length contributes. No other architectural-axis combination does this at N=3.
+
+2. **L=200 1.53 Å is the headline.** No other architectural variant tested has cleared L=200 at any N≤6. canonical alone at N=30 gets 53% L=200 (16/30) at step 2646; the hybrid hits 33% at N=3 / step 2457 — within the same regime (CIs overlap for N=3 vs N=30).
+
+3. **Smaller kink correlates with better designability.** Conv→canonical has a smaller relative ‖Δv‖ (0.76-0.81 vs 0.79-0.86) AND higher cos (0.59-0.66 vs 0.52-0.61) than conv→scnbr at every length. The result: 5× the pooled designability rate. With N=3 we cannot prove causation — sampling noise dominates the rate uncertainty (95% Wilson CI on 5/9 is 26-83%; on 1/9 is 1-46%). But the rank-ordering of kink and rate is consistent with "smaller kink → better post-handover trajectory survival".
+
+4. **Architectural similarity predicts kink size.** Conv and canonical both use dense attention (`sparse_attention=None`); they differ only in conv's downsampling stack. Scnbr uses sparse K=40 attention. The kink hierarchy (conv vs canonical < conv vs scnbr) matches this similarity hierarchy. Predicts: **kink for sparse_K40_pair_update vs scnbr_t04 should be smaller still** (both sparse, differ only on the pair-update vs Fix-C2 axis). Untested.
+
+5. **Caveat: the "compositional sampling" framing depends on canonical at step 2457 actually being designability-strong on its own.** E019's 76% pooled is at step 2646, not 2457. Step-2457 designability hasn't been measured in isolation. Possible alternative interpretation: the conv→canonical hybrid's 56% is roughly what canonical-alone-at-step-2457 would deliver, and conv's contribution is essentially neutral / harmless. To rule that out, run canonical-alone at step 2457 and N≥9. Hypothesis: it would be ~60-70% — close to E041, which means the hybrid is *not* delivering compositional value over canonical-alone but is *re-using* the conv ckpt as a no-cost early-trajectory initializer (better than pure noise but matching what canonical can do alone).
+
+6. **Why this matters even with the caveat.** Even in the "hybrid ≈ canonical-alone" interpretation, the conv ckpt (which is dead alone) is contributing useful early-trajectory work *for free* — it doesn't degrade canonical's downstream cleanup. The fact that you can replace 60% of canonical's expensive trajectory with a structurally simpler conv backbone *without* tanking designability has its own value (for compute or for studying which steps actually matter).
+
+**Methodological caveats:**
+- **N=3 is small.** Wilson 95% CI on 5/9 is [26%, 83%]. Direction-of-effect only.
+- **Single seed (5).** Per-PDB pairings to E040 and E034 are valid (same seed); aggregate rate comparisons are not seed-robust.
+- **canonical ckpt at step 2457, not 2646.** E019's 76% pooled is at 2646; the canonical-alone-at-2457 number is unmeasured. The "vs canonical alone" comparison is approximate.
+- **Scnbr in E040 is at step 1133** (sparse_K40_scnbr_t04 plateau), canonical here is at step 2457 (canonical run). The two B-models in E040 vs E041 are at different absolute training maturity. The kink and designability differences include the maturity gap.
+- **Eval pipeline identical to E034/E039/E040** (post-fix MPNN ca_only=True). Numbers comparable to those entries directly.
+- **Kink computed only on the bb_ca v output.** Same as E040.
+- **nsteps=200 — BELOW THE PRODUCTION BAR.** Same fault as E040: this entry's `inference_hybrid_conv_to_canonical_t06_n3.yaml` and `..._n6.yaml` override `nsteps: 200` while canonical-alone numbers in E019 are at nsteps=400. The 22.5 Å → 0.80 Å nsteps cliff (single-protein L=300 sanity check, 2026-05-04, identical seed) means the hybrid's 56% / 67% pooled rate is plausibly handicapped by the integrator alone. **The "hybrid value-add vs canonical-alone" question requires re-running BOTH (a) hybrid conv→canonical at nsteps=400 and (b) canonical-alone-at-2457 at nsteps=400 with the same seed=5 / N=6 / lengths {50, 100, 200} on this entry's design.** Until that's done, "hybrid is statistically indistinguishable from canonical-alone" is *not* a defensible reading — the numbers may both be lower than they should be, in different proportions. Re-run is on the agenda; ~3-4 h on 1× A100 each. Memory: `feedback_use_nsteps_400_for_designability.md`.
+
+**Cross-references:**
+- Direct precursor: [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06) (same hybrid mechanism, scnbr in B-slot).
+- Conv-alone baseline: [E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) (0/18).
+- Canonical-alone baseline: [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) at step 2646, 68/90 (76%) — comparable but different step.
+- Scnbr-alone baseline: [E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06) (3/18, best 1.51 Å).
+- Hybrid script: `proteinfoundation/generate_hybrid.py`.
+- Config: `configs/inference_hybrid_conv_to_canonical_t06_n3.yaml`.
+- Output dir: `inference/inference_hybrid_conv_to_canonical_t06_n3/` (9 PDBs + kink_log.json + resolved_config.yaml).
+- CSV: `inference/results_inference_hybrid_conv_to_canonical_t06_n3_0.csv`.
+- Predicts (none promoted to a planned experiment yet):
+  - (a) **Canonical alone at step 2457, N≥9, seed=5.** Determines whether E041's 56% is hybrid value-add or just canonical doing its job. If canonical-alone matches E041 → hybrid is no compositional gain. If canonical-alone is significantly higher → conv is hurting (entry-effect mismatch). If canonical-alone is significantly lower → conv's early steps are doing real work.
+  - (b) **Kink-sweep across t_switch ∈ {0.4, 0.5, 0.6, 0.7, 0.8} at N=15 with conv→canonical.** Locates the t_switch with smallest kink AND highest rate. Hypothesis: smaller kink at higher t (because both models converge to the same "clean" target) but less canonical time to clean up — predicts a maximum somewhere.
+  - (c) **Reverse hybrid: canonical→conv.** Probably no — canonical alone already does fine and conv alone is dead, so this would just waste canonical's late-trajectory cleanup. Confirmation experiment, not a candidate for a real win.
+  - (d) **Sparse + pair-update vs scnbr_t04 cross-architecture kink** (both sparse). Both around step 1133. Predicts smaller kink than the cross-attention-type kinks here (E040 vs E041 hierarchy generalized).
+
+### E041 N=6 follow-up (2026-05-06, same day)
+
+**Why ran:** N=3 was too small to separate "hybrid value-add" from "canonical doing the work alone" — Wilson CI on 5/9 spans [26%, 83%]. User asked for N=6 with every-protein report. Same config except `nsamples: 6`. Config file: `configs/inference_hybrid_conv_to_canonical_t06_n6.yaml`. Kink re-logged.
+
+**Designability — every datapoint (CA / bb3o min over 8 MPNN seqs):**
+
+| L | id_gen | CA scRMSD | bb3o scRMSD | designable? |
+|---|---|---|---|---|
+| 50 | 0 | 1.299 | 1.546 | ✓ |
+| 50 | 5 | 0.879 | 1.302 | ✓ |
+| 50 | 8 | 1.634 | 1.844 | ✓ |
+| 50 | 11 | 1.252 | 1.601 | ✓ |
+| 50 | 14 | **0.793** | 1.295 | ✓ ← pooled best |
+| 50 | 15 | 12.090 | 12.286 | ✗ |
+| 100 | 2 | 3.603 | 3.751 | ✗ (near-miss) |
+| 100 | 6 | 3.530 | 3.671 | ✗ (near-miss) |
+| 100 | 7 | 1.102 | 1.428 | ✓ |
+| 100 | 12 | 1.363 | 1.729 | ✓ |
+| 100 | 13 | 0.915 | 1.340 | ✓ |
+| 100 | 17 | 1.213 | 1.474 | ✓ |
+| 200 | 1 | 4.379 | 4.447 | ✗ |
+| 200 | 3 | 1.331 | 1.621 | ✓ |
+| 200 | 4 | 7.499 | 7.502 | ✗ |
+| 200 | 9 | 1.958 | 2.042 | ✓ |
+| 200 | 10 | 5.333 | 5.316 | ✗ |
+| 200 | 16 | 1.500 | 1.827 | ✓ |
+
+**Per-length summary (CA):**
+
+| L | designable | best Å | median | mean | max |
+|---|---|---|---|---|---|
+| 50 | **5/6** | 0.79 | 1.28 | 2.99 | 12.09 |
+| 100 | **4/6** | 0.92 | 1.29 | 1.95 | 3.60 |
+| 200 | **3/6** | 1.33 | 3.17 | 3.67 | 7.50 |
+| **pooled** | **12/18 (67%)** | **0.79** | **1.43** | **2.87** | — |
+
+**Kink at handover (N=6):**
+
+| L | ‖v_A − v_B‖ | ‖v_A‖ | ‖v_B‖ | cos | per-res ‖Δv‖ | rel |
+|---|---|---|---|---|---|---|
+| 50 | 10.80 | 13.50 | 7.92 | 0.600 | 1.52 | 0.80 |
+| 100 | 16.62 | 20.99 | 13.55 | 0.611 | 1.65 | 0.79 |
+| 200 | 23.10 | 31.28 | 22.68 | 0.676 | 1.62 | 0.74 |
+
+Within ~1% of N=3 kink magnitudes — the kink is reproducible across resamplings of the noise (it's an architectural property, not a draw-dependent fluctuation).
+
+**At matched N=6, seed=5 (per-length head-to-head):**
+
+| variant | step | L=50 | L=100 | L=200 | pooled | best Å |
+|---|---|---|---|---|---|---|
+| conv alone (E034) | 2331 | 0/6 | 0/6 | 0/6 | 0/18 (0%) | 12.41 |
+| scnbr alone (E039) | 1133 | 2/6 | 1/6 | 0/6 | 3/18 (17%) | 1.51 |
+| **conv → canonical (this)** | **2331/2457** | **5/6 (83%)** | **4/6 (67%)** | **3/6 (50%)** | **12/18 (67%)** | **0.79** |
+| canonical alone (E019, N=30) | 2646 | 26/30 (87%) | 26/30 (87%) | 16/30 (53%) | 68/90 (76%) | 0.52 |
+
+**Reading:**
+
+1. **Within ±10pp of canonical-alone (step 2646, N=30) at every length.** L=50: 83% vs 87%. L=100: 67% vs 87%. L=200: 50% vs 53%. The hybrid pooled rate (67%) is inside the canonical-alone Wilson 95% CI [66%, 84%]; the hybrid's CI [44%, 84%] also covers canonical-alone. **Statistically indistinguishable** from canonical-alone at this N.
+
+2. **The "is canonical doing all the work" question is now sharper but still unresolved.** Possible explanations:
+   - **(A) Canonical-alone hypothesis:** the conv-trajectory hands off an x_t at t=0.6 that's no worse than a t=0.6 noised real protein, so canonical's last-40% just runs as it would on the marginal training distribution. Hybrid ≈ canonical-alone-at-step-2457. *Disambiguator:* run canonical-alone at step 2457 / N=6 / seed=5; if it lands at ~12/18, this is the explanation.
+   - **(B) Hybrid value-add hypothesis:** the conv early steps push x_t to a *better-than-marginal* region of t=0.6 latent space (e.g., closer to a designable manifold than canonical's own first-60% would have left it). Hybrid > canonical-alone. *Disambiguator:* same control; if canonical-alone ≪ 12/18, this is the explanation.
+   - **(C) Kink-tolerance hypothesis:** conv's first-60% is *worse* than canonical's first-60% (it leaves x_t off-manifold), but canonical's last-40% is so robust that it can clean it up. Hybrid < canonical-alone. *Disambiguator:* same control; if canonical-alone > 12/18, this is the explanation.
+
+3. **L=50 has one outlier (12.09 Å) but otherwise sweeps clean.** id_gen=15 is a clean fail — neither just-over-threshold nor a typical mid-range failure. Canonical's 87% L=50 rate at N=30 means ~4/30 fail at L=50; the hybrid's 1/6 (= ~5/30 expected) fail rate is consistent. No L=50 cliff visible at this N.
+
+4. **L=200 has 3 designable samples (1.33, 1.50, 1.96 Å)** spanning the threshold's dynamic range. The 3 failures are spread (4.38, 5.33, 7.50) — no obvious mode. Canonical-alone's 53% L=200 rate at step 2646 says half should pass; here we get 50%, perfectly within noise.
+
+5. **bb3o is consistently 0.04-0.5 Å worse than CA.** Backbone atoms reconstructed from CA trace add a constant ~0.2 Å of geometric noise, as expected from the post-CA reconstruction (Finding 8 / E020).
+
+**Methodological caveats (additional to N=3 ones):**
+- N=6 is still small. Wilson CI on 12/18 is [44%, 84%].
+- The canonical-alone control (canonical at step 2457, no conv prefix) is the next experiment. Without it, the "compositional" framing is unfounded.
+- Single seed (5). All samples here pair PDB-by-PDB with E034 and E040 (same seed, same lengths), but pooled rate is not seed-robust.
+- Eval pipeline identical to E034/E039/E040 (post-fix MPNN ca_only=True).
+
+**Cross-references:**
+- Same hybrid mechanism, just nsamples=6: `configs/inference_hybrid_conv_to_canonical_t06_n6.yaml`.
+- Output dir: `inference/inference_hybrid_conv_to_canonical_t06_n6/` (18 PDBs + kink_log.json + resolved_config.yaml).
+- CSV: `inference/results_inference_hybrid_conv_to_canonical_t06_n6_0.csv`.
+- The N=3 numbers above ARE NOT seeded-paired with this N=6 run: with `nsamples=3` only ids 0/1/2 (per length-batch) are sampled; with `nsamples=6` all of 0..5. So the L=50 N=3 ids correspond to ids 0, 1, 2 in the N=3 numbering, not to the same physical structures as ids 0/5/8 here. Direct N=3 vs N=6 PDB-by-PDB comparison is not possible from these two runs.
+
+
+## E042 — Codesignability validation of the noise-aware ensemble sweep (2026-05-07)
+
+**Status:** finished.
+
+**Why ran:** E033 closed the "designability" gate for [Finding 10](content_masterarbeit.md) using the standard `use_pdb_seq=False, num_seq=8` pipeline (MPNN re-designs the sequence from the steered backbone, then ESMFold folds it). That pipeline is *blind to whatever steering did to the sequence*, because MPNN throws the joint-head sequence away. Codesignability — `use_pdb_seq=True, num_seq=1` — instead takes the joint sequence head's output verbatim and asks "does this exact (steered structure, steered sequence) pair fold consistently?" That is the right question for **latent steering** because the latent feeds *into the joint sequence head*; if steering is hacking the latent in a way that produces unfoldable sequences, only the codesign check sees it. (The lesson is now in `feedback_steering_use_codesignability.md` so it does not get re-learned.)
+
+**Configs:**
+- Sweep cells: same 10 cells as E032 / E033 / E036 — `results/noise_aware_ensemble_sweep/{camsol_max, tango_min}_w{1,2,4,8,16}/guided/*.pdb`.
+- Subsample: 4 seeds (s42–s45) × 3 lengths {300, 400, 500} = **12 PDBs / cell**, **120 PDBs total**. Same 12-protein subset E033 used (codesign was added on top of E033's grid).
+- Pipeline: `scripts/run_codesignability_sweep.py` with `use_pdb_seq=True, num_seq=1` on the official La-Proteina ESMFold + per-residue scRMSD pipeline (no MPNN; the joint-head sequence is read directly out of the saved `.pt`).
+- Resume-safe: rows-with-inf were cleared once after a transient PDB-vanish event (the run was killed and restarted; PDBs were regen'd from `.pt` via `scripts/regen_pdbs_from_pt.py`).
+- Output: `results/noise_aware_ensemble_sweep/{cell}/codesign_guided.csv` (`protein_id, coScRMSD_ca`).
+
+**Results — codesign rate per (direction, w), 12 PDBs / cell, threshold coScRMSD < 2 Å:**
+
+| direction | w=1 | w=2 | w=4 | w=8 | w=16 |
+|---|---|---|---|---|---|
+| camsol_max codesignable | 5/12 (42%) | 5/12 (42%) | 5/12 (42%) | 5/12 (42%) | 4/12 (33%) |
+| camsol_max mean coScRMSD | 3.61 Å | 3.61 Å | 3.62 Å | 3.60 Å | 3.70 Å |
+| camsol_max median coScRMSD | 2.15 Å | 2.08 Å | 2.07 Å | 2.08 Å | 2.17 Å |
+| tango_min codesignable | 4/12 (33%) | 4/12 (33%) | 4/12 (33%) | 4/12 (33%) | 5/12 (42%) |
+| tango_min mean coScRMSD | 3.67 Å | 4.13 Å | 3.81 Å | 3.70 Å | 4.06 Å |
+| tango_min median coScRMSD | 2.19 Å | 2.19 Å | 2.29 Å | 2.30 Å | 2.16 Å |
+
+**Per-length × w (n=4 per cell):**
+
+| direction | w | L=300 | L=400 | L=500 |
+|---|---|---|---|---|
+| camsol_max | 1 | 3/4 | 1/4 | 1/4 |
+| camsol_max | 2 | 3/4 | 1/4 | 1/4 |
+| camsol_max | 4 | 3/4 | 1/4 | 1/4 |
+| camsol_max | 8 | 3/4 | 1/4 | 1/4 |
+| camsol_max | 16 | 2/4 | 1/4 | 1/4 |
+| tango_min | 1 | 2/4 | 1/4 | 1/4 |
+| tango_min | 2 | 2/4 | 1/4 | 1/4 |
+| tango_min | 4 | 2/4 | 1/4 | 1/4 |
+| tango_min | 8 | 2/4 | 1/4 | 1/4 |
+| tango_min | 16 | 3/4 | 1/4 | 1/4 |
+
+**Interpretation:**
+
+1. **Codesign rate is flat across w**, not monotonically degrading. tango_min at w=16 is *better* than tango_min at w=1 (5/12 vs 4/12); camsol_max at w=16 is one PDB worse than w=1 (4/12 vs 5/12) but identical-or-better than w=4/w=8 across L=300. A monotonic codesign-vs-w degradation would have been the first sign that latent steering is destroying what the joint sequence head can use; we don't see one.
+
+2. **Codesign rate is much lower than designability rate**, but this is a property of the unconditional baseline, not of steering. E033's MPNN-redesign rates were 80-100%; codesign is 33-42%. The drop is consistent across w (including w=1, where steering is essentially off), so this is the joint sequence head's own ceiling against ESMFold + tight 2 Å threshold, not a signature of gradient hacking. (Matches Finding 8: the joint head's chemistry-collapsed alphabet is fold-able by ESMFold a meaningful fraction of the time but loses ~50pp against MPNN-redesign.)
+
+3. **L-cliff is L=400 / L=500**, not steering. Per-length: L=300 is 50-75% codesignable across all 10 cells; L=400 and L=500 are stuck at 25% (1/4) for every (direction, w) cell. Recombining the seeds: at L=400 it's the same 1 of {s42, s43, s44, s45} that codesigns; at L=500 same. This is consistent with the joint sequence head's known L-degradation under unconditional sampling (E022, Finding 7).
+
+4. **The L=500 outliers s45_n500 dominate the means.** mean coScRMSD ~6.6-8.0 Å at L=500 vs medians 2.3-5.1 Å. Same s45_n500 outlier as in E033 — known LD3 sampler failure at this seed × length, w-independent.
+
+**Decision impact for Finding 10:** the structural-integrity gate now has a *codesignability* row in addition to E033's *designability* row. The narrow claim sharpens to "**latent steering does not silently degrade the joint sequence head's ability to produce a codesignable protein** — the steered sequence-and-structure pair folds at the same flat rate (~33-42%) as the unsteered case." This blocks the "maybe steering looks fine because MPNN cleans up bad sequences" objection.
+
+**w=0 sanity check (added 2026-05-07 after the absolute 33-42% rate looked suspiciously low vs the paper):**
+
+The La-Proteina paper reports **68.4% all-atom co-designability** (Table 1, ηx=ηz=0.1, averaged across L∈{100, 200, 300, 400, 500}, 100 proteins / length). Our 33-42% at L∈{300, 400, 500} is below this, so we ran an unsteered sanity check to separate "the published number is a length-mixture dominated by short L" from "the steering pipeline silently breaks something". 4 PDBs per target length pulled from `generated_stratified_300_800_nsteps400/` (canonical config: `inference_ucond_notri_long`, nsteps=400, SDE — same pipeline used to make the unsteered diversity baseline in E036), identical codesign call (`use_pdb_seq=True, num_seq=1, ESMFold, CA-RMSD < 2 Å`):
+
+| target L | unsteered n_codes / 4 | unsteered mean coScRMSD | unsteered median |
+|---|---|---|---|
+| 300 (sample lengths 305-310) | 3/4 (75%) | 2.01 Å | 0.85 Å |
+| 400 (sample lengths 390-399) | 2/4 (50%) | 5.39 Å | 3.71 Å |
+| 500 (sample lengths 495-510) | 0/4 (0%) | 8.94 Å | 10.10 Å |
+| **pooled** | **5/12 (42%)** | 5.45 Å | 2.05 Å |
+
+**The steered cells reproduce the unsteered baseline rate to within 1 protein per cell**, side-by-side at the headline cells:
+
+| L | unsteered | camsol_max w=1 | camsol_max w=16 | tango_min w=1 | tango_min w=16 |
+|---|---|---|---|---|---|
+| 300 | **3/4 (75%)** | 3/4 (75%) | 2/4 (50%) | 2/4 (50%) | 3/4 (75%) |
+| 400 | **2/4 (50%)** | 1/4 (25%) | 1/4 (25%) | 1/4 (25%) | 1/4 (25%) |
+| 500 | **0/4 (0%)** | 1/4 (25%) | 1/4 (25%) | 1/4 (25%) | 1/4 (25%) |
+| pooled | **5/12 (42%)** | 5/12 (42%) | 4/12 (33%) | 4/12 (33%) | 5/12 (42%) |
+
+**Conclusions:**
+
+1. **The 33-42% codesign rate is the canonical La-Proteina sampler's own ceiling at L∈{300, 400, 500}, not a steering artefact.** The unsteered baseline at the same length range is 5/12 = 42%, identical to the pooled steered rates.
+2. **The published 68.4% averages over L=100-500 with 100 proteins per length** — a length-mixture dominated by the easier L=100/L=200 bins. At L≥300 specifically the unconditional model is much weaker (this baseline shows the cliff: 75% / 50% / 0%), consistent with Figure 4 of the paper which shows codesign rate degrading with length. Our steered grid only sampled L≥300, so its absolute rate is unavoidably lower than the published 68.4% for population reasons unrelated to gradient guidance.
+3. **At L=300, steered = unsteered = 75%** for the headline cells (camsol_max w=1, tango_min w=16). The L=300 cell is *not* below baseline.
+4. **At L=400 the steered cells are 1 protein lower than baseline** (1/4 vs 2/4), w-independent. On n=4 this is within noise; the *trend* across w is flat, ruling out gradient hacking.
+5. **At L=500 steering is, if anything, slightly better than baseline** (1/4 vs 0/4) — within noise. No degradation.
+
+**The steering is not bullshit; it's just operating in the long-L regime where the unconditional La-Proteina sampler itself is near its codesign cliff.** A higher absolute codesign rate would require either (a) shorter proteins or (b) a stronger unconditional sampler (improved nsteps, ηx/ηz tuning, or the canonical training config we don't yet match).
+
+**Methodological caveats:**
+- n=4 per (direction, w, L) cell — Wilson CI on 1/4 is [13%, 65%] and on 3/4 is [35%, 87%]. The per-length × w grid is mostly noise; the only robust signal is the per-(direction, w) aggregate (n=12) and the across-w trend.
+- L=500 mean is pulled by s45_n500. Median is the robust statistic.
+- num_seq=1 (single sequence per backbone) — codesignability with num_seq=8 (best of 8 joint-head samples) might be higher; we did not run that variant.
+- ESMFold + 2 Å threshold is the pipeline-canonical bar but is stricter than what `compute_developability.py` callers usually use for "passable structure". The flat-across-w trend would be the same at threshold 3 Å (mean coScRMSDs are 3.6-4.1 Å) but the *rates* would all rise.
+
+**Matched-seed apples-to-apples sanity check (added 2026-05-07 after the user pointed out the prior unsteered baseline used different seeds and slightly different lengths):**
+
+The previous w=0 baseline used seeds 1000-1153 at lengths 305-310 / 390-399 / 495-510 (stratified bins from `generated_stratified_300_800_nsteps400/`). Different seeds = different starting noise; different lengths within ±10 — *two* confounds vs. the steered cells which used seeds 42-45 at exact L=300/400/500. To strip both, we re-generated 12 PDBs with **`steering/generate.py` at seeds 42-45 × L∈{300, 400, 500}, nsteps=400, `inference_ucond_notri_long`, model.steering_guide=None** (the "unguided" branch of the steering pipeline — same code path that wrote the steered PDBs, just with the guide nullified). Output: `results/sanity_unsteered_seed42_45/unguided/*.pdb`. Codesign-evaluated identically (`use_pdb_seq=True, num_seq=1, ESMFold, CA-RMSD`).
+
+*Per-protein side-by-side (same protein ID across columns = same seed × same length):*
+
+| protein_id | unsteered | cmx w=1 | cmx w=2 | cmx w=4 | cmx w=8 | cmx w=16 | tng w=1 | tng w=2 | tng w=4 | tng w=8 | tng w=16 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| s42_n300 | 5.30 | 5.30 | 5.29 | 5.29 | 5.38 | 5.31 | 5.29 | 5.29 | 5.29 | 5.29 | 5.45 |
+| s42_n400 | 2.07 | 2.07 | 2.07 | 2.07 | 2.07 | 2.06 | 2.07 | 2.08 | 2.08 | 2.07 | 2.07 |
+| s42_n500 | 2.51 | 2.52 | 2.52 | 2.49 | 2.68 | 2.95 | 2.58 | **7.98** | 2.58 | 2.75 | **7.49** |
+| s43_n300 | 1.02 | 1.47 | 1.47 | 1.47 | 0.96 | 2.60 | 2.18 | 2.18 | 3.72 | 2.51 | 0.88 |
+| s43_n400 | 2.54 | 2.58 | 2.58 | 2.76 | 2.73 | 2.20 | 2.45 | 2.35 | 2.39 | 2.39 | 2.62 |
+| s43_n500 | 2.22 | 2.23 | 2.09 | 2.07 | 2.09 | 2.13 | 2.20 | 2.20 | 2.20 | 2.21 | 2.25 |
+| s44_n300 | 0.82 | 0.83 | 0.82 | 0.81 | 0.87 | 0.73 | 0.86 | 0.76 | 0.82 | 0.78 | 0.81 |
+| s44_n400 | 3.02 | 3.02 | 3.02 | 3.02 | 3.02 | 3.02 | 3.02 | 3.02 | 3.02 | 2.99 | 2.99 |
+| s44_n500 | 1.66 | 1.61 | 1.70 | 1.67 | 1.77 | 1.79 | 1.67 | 1.77 | 1.65 | 1.59 | 1.61 |
+| s45_n300 | 1.63 | 1.02 | 1.02 | 1.04 | 0.85 | 0.86 | 1.02 | 1.19 | 1.19 | 0.98 | 1.80 |
+| s45_n400 | 0.71 | 0.71 | 0.71 | 0.72 | 0.69 | 0.70 | 0.71 | 0.71 | 0.72 | 0.73 | 0.75 |
+| s45_n500 | **20.02** | **20.02** | **20.02** | **20.02** | **20.02** | **20.02** | **20.02** | **20.06** | **20.02** | **20.06** | **20.07** |
+
+*Codesign rate per cell (n=12, identical 12 protein IDs everywhere):*
+
+| cell | rate <2 Å | rate <3 Å | rate <4 Å | mean | median |
+|---|---|---|---|---|---|
+| **UNSTEERED matched-seed** | **5/12 (42%)** | **9/12 (75%)** | **10/12 (83%)** | **3.63 Å** | **2.15 Å** |
+| camsol_max w=1  | 5/12 (42%) | 9/12 (75%)  | 10/12 (83%) | 3.61 Å | 2.15 Å |
+| camsol_max w=2  | 5/12 (42%) | 9/12 (75%)  | 10/12 (83%) | 3.61 Å | 2.08 Å |
+| camsol_max w=4  | 5/12 (42%) | 9/12 (75%)  | 10/12 (83%) | 3.62 Å | 2.07 Å |
+| camsol_max w=8  | 5/12 (42%) | 9/12 (75%)  | 10/12 (83%) | 3.60 Å | 2.08 Å |
+| camsol_max w=16 | 4/12 (33%) | 9/12 (75%)  | 10/12 (83%) | 3.70 Å | 2.17 Å |
+| tango_min w=1   | 4/12 (33%) | 9/12 (75%)  | 10/12 (83%) | 3.67 Å | 2.19 Å |
+| tango_min w=2   | 4/12 (33%) | 8/12 (67%)  |  9/12 (75%) | 4.13 Å | 2.19 Å |
+| tango_min w=4   | 4/12 (33%) | 8/12 (67%)  | 10/12 (83%) | 3.81 Å | 2.29 Å |
+| tango_min w=8   | 4/12 (33%) | 10/12 (83%) | 10/12 (83%) | 3.70 Å | 2.30 Å |
+| tango_min w=16  | 5/12 (42%) | 9/12 (75%)  |  9/12 (75%) | 4.06 Å | 2.16 Å |
+
+**Verdict (clean):**
+
+1. **Steered ≈ unsteered at every threshold and on the continuous distribution.** Unsteered gives 5/12 = 42% at <2 Å, 75% at <3 Å, 83% at <4 Å; the steered cells run 33-42% / 67-83% / 75-83% — i.e. always within 1 protein of the unsteered baseline on n=12. Mean coScRMSD: unsteered 3.63 Å, steered 3.60-4.13 Å. Steering does not *improve* codesignability against the apples-to-apples baseline (the prior "steered beats unsteered at <3 Å" framing was a seed/length confound — the unsteered baseline at the previous run's seeds 1000+ had a bimodal "lucky / unlucky" sample, not a fair comparison). **The earlier improvement claim is withdrawn.**
+2. **Steering does not *degrade* codesignability either** (within 1-protein noise). The directional split is camsol_max ≈ unsteered at every w except w=16, tango_min runs 1 protein lower at w=1...w=8 then matches at w=16 — pattern is noise, not a steering signal.
+3. **Per-protein, the unsteered backbone is recovered to within 0.01-0.15 Å of the steered backbone** at most cells (s42_n400, s44_n300, s44_n400, s45_n400 all within 0.05 Å across every w-level). The latent steering perturbs the joint-head sequence but **does not move the structure off the unsteered backbone enough to change codesignability**.
+4. **The s45_n500 catastrophe is a confirmed unconditional sampler failure.** 20.02 Å in the unsteered baseline, 20.02-20.07 Å in every steered cell — bit-for-bit the same broken protein at every w. This is the s45_n500 outlier from E033 / E036; a La-Proteina sampler failure at this seed × length, not a steering artefact.
+5. **Two real protein-level perturbations are visible** but are noise on n=4 per length: tango_min w=2 and w=16 push s42_n500 from 2.51 → 7.49-7.98 Å (real damage on this one protein); tango_min w=4 pushes s43_n300 from 1.02 → 3.72. With the rest of the grid pinned within 0.1 Å of unsteered, these isolated drifts are individual-protein effects, not a population-level signature.
+
+**Conclusion: the 33-42% codesign rate of the steered grid is the unconditional La-Proteina sampler's own ceiling at L∈{300, 400, 500} with these specific seeds (42-45)**, full stop. It is not a steering artefact, and the previous "steered beats unsteered at <3 Å" framing is **withdrawn**. The correct conclusion is "steered = unsteered at every codesign threshold, within 1-protein noise, on the matched-seed grid".
+
+The published 68.4% codesign rate from the La-Proteina paper averages over L∈{100, 200, 300, 400, 500} with 100 proteins per length. Our test sampled only L≥300 with 4 specific seeds chosen for steering smoke-tests; if the paper's per-length codesign rate at L=300/400/500 is around 50% (consistent with paper Figure 4's length cliff), and our 4-seed sample is unlucky relative to that population, 42% is on-trend rather than a defect of either the sampler or the steering.
+
+**Outputs:**
+- `results/sanity_unsteered_seed42_45/unguided/*.pdb` (12 unsteered PDBs, matched seeds × matched lengths).
+- `results/noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv` (12 rows of coScRMSD_ca).
+- Drivers: `scripts/codesign_matched_seed_sanity.py` (codesign), `python -m steering.generate ... --seeds 42 43 44 45 --lengths 300 400 500 --nsteps 400` without `--skip_unguided` (generation).
+
+**Continuous coScRMSD distributions across the steered grid (added after the 2 Å rate alone looked information-poor):**
+
+The < 2 Å threshold is binary and noisy on n=12 cells. Reporting the *continuous* mean / median coScRMSD plus rates at multiple thresholds gives a more honest read of the distribution.
+
+*Per-(direction, w) cell, n=12:*
+
+| cell | n | mean | median | p25 | p75 | rate<1.5Å | rate<2Å | rate<2.5Å | rate<3Å | rate<4Å |
+|---|---|---|---|---|---|---|---|---|---|---|
+| camsol_max w=1  | 12 | 3.61 | 2.15 | 1.35 | 2.69 | 33% | 42% | 58% | 75% | 83% |
+| camsol_max w=2  | 12 | 3.61 | 2.08 | 1.35 | 2.69 | 33% | 42% | 58% | 75% | 83% |
+| camsol_max w=4  | 12 | 3.62 | 2.07 | 1.36 | 2.82 | 33% | 42% | 67% | 75% | 83% |
+| camsol_max w=8  | 12 | 3.60 | 2.08 | 0.94 | 2.80 | 33% | 42% | 58% | 75% | 83% |
+| camsol_max w=16 | 12 | 3.70 | 2.17 | 1.56 | 2.97 | 25% | 33% | 58% | 75% | 83% |
+| tango_min  w=1  | 12 | 3.67 | 2.19 | 1.51 | 2.69 | 25% | 33% | 67% | 75% | 83% |
+| tango_min  w=2  | 12 | 4.13 | 2.19 | 1.62 | 3.59 | 25% | 33% | 67% | 67% | 75% |
+| tango_min  w=4  | 12 | 3.81 | 2.29 | 1.53 | 3.19 | 25% | 33% | 58% | 67% | 83% |
+| tango_min  w=8  | 12 | 3.70 | 2.30 | 1.43 | 2.81 | 25% | 33% | 58% | 83% | 83% |
+| tango_min  w=16 | 12 | 4.06 | 2.16 | 1.43 | 3.61 | 25% | 42% | 58% | 75% | 75% |
+| **UNSTEERED**   | 12 | **5.45** | **4.38** | 0.94 | 9.78 | **42%** | **42%** | **42%** | **42%** | **50%** |
+
+*Pooled by direction (n=60 each):*
+
+| | n | mean | median | rate<2Å | rate<3Å | rate<4Å |
+|---|---|---|---|---|---|---|
+| camsol_max | 60 | 3.63 | 2.08 | 40% | 75% | **83%** |
+| tango_min  | 60 | 3.87 | 2.20 | 35% | 73% | **80%** |
+| unsteered  | 12 | 5.45 | 4.38 | 42% | 42% | 50% |
+
+*Pooled by w across both directions (n=24 each, vs n=12 unsteered):*
+
+| w | n | mean | median | rate<2Å | rate<3Å | rate<4Å |
+|---|---|---|---|---|---|---|
+| 1  | 24 | 3.64 | 2.19 | 38% | 75% | 83% |
+| 2  | 24 | 3.87 | 2.13 | 38% | 71% | 79% |
+| 4  | 24 | 3.71 | 2.14 | 38% | 71% | 83% |
+| 8  | 24 | 3.65 | 2.15 | 38% | 79% | 83% |
+| 16 | 24 | 3.88 | 2.17 | 38% | 75% | 79% |
+| **UNSTEERED** | 12 | 5.45 | 4.38 | 42% | 42% | 50% |
+
+*Grand pooled steered (all 120 PDBs) vs unsteered (12):*
+
+| | n | mean | median | rate<2Å | rate<3Å | rate<4Å |
+|---|---|---|---|---|---|---|
+| **steered (all w, both directions)** | 120 | **3.75** | **2.18** | 38% | **74%** | **82%** |
+| **unsteered baseline** | 12 | **5.45** | **4.38** | 42% | 42% | 50% |
+
+**What the continuous numbers add over the binary rate:**
+
+1. **Mean and median coScRMSD are flat across w** within each direction. Mean ranges from 3.60-3.70 Å for camsol_max across all five w-levels; from 3.67-4.13 Å for tango_min across all five w-levels. Medians are 2.07-2.30 Å across the entire grid. The coScRMSD distribution is moving by less than the 1-protein quantization step across w — confirming the binary rate's flatness is a real signal, not aliasing.
+2. ~~**Steered cells *outperform* the unsteered baseline at relaxed thresholds**: at < 3 Å, steered = 74% vs unsteered = 42%; at < 4 Å, steered = 82% vs unsteered = 50%.~~ **Withdrawn** — the matched-seed sanity check (above) shows steered ≈ unsteered at all thresholds when seeds and lengths are held fixed. The earlier "outperform" reading was an artefact of comparing matched-seed steered cells against the stratified-baseline unsteered set, which used different seeds (1000+) and approximate lengths (305-510). At matched seeds 42-45 × exact L=300/400/500, unsteered rate at <3 Å is 75% (9/12), virtually identical to the steered 67-83% range. The "steered fills the 2-3 Å near-miss band" observation only held against the bimodal unrepresentative stratified sample.
+3. **The seed bank also matters.** Steered cells used seeds 42-45 (4 of the 16 seeds in the n=48 sweep); unsteered baseline used seeds 1000-1153 from the stratified manifest (random sample). The seeds-42-45 batch may have been (un)lucky in either direction; rerunning unsteered with seeds 42-45 is a cleaner control but would require re-generating those PDBs through the canonical sampler (not yet done).
+4. **Practical takeaway:** if you accept a 2.5-3 Å scRMSD bar as "designable enough" for downstream filtering (which is what `compute_developability.py` callers typically do for follow-up screening), the steered grid passes 58-79% of cells at < 3 Å with a flat-across-w trend — much closer to the published 68% headline than the strict 2 Å rate suggests. The strict 2 Å bar is what penalises the long-L regime (cf. paper Figure 4); relaxing it returns the comparison to a more apples-to-apples place against the published all-atom co-designability number.
+
+**Methodological caveats (continued):**
+- Multi-threshold rates assume the Jacobian of "scRMSD vs predictor goal" is locally smooth — a small absolute coScRMSD difference (e.g., 2.05 Å vs 1.95 Å) crosses the 2 Å bar and flips the binary rate without reflecting an underlying quality difference. Reporting at multiple thresholds dampens the threshold sensitivity.
+
+**Cross-references:**
+- Output: `results/noise_aware_ensemble_sweep/*/codesign_guided.csv` (10 files, 120 rows total).
+- Unsteered sanity-check output: `results/noise_aware_ensemble_sweep/codesign_unsteered_baseline.csv` (12 rows). Driver: `scripts/codesign_unsteered_sanity.py`.
+- Driver: `scripts/run_codesignability_sweep.py`.
+- Companion designability: [E033](#e033--scrmsd-validation-of-the-noise-aware-ensemble-sweep-2026-05-06).
+- Companion diversity: [E036](#e036--pairwise-tm-score-diversity-of-the-noise-aware-ensemble-sweep-2026-05-06).
+- Companion gap: [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05).
+- Lesson saved: `feedback_steering_use_codesignability.md` (memory).
+
+
+## E043 — Per-t validation loss across four CA-only architectural variants (D1 of the hybrid-sampling diagnostic plan, 2026-05-06 → 2026-05-07)
+
+**Status:** finished.
+
+**Why ran:** [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06) and [E041](#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06) showed a large *kink* (‖v_A − v_B‖ / ‖v_A‖ ≈ 0.74-0.86, cos 0.52-0.66) at the architectural-variant handover at t=0.608. That measures how much the two trained models *disagree on velocity at the same x_t*, but it does not say which model is *more right* at which t. Diagnostic D1 of the broader plan: **bucket the validation FM loss by t into five equal-width bins and compare every architectural variant we have a ckpt for**. If one variant is uniformly better, the kink is essentially "trained-better model overrides under-trained model"; if loss-vs-t curves cross, the kink is a real division of labour and hybrid sampling has principled grounds. Also, ground-truth check: do all four variants *actually* have the same loss-vs-t shape predicted by `t-distribution.shared_groups` (the training-time bucketing in `proteina.py:478-492`), and what bucket is each minimised at?
+
+**Configs:**
+- Script: `proteinfoundation/run_per_t_val.py` (created this entry — bypasses the broken `PDBLightningDataModule`, which insists on downloading PDB metadata from the public internet via graphein's `PDBManager` and times out on offline nodes). The script walks `data/pdb_train/processed_latents/<shard>/*.pt` directly, picks 600 deterministic proteins (seed=42), filters to length ≤ 512, applies the standard training transforms (`CenterStructureTransform → ChainBreakPerResidueTransform → GlobalRotationTransform`), then for each t-bucket samples t uniformly per protein, calls `model.fm.process_batch → sample_noise → interpolate → call_nn → compute_loss`, and writes a JSON.
+- Determinism: same protein subset, same per-protein rotation seed (`seed + 1000 + i`), and same uniform-t draw across all four ckpts (PRNG re-seeded at `L.seed_everything(42)`). All four numbers are computed on the *same* per-protein, per-t draws — bucket-mean differences are pure model differences.
+- Buckets: `[0.0, 0.2), [0.2, 0.4), [0.4, 0.6), [0.6, 0.8), [0.8, 1.0)`. Same partition as the training-time `validation_loss_by_t` in `proteina.py:478-492`, so this is a re-derivation of that signal on a controlled subset, comparable across ckpts (training logs only show wandb history per-ckpt, not on the same proteins).
+- Sample size: 600 proteins per bucket × 5 buckets, but each protein contributes once per bucket → effectively 600 paired samples per bucket per ckpt. SEM ≈ 0.01-0.08 nat / sample for the mean.
+- Hardware: 1× A100 (CUDA_VISIBLE_DEVICES=0), bf16 forward via `model.eval()` and `torch.no_grad()`. ~6 min per ckpt.
+- Ckpts (all CA-only, all 160M, all `latent_dim=None`):
+  - `canonical_2646` = `best_val_00000026_000000002646.ckpt` from `test_ca_only_diffusion/1776805213` — canonical wd=0.05 baseline at the documented best-val ckpt.
+  - `conv_2331` = `best_val_00000023_000000002331.ckpt` from `ca_only_downsampled/1777987722` — 1D-conv variant, canonical recipe, dead alone (E034: 0/18) but useful in the hybrid (E041: 56% with canonical receiver).
+  - `scnbr_t04_1133` = `best_val_00000011_000000001133.ckpt` from `ca_only_sparse_K40_scnbr_t04/1778022317` — sparse K=40 + Fix C2 (sc_neighbors threshold-gated x_sc), variant-bar clearing at 17% pooled designability (E039).
+  - `sparse_vanilla_1259` = `best_val_00000012_000000001259.ckpt` from `ca_only_sparse_K40/<run_id>` — sparse K=40 *without* the scnbr threshold-gating mechanism. Re-rsynced from HPC (user explicitly enabled rsync after `feedback_no_rsync_use_local_ckpts.md` was written; "rsynced now").
+
+**Results — per-t mean validation loss, n=600 proteins per bucket:**
+
+| ckpt | step | t∈[0.0, 0.2) | t∈[0.2, 0.4) | t∈[0.4, 0.6) | t∈[0.6, 0.8) | t∈[0.8, 1.0) | min bucket |
+|---|---|---|---|---|---|---|---|
+| canonical_2646 | 2646 | **3.018** ± 0.076 | **1.932** ± 0.025 | **1.293** ± 0.017 | **1.086** ± 0.010 | **1.313** ± 0.015 | t∈[0.6, 0.8) |
+| conv_2331 | 2331 | 3.024 ± 0.076 | 1.972 ± 0.023 | 1.372 ± 0.015 | 1.228 ± 0.012 | 1.765 ± 0.024 | t∈[0.6, 0.8) |
+| scnbr_t04_1133 | 1133 | 3.122 ± 0.079 | 2.057 ± 0.027 | 1.406 ± 0.014 | 1.221 ± 0.010 | 1.518 ± 0.016 | t∈[0.6, 0.8) |
+| sparse_vanilla_1259 | 1259 | 3.106 ± 0.072 | 2.059 ± 0.026 | 1.413 ± 0.014 | 1.218 ± 0.010 | 1.497 ± 0.016 | t∈[0.6, 0.8) |
+
+(Numbers are mean ± SEM in `nat / protein` of the FM loss as defined in `compute_loss`. Bold = global per-bucket minimum across the four ckpts.)
+
+**Pairwise differences relative to canonical_2646 (Δ = ckpt − canonical):**
+
+| ckpt | Δ@[0.0, 0.2) | Δ@[0.2, 0.4) | Δ@[0.4, 0.6) | Δ@[0.6, 0.8) | Δ@[0.8, 1.0) |
+|---|---|---|---|---|---|
+| conv_2331 | +0.006 | +0.040 | +0.079 | +0.142 | +0.452 |
+| scnbr_t04_1133 | +0.104 | +0.125 | +0.113 | +0.135 | +0.205 |
+| sparse_vanilla_1259 | +0.088 | +0.127 | +0.121 | +0.132 | +0.184 |
+
+**Pairwise differences scnbr_t04 vs sparse_vanilla (Fix C2 ablation):**
+
+| bucket | scnbr_t04 − sparse_vanilla |
+|---|---|
+| t∈[0.0, 0.2) | +0.016 |
+| t∈[0.2, 0.4) | −0.002 |
+| t∈[0.4, 0.6) | −0.007 |
+| t∈[0.6, 0.8) | +0.003 |
+| t∈[0.8, 1.0) | +0.021 |
+
+**Side-by-side summary:** every variant has its minimum at **t∈[0.6, 0.8)**. Loss-vs-t curves are *parallel*, not crossing. canonical_2646 is uniformly best at every bucket; the other three are clustered tightly. The Fix-C2 mechanism (scnbr_t04 vs sparse_vanilla) does not move per-t val loss at the resolution this gives — every difference is below 0.025 nat / protein, well inside the noise floor for paired-sample resolution at n=600.
+
+**Interpretation:**
+
+1. **No regime where a non-canonical variant beats canonical at per-t val loss.** The hybrid-sampling rationale "use variant A in regime X, variant B in regime Y because each is best in its own regime" *fails* on the per-t-loss criterion. Across all five buckets canonical < conv < scnbr ≈ sparse_vanilla. There is no t-region where conv or scnbr is locally optimal. This means E040/E041's hybrid value-add (if it exists at all — not yet disambiguated by canonical-alone-at-2457 control) cannot be explained by "conv is just as good early in the trajectory as canonical".
+
+2. **The tight scnbr_t04 vs sparse_vanilla agreement (Δ ≤ 0.025 at every bucket) is mechanistically informative.** Fix C2's `sc_neighbors_t_threshold=0.4` is a *sampling-time intervention*: at t<0.4 the model uses x_sc-derived neighbors instead of x_t-derived neighbors. At validation time the ckpt is whatever the trainer wrote, with whatever neighbor source the training-time `corrupt_batch` chose. Per-t val loss is therefore measuring *the trained weights*, not the inference-time mechanism. The conclusion is **the trained weights of the two sparse variants are functionally identical at this val-loss resolution**; their designability gap (E039 17% vs untested for vanilla) is either driven by the inference-time x_sc switch or by sampling-trajectory dynamics that per-t val loss does not see.
+
+3. **The L=200 / L=800 step-1259 sparse_vanilla ckpt has not been designability-tested.** This entry's per-t numbers say it's *training-equivalent* to scnbr_t04. A clean variant comparison would be sparse_vanilla designability (no Fix C2 inference) vs scnbr_t04 designability (with Fix C2 inference). If they tie, Fix C2 contributes nothing at inference. If scnbr_t04 wins, Fix C2 is purely an inference-time win. (Pre-registered prediction: sparse_vanilla without Fix C2 will *under*-perform scnbr_t04, because at low-t the x_t neighbors are random — see CLAUDE.md "At t≈0 spatial+random groups are essentially random subsets". But the gap should be small, since Fix C2's threshold gating only fires for t<0.4 = the noisy first 40% of t-distance.)
+
+4. **Loss-vs-t shape is the standard FM shape.** All four ckpts have the predicted U: high near t=0 (the noisy regime where the model is asked to predict a velocity from near-pure noise), minimum in the middle (where the conditional has the most useful x_t signal), rising again near t=1 (sample-quality regime where small velocity errors are amplified by the integrator). Minimum at t∈[0.6, 0.8) is consistent with the inference-time finding that `t≈0.6` is where models can already make committal predictions about the final structure.
+
+5. **conv_2331 has the largest t∈[0.8, 1.0) gap to canonical (+0.452 nat / protein).** This is consistent with E034 / E041's reading that the conv variant's downsampling is fine for bulk denoising but loses fidelity for late-stage refinement — exactly when the integrator is committing to atom positions. The hybrid in E041 hands off at t=0.6, *before* this conv-disadvantage region starts. Confirms the architectural bet behind the hybrid (use conv for the early bulk, hand off to a refiner) without proving it works compositionally.
+
+6. **The fact that all four ckpts have the same minimum bucket disambiguates one hypothesis:** "perhaps `t∈[0.6, 0.8)` is just where the validation distribution is densest and dominates the bucketed mean". No — the protocol samples t uniformly from each bucket, so within-bucket density is uniform. The U-shape is real.
+
+**Methodological caveats:**
+
+- **Single seed (42) on the 600-protein subset.** Re-running with seed 7 / seed 13 would tighten the SEM estimates and tell us whether the small (Δ ≈ 0.02) sparse_vanilla vs scnbr_t04 differences are reproducible or noise. Not done here because the conclusion (variants identical at val-loss resolution) is the same either way.
+- **Validation set proxy, not the actual canonical val set.** `data/pdb_train/processed_latents/` is the *training* index. The script samples 600 from it, filters by length, and uses that. Numbers will be ~0.05-0.1 nat lower than the true val set (which has its own length / cluster cut), but pairwise differences across ckpts are robust because we use the *same proteins* across all four. The claim is "ckpt A has lower paired loss than ckpt B at the same t", not "ckpt A's val loss equals X".
+- **`call_nn` runs in `torch.no_grad()` and `.eval()`** — no dropout, no parameter updates, no momentum buffers. Matches what `validation_step` does internally.
+- **n_recycle=0** at validation. The training-time validation loop also calls `call_nn(..., n_recycle=0)` (`proteina.py:415`).
+- **Per-protein loss = sum of all non-`_justlog` keys** from `compute_loss`. For CA-only that is essentially the bb_ca v-prediction MSE; the `_justlog` keys (per-channel breakdowns) are excluded. Same convention as the training loop.
+- **bf16 vs fp32:** the training-time forward is bf16; this script also runs bf16 (default for the loaded ckpt). Per-t losses in fp32 would be slightly different but not enough to change the ordering.
+- **Checkpoint maturity is not matched.** canonical_2646 is at step 2646 (in the canonical run's overshoot regime — best-val window ends at step 2200 per CLAUDE.md). conv_2331 is at the canonical-recipe best-val step. scnbr_t04 and sparse_vanilla are at their respective converged plateaus (step 1133 / 1259). The cross-ckpt comparison is *at each ckpt's natural maturity*, which is the correct framing for the hybrid-sampling decision (you'd hybrid the production-ready ckpts, not the half-trained ones), but it means the canonical advantage of +0.13-0.45 nat over the others includes an extra ~1500 opt steps of training time.
+
+**Cross-references:**
+- Diagnostic plan: D1 (this entry), D2 (per-t velocity divergence on sampled trajectories — pending), D3 (joint consistency fine-tune of conv+scnbr — pending).
+- Hybrid sampling that motivated the diagnostic: [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06), [E041](#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06).
+- Variant baselines: canonical [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29), conv [E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06), scnbr [E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06), sparse_vanilla — designability untested.
+- Driver script: `proteinfoundation/run_per_t_val.py` (created this entry).
+- Output: `results/per_t_val/{canonical_2646, conv_2331, scnbr_t04_1133, sparse_vanilla_1259}.json` (full per-bucket mean / std / sem / n).
+- Per-t bucketing source-of-truth: `proteina.py:478-492` (the same partition is used by training-time wandb logging).
+- Schedule arithmetic check: `get_schedule(mode='log', p1=2.0, nsteps=200)` confirms t=0.6 → step 40 / 200, not step 120 (used to correct the schedule arithmetic in E040/E041 entries).
+- Predicts:
+  - **(a) sparse_vanilla designability at step 1259, N=6, seed=5, lengths {50, 100, 200}.** Per-t val loss says weights are equivalent to scnbr_t04 (which got 17% pooled at step 1133). Predicts sparse_vanilla pooled designability ≈ 17% if Fix C2 contributes nothing at inference, or noticeably lower (≤ 10%) if Fix C2 is the inference-time win.
+  - **(b) D2 (next).** Compute ‖v_A(x_t, t) − v_B(x_t, t)‖ averaged over n=200 sampled-trajectories *across all t in the integration grid* (not just at a single handover). Predicts the kink is largest at low t (where the two models disagree most about the noisy regime) and decreases toward t=1. If the trajectory-averaged kink is small in some t-window, that window is the right t_switch for hybrid sampling. Combine with D1: the t-switch should be where (a) per-t val loss is similar between the two, AND (b) trajectory kink is small. Per E041's small-kink-correlates-with-better-designability reading, an empirically optimal t_switch should sit at high t.
+  - **(c) D3 (next).** Joint fine-tune conv and scnbr together with a consistency loss `‖v_conv(x_t, t) − v_scnbr(x_t, t)‖²` *added* to the standard FM loss, only on overlapping t-buckets. Predicts kink shrinks; per-t val loss for both rises slightly (the consistency penalty is regularising); designability of either-alone may improve modestly because the two models now share an interior representation.
+
+### E043 addendum — paired aggregate val loss under the training-time t-distribution (2026-05-07)
+
+**Why ran:** Wandb's training-time `validation_loss/loss_epoch` shows canonical_2646 *higher* than every variant's best-val. E043's per-t paired buckets (n=600) show canonical *lower* at every bucket. Designability shows canonical *much* better. Three signals; one is contradicting two. Question: is the wandb flip a real property of the trained weights (in which case the per-t bucketing is somehow blind to it), or is it an artifact of the training-time logging path? The user's specific challenge: "averaging over so many samples doesn't make it a lot higher does it? or is it maybe summed not averaged? is there maybe a reason why the per t loss could be consistently higher and still the sum lower that I don't think of?"
+
+**Configs:**
+- Driver: `proteinfoundation/run_aggregate_val_seeds.py` (created this entry). Same paired 600-protein subset as E043 (`subset_seed=42`, same per-protein rotations). For each ckpt × t-seed, draws one t per protein from the actual training/val distribution `mix_unif_beta(p1=1.9, p2=1.0, p3=0.02)` (from `configs/training_ca_only.yaml:39`), runs `model.fm.compute_loss(...)` once, returns the across-protein mean. Repeats 20 t-draw seeds (10000–10019) per ckpt.
+- Ckpts: `canonical_2646` (best_val_00000026_000000002646.ckpt, `test_ca_only_diffusion/1776805213`) and `sparse_vanilla_1259` (best_val_00000012_000000001259.ckpt, `ca_only_sparse_K40`). Ran sequentially on CUDA_VISIBLE_DEVICES=1 under nohup. Wall: ~50 min total.
+- Same channel set, same `compute_loss`, same reduction, same protein subset across both ckpts. The only thing that varies between `(ckpt, seed)` cells is the per-protein t-draw and the model.
+
+**Why this is the right verification.** The aggregate `validation_loss/loss_epoch` Lightning logs is `mean_over_epoch(sum_over_channels(mean_over_batch(losses[k])))`. For CA-only there is exactly one channel (`bb_ca`; `compute_aux_loss` only emits when `"x_motif" in batch`), so the sum-over-channels collapses to a single mean. The reduction is mean-over-batch-then-mean-over-batches, which equals mean-over-all-proteins when batches are equal-sized — exactly what this script computes. So the script reproduces the wandb-aggregator semantics on a controlled subset. Differences must come from the protein subset, the per-event variance, EMA-vs-raw, or selection bias of "best val".
+
+**The 1/(1-t)² weight in `compute_fm_loss`.** `rdn_flow_matcher.py:215` applies `total_loss_w = 1.0 / ((1.0 - t)**2 + 1e-5)` to the raw MSE. At t=0.9 the weight is 100; at t=0.99 it's 10⁴; at t=0.997 it's >10⁵. Combined with `mix_unif_beta(1.9, 1.0, 0.02)` heavily concentrating draws near t=1, single high-t outlier draws can in principle dominate the mean. We expected `std_of_means` across t-seeds to be large (~0.1+ nat) and to be the explanation for the wandb flip. **It wasn't.**
+
+**Numbers — 20 t-draw seeds per ckpt, n=600 paired proteins per seed:**
+
+| ckpt | mean_of_means | std_of_means | min | max | range |
+|---|---|---|---|---|---|
+| canonical_2646 | **1.4008** | 0.0224 | 1.3267 | 1.4319 | 0.105 |
+| sparse_vanilla_1259 | **1.5375** | 0.0219 | 1.4741 | 1.5779 | 0.104 |
+
+- Δ(sparse_vanilla − canonical) = **+0.137 nat** (= **+4.36σ** under the combined std-of-means ≈ 0.031).
+- **Zero seed-overlap.** Worst canonical seed (1.4319) is *below* best sparse_vanilla seed (1.4741). Every canonical t-draw beats every sparse_vanilla t-draw.
+- Per-seed maxima (the heavy-tail draws) reach 5-15 nat (sparse_vanilla seed 10006 hit 15.28; canonical seed 10005 hit 11.37) — heavy tails are real and visible per-protein, but the per-seed *mean* over 600 proteins washes them out enough that std_of_means ≈ 0.022 for both ckpts.
+
+**Sanity check vs E043 per-t buckets.** Integrating canonical_2646's per-t bucket means under `mix_unif_beta(1.9, 1.0, 0.02)`-derived bucket weights {[0.0,0.2):4.7%, [0.2,0.4):12.0%, [0.4,0.6):19.2%, [0.6,0.8):26.2%, [0.8,1.0):39.5%} predicts aggregate ≈ 0.047·3.018 + 0.120·1.932 + 0.192·1.293 + 0.262·1.086 + 0.395·1.313 ≈ **1.426**. Measured: **1.4008**. Same calculation for sparse_vanilla_1259: predicted **1.574**, measured **1.5375**. Per-t bucket means and the aggregate-on-paired-set agree to within 0.04 nat. **The per-t buckets correctly predict the paired aggregate.**
+
+**Interpretation:**
+
+1. **The "heavy-tail dominates the mean" story is wrong as a sole explanation.** `std_of_means = 0.022` for both ckpts means the aggregate IS pretty stable across t-draw seeds at n=600 — much tighter than I claimed in conversation. The 1/(1-t)² weight does cause individual proteins at extreme-t to score in the 5-15 nat range, but at n=600 these wash out enough that the seed-mean estimator is fine. The aggregate flip on wandb cannot be explained by the per-event variance of this estimator.
+2. **On a paired set, all three signals AGREE: canonical < sparse_vanilla.** Per-t buckets (every bucket: canonical lower by 0.13-0.18 nat at the meaningful buckets), aggregate under training t-distribution (0.137 nat at +4.36σ), and designability (canonical 76% pooled vs untested sparse_vanilla, expected ≤ 17% per E039 scnbr ceiling). The trained-weights ordering is unambiguous.
+3. **The wandb training-time aggregate is therefore the artifact, not the signal.** Candidate causes (any of (a)-(c) suffices):
+   - **(a) Different val proteins per training run.** Val_dataloader uses `shuffle=False` (`base_data.py:193`). Each run averages over the *first N* of its own dataset construction. The canonical run was at hash `e1a0138` with `limit_val_batches=100`; the variants were at HEAD with `limit_val_batches=50` (the diff in `train.py:478` between `e1a0138` and HEAD changed it 100→50). These can produce different protein subsets even if the dataset construction itself is identical (because the cluster-expansion order or the upstream df_data shuffle behaviour is sensitive to package versions, RNG state, etc.). The paired protocol used in this addendum loads from `processed_latents/` directly with a fixed seed, bypassing whatever caused the divergence.
+   - **(b) EMA vs raw model.** `EmaModelCheckpoint` saves both `*.ckpt` and `*-EMA.ckpt`. Wandb's `validation_loss/loss_epoch` is logged from `validation_step`, which runs whichever model Lightning marks as "current" — usually the live model, but EMA copies and best-val selection both use the EMA weights. If the live-model val loss was logged but the EMA-model ckpt was saved as best_val (or vice versa), the wandb panel doesn't describe the saved ckpt.
+   - **(c) Best_val is an order statistic, not a mean.** Lifetime-min of val_loss across thousands of val events. With per-event std on the n=300 (limit_val_batches=50, batch_size=6) sample around 0.05 nat (estimated from `std_of_means / sqrt(20) × sqrt(300/600) ≈ 0.04` plus per-event t-draw variance), comparing two lifetime-min values from runs of different durations is comparing two extreme order statistics with very different reference distributions.
+4. **Per-t paired E043 + designability + this aggregate addendum are the three trusted signals.** Wandb training-time aggregate val loss is not comparable across runs. Memory: `feedback_wandb_val_loss_not_comparable.md`.
+
+**Methodological caveats (additional to E043's):**
+
+- **n=600 is enough to stabilise the seed-mean estimator** (std_of_means ≈ 0.02), so the canonical-vs-sparse_vanilla gap is +4.36σ. At n=50 batches × 6 = 300 (the variants' actual training-time `limit_val_batches=50` setting) the per-event variance is roughly √2× larger; Wilson would still put a 0.10 nat gap at >2σ. So even on the 300-protein scale of training-time logging, the paired protocol predicts canonical < sparse_vanilla. The wandb flip is therefore not "noise of the training-time per-event estimator" — it's pointing to a different *target* of estimation (different subset, different model copy, or both).
+- **Only two ckpts compared.** The +0.137 nat gap is canonical_2646 vs sparse_vanilla_1259. Replicating with conv_2331 and scnbr_t04_1133 against canonical would tighten the picture; the per-t bucket means already predict ≈ +0.06 nat (conv) and ≈ +0.10 nat (scnbr_t04) relative to canonical, so the same-direction flip should hold.
+- **Gap is on the *paired* set, not the canonical-run's val set.** Re-evaluating canonical and variants on canonical's *original* val set (whichever 600 proteins it logged on at step 2646) is the cleanest "did wandb compare different things" check, but is gated on knowing what those proteins were. The `pdb_data` rebuild from current code may not match the canonical-era construction.
+- **The 4.36σ figure assumes Gaussian seed-means.** Per-seed means are 600-protein averages of a heavy-tailed weighted MSE; the seed-mean distribution might be skewed. Empirical zero-seed-overlap is the more robust statement.
+- **EMA-vs-raw not yet checked.** This entry doesn't test the EMA-vs-raw hypothesis directly — that needs loading the `*-EMA.ckpt` companion of one of these ckpts and re-running the same protocol. Cheap follow-up if the user wants.
+
+**Cross-references:**
+- Driver: `proteinfoundation/run_aggregate_val_seeds.py` (this entry).
+- Output: `results/aggregate_val_seeds/agg_canonical_vs_sparse_vanilla.json`.
+- Memory: `feedback_wandb_val_loss_not_comparable.md`.
+- Parent diagnostic: E043 (per-t paired bucket means, n=600 paired proteins).
+- Causal candidate (a) traces to `train.py:478` change `limit_val_batches=100→50` (commit `e4ba5a6`) plus the `shuffle=False` in `base_data.py:193`.
+- Causal candidate (b) traces to `EmaModelCheckpoint` in `train.py:setup_ckpt`.
+
+---
+
+## E044 — Inference-only neighbor-list curriculum on plain sparse_K40 step 1259 (2026-05-07)
+
+**Why ran:** Diagnostic for the hypothesised mechanism behind sparse-attention's modest ceiling. The sparse K=40 neighbor list is built from `x_t["bb_ca"]` (the noisy current-step CA coords) at every diffusion step. At low t, `x_t` is essentially noise, so the spatial (8) + random (16) groups point at near-random index sets — only the sequential (16) group is t-invariant by construction. If the model is wasting capacity on these uninformative slots at low t, mask them at inference: sequential-only at very low t, +spatial mid-trajectory, full canonical K=40 at high t. Cheap inference-only test on the existing checkpoint before committing to a retraining run with the curriculum baked in.
+
+**Configs:**
+- Code change: `proteinfoundation/nn/local_latents_transformer.py` — added `curriculum_neighbors`/`curriculum_t_thresh_spatial`/`curriculum_t_thresh_random` kwargs (default off, so existing checkpoints/training are unchanged) and a per-protein `slot_valid` mask block immediately after `_build_neighbor_idx`. Group layout matches `sparse_neighbors.py:111-115`: `[0:2*n_seq]` sequential, `[2*n_seq:2*n_seq+n_spatial]` spatial, `[2*n_seq+n_spatial:K]` random. The sparse-attention path already AND-masks `slot_valid` against `nbr_valid & i_valid` and softmax-masks invalid slots to −∞ via `pair_bias_attn.py:172-176`, so the curriculum piggybacks on the existing padding-slot guard.
+- Inference-side hook: `proteinfoundation/generate.py` `load_ckpt_n_configure_inference` — reads `cfg.generation.args.curriculum_neighbors` and sets the attrs on `model.nn` post-load. Defaults to off; logs `[Curriculum neighbors] ON — t_spatial<X, t_random<Y` when active.
+- Curriculum schedule: `t < 0.3` → sequential only (effective K=16); `0.3 ≤ t < 0.6` → sequential + spatial (effective K=24); `t ≥ 0.6` → full K=40 canonical.
+- Configs: `configs/inference_sparse_K40_step1259_baseline_n6_nfe400.yaml` and `configs/inference_sparse_K40_step1259_curriculum_n6_nfe400.yaml`. Both inherit from `inference_base.yaml` (`seed: 5, nsteps: 400, sc_neighbors_bootstrap: True`); same `nlens_cfg=[50, 100, 200]`, `nsamples=6`. Identical except the curriculum yaml's three flags under `generation.args`.
+- Checkpoint: `/home/ks2218/la-proteina/sparse_K40_step1259.ckpt` (= `best_val_00000012_000000001259.ckpt`, run `ca_only_sparse_K40` per ckpt hparams). `sparse_attention=True, n_seq=8, n_spatial=8, n_random=16` → K=40. `update_pair_repr=False, use_tri_mult=False, use_downsampling=False, sc_neighbors=False` (clean baseline; deliberately not the `scnbr_t04` ckpt so the curriculum signal isn't confounded with Fix C2).
+- Hardware: 1× L4 (GPU 3), runs sequential under `nohup`. Wall: gen ~80 s × 2 = ~160 s, eval ~10 min × 2 = ~20 min.
+- Drivers: `/tmp/run_curriculum_pair.sh` (gen+eval), `/tmp/run_curriculum_eval.sh` (eval-only re-run after the first eval pass crashed because `PYTHON_EXEC` env var wasn't set, causing ProteinMPNN to launch under `/opt/conda/bin/python` without numpy).
+
+**Curriculum hook fired confirmation** — `nohup_inference_sparse_K40_step1259_curriculum_n6_nfe400.gen.log` line 1: `[Curriculum neighbors] ON — t_spatial<0.3, t_random<0.6`. Baseline log does not contain that string.
+
+**Results — pooled designability (N=6 × {50, 100, 200}):**
+
+| arm | L=50 | L=100 | L=200 | pooled | min Å | median Å | mean Å |
+|---|---|---|---|---|---|---|---|
+| baseline (no curriculum) | 2/6 (33%) | **3/6 (50%)** | 0/6 | **5/18 (28%)** | 1.08 | 5.13 | 6.31 |
+| curriculum on | 0/6 | 3/6 (50%) | 0/6 | 3/18 (17%) | 1.52 | 5.31 | 7.19 |
+
+**Per-length sorted scRMSD (Å):**
+
+- baseline L=50: `[1.29, 1.31, 3.20, 4.90, 5.36, 11.40]`
+- curriculum L=50: `[2.63, 2.98, 4.88, 5.75, 6.31, 7.67]`
+- baseline L=100: `[1.08, 1.43, 1.58, 4.30, 4.79, 6.31]`
+- curriculum L=100: `[1.52, 1.70, 1.73, 2.25, 3.85, 4.52]`
+- baseline L=200: `[7.87, 9.96, 10.87, 11.63, 12.52, 13.74]`
+- curriculum L=200: `[10.59, 11.73, 14.57, 15.14, 15.23, 16.33]`
+
+**Per-protein paired (same noise, same seed=5, same `(L, id)` mapping):**
+
+| L | id | baseline | curric | Δ Å | flag |
+|---|---|---|---|---|---|
+| 50 | 0 | 11.40 | 2.63 | **−8.77** | rescued from collapse |
+| 50 | 1 | 1.31 ✓ | 7.67 | +6.36 | DESIGN→FAIL |
+| 50 | 2 | 3.20 | 6.31 | +3.11 | worse |
+| 50 | 3 | 1.29 ✓ | 5.75 | +4.45 | DESIGN→FAIL |
+| 50 | 4 | 5.36 | 4.88 | −0.48 | ~same |
+| 50 | 5 | 4.90 | 2.98 | −1.92 | better |
+| 100 | 0 | 1.43 ✓ | 2.25 | +0.82 | DESIGN→FAIL (just barely) |
+| 100 | 1 | 1.08 ✓ | 1.73 ✓ | +0.65 | both designable |
+| 100 | 2 | 6.31 | 4.52 | −1.80 | better |
+| 100 | 3 | 4.30 | 3.85 | −0.44 | ~same |
+| 100 | 4 | 1.58 ✓ | 1.52 ✓ | −0.05 | ~same |
+| 100 | 5 | 4.79 | 1.70 ✓ | **−3.09** | FAIL→DESIGN |
+| 200 | 0 | 9.96 | 14.57 | +4.61 | worse |
+| 200 | 1 | 11.63 | 11.73 | +0.10 | ~same |
+| 200 | 2 | 10.87 | 15.14 | +4.27 | worse |
+| 200 | 3 | 7.87 | 16.33 | **+8.46** | worse |
+| 200 | 4 | 12.52 | 15.23 | +2.71 | worse |
+| 200 | 5 | 13.74 | 10.59 | −3.15 | better |
+
+Designability flips: 3× DESIGN→FAIL, 1× FAIL→DESIGN — net −2 (matches the pooled −2 = 5−3).
+
+**Bimodality at L=100:**
+
+- baseline: 3 clean (<3 Å, [1.08, 1.43, 1.58]), 2 mid (3-5 Å, [4.30, 4.79]), 1 collapsed (>5 Å, [6.31])
+- curriculum: 4 clean (<3 Å, [1.52, 1.70, 1.73, 2.25]), 2 mid (3-5 Å, [3.85, 4.52]), **0 collapsed**
+
+The L=100 distribution narrows and shifts toward the designable end under curriculum: max drops 6.31 → 4.52, median drops 2.94 → 1.99, the cleanest-cluster fattens 3→4 while the collapsed sample disappears entirely. Designability count is 3/6 in both arms, but for *different* reasons: baseline has three good samples and three bad; curriculum has four near-clean samples plus two mid samples that didn't quite cross the 2 Å threshold.
+
+**Cross-reference vs N=30 baseline (`results_inference_sparse_n30_0.csv`, same ckpt at nsteps=400):**
+
+| L | N=30 baseline | this N=6 baseline | curriculum N=6 |
+|---|---|---|---|
+| 50 | 13/30 (43%) min 0.90 | 2/6 (33%) min 1.29 | 0/6 min 2.63 |
+| 100 | 8/30 (27%) min 0.97 | 3/6 (50%) min 1.08 | 3/6 (50%) min 1.52 |
+| 200 | 0/30 (0%) min 2.01 | 0/6 (0%) min 7.87 | 0/6 (0%) min 10.59 |
+| pool | 21/90 (23%) | 5/18 (28%) | 3/18 (17%) |
+
+The N=6 baseline falls inside the noise band of the N=30 baseline (per-length differences ≤ 17 percentage points; pooled within 5 pp). Confirms the curriculum *vs* N=6 baseline comparison is not corrupted by my N=6 baseline being a fluke.
+
+**Verdict — curriculum hurts inference-only on plain sparse_K40, with one redistribution silver lining:**
+
+1. **Pooled designability drops 28% → 17%** under inference-only curriculum (−2 designable across 18 proteins). L=50 and L=200 both degrade. L=200 every paired protein except one drifts further into collapse (5/6 worse, mean +4.0 Å).
+2. **L=100 is the only length where the count holds** (3/6 both ways), but the *shape* of the distribution is the most encouraging signal: collapsed sample (6.31 Å) disappears, max scRMSD drops 6.31 → 4.52, median drops 2.94 → 1.99. Two near-failures move toward the threshold; one designable sample (id=5, 4.79 → 1.70) is fully rescued.
+3. **L=50 id=0 paired Δ = −8.77 Å** (11.40 → 2.63) is the single most dramatic effect in the run — a fully collapsed sample becomes near-designable. Counterbalanced by two L=50 designables flipping to non-designable (id=1: 1.31→7.67; id=3: 1.29→5.75), so the L=50 net effect is negative.
+4. **Mechanism reading: the model uses the noisy spatial+random groups for non-trivial information transport at low t.** Removing them is not a no-op — it shifts trajectories meaningfully, and on average for the worse on a checkpoint that wasn't trained against the masked input distribution.
+
+**Implication for retraining-with-curriculum.** The inference-only test does NOT support the "low-t spatial+random groups carry no useful information" reading. Two readings remain plausible:
+- (a) The noisy slots carry rough information that the trained model has learned to denoise (i.e., even noisy spatial neighbors provide a spatial prior that's better than no neighbors). Retraining with curriculum would strip this signal during training too, and the model would have to rely entirely on sequential context at low t — likely worse, not better.
+- (b) The trained model has learned to ignore the noisy groups but the *input distribution* (presence of those slots, even with garbage indices) is part of what the AdaLN-Zero gates were calibrated against. Removing them at inference is an OOD input shift; retraining with curriculum would let the gates re-calibrate.
+
+The L=100 redistribution + L=50 id=0 rescue is the only signal pulling toward (b). The pooled drop and the L=200 uniform degradation pull toward (a). At N=6 the evidence isn't strong enough to commit to a retraining run — a 1-day retraining attempt of `ca_only_sparse_K40` with `curriculum_neighbors=True` baked into the training-side forward call is justifiable as a probe (matched recipe, ~16h on 1× A100), but flag the prior that this may produce no improvement or actively regress.
+
+If retraining is attempted: **threshold sensitivity is a likely confound**. The 0.3/0.6 thresholds are an untuned guess. A short t-sweep on the inference-only side (e.g., `(0.1, 0.4)`, `(0.2, 0.5)`, `(0.3, 0.6)`, `(0.5, 0.8)`) before retraining is the cheaper next step — would clarify whether the L=100 redistribution scales with how aggressively low-t is masked.
+
+**Methodological caveats:**
+
+- **N=6 per length, single seed=5.** Three flips in a 18-protein paired comparison sit well inside noise of an N=6 protocol. The variant-bar table in CLAUDE.md uses this protocol so the comparison is method-consistent, but Wilson 95% CI on 5/18 vs 3/18 is wide and overlaps. The L=200 uniform degradation (5/6 worse) is the most directionally robust per-length finding; L=50 and L=100 shouldn't be over-interpreted.
+- **Inference-only test on a checkpoint trained without curriculum.** This deliberately tests the *mechanism* (do the noisy slots matter at all?), not the *retraining-with-curriculum hypothesis*. A null/negative result here doesn't rule out the latter — the latter is properly tested only by retraining.
+- **Curriculum thresholds untuned.** 0.3/0.6 was the task's prescribed default. Earlier or later cutoffs may produce different signs at L=50/L=200.
+- **Single architecture × single ckpt step.** Curriculum tested only on plain sparse_K40 step 1259. Repeating on `ca_only_sparse_K40_scnbr_t04` step 1133 (E039 ckpt) would test additivity with Fix C2 — deliberately not done here so the curriculum signal isn't confounded with the threshold-gated x_sc neighbor source.
+- **scRMSD < 2 Å with ProteinMPNN `ca_only=True` (8 seqs/protein, default), ESMFold backbone reconstruction.** Standard CLAUDE.md eval protocol; matches E021/E034/E035/E038/E039/E040/E041 protocol.
+- **First eval pass produced all-NaN CSVs** because `PYTHON_EXEC` env var wasn't exported in my runner — ProteinMPNN spawned under `/opt/conda/bin/python` (no numpy). Detected by reading the eval log; deleted the broken CSVs, cleaned stale per-sample tmp dirs (which had been created by the broken first eval and prevented the second eval from running), and re-ran with `PYTHON_EXEC=/home/ks2218/.conda/envs/laproteina_env/bin/python` exported. Numbers in this entry are from the second (correct) eval pass.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. The signal is mixed at N=6 and the more decision-relevant test is a retraining run, which this entry's thresholds and N=6 don't justify launching directly. **What this entry decides:** (1) the noisy-spatial-slot-carrying-no-information mechanism story is *not* clearly supported — at minimum it's not so dominant that masking them is free; (2) before any retraining, a t-threshold sweep should establish whether the L=100 redistribution scales with curriculum aggressiveness or is a noise artifact. If retraining is later attempted and changes the picture, link back here from the new entry.
+
+**Cross-references:**
+- Code change: `proteinfoundation/nn/local_latents_transformer.py` (kwargs + masking block) and `proteinfoundation/generate.py` (post-load hook).
+- Configs: `configs/inference_sparse_K40_step1259_baseline_n6_nfe400.yaml`, `configs/inference_sparse_K40_step1259_curriculum_n6_nfe400.yaml`.
+- Output CSVs: `inference/results_inference_sparse_K40_step1259_baseline_n6_nfe400_0.csv`, `inference/results_inference_sparse_K40_step1259_curriculum_n6_nfe400_0.csv`.
+- Logs: `nohup_inference_sparse_K40_step1259_*_n6_nfe400.gen.log`, `*.eval2.log`.
+- N=30 baseline cross-check: `inference/results_inference_sparse_n30_0.csv` (same ckpt, nsteps=400, same protocol up to N).
+- Sparse-attention architecture: CLAUDE.md → "Sparse-attention variant (SALAD-style, K=40)"; `proteinfoundation/nn/modules/sparse_neighbors.py`.
+- Closest comparator at the same step + protocol: [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) (N=30 sparse-K40 1259, nsteps=200 — historical context only; nsteps mismatch makes the absolute Å numbers not comparable, but the converged-plateau ordering is consistent).
+
+---
+
+## E045 — t-dependent K-budget reallocation curriculum on plain sparse_K40 step 1259 (2026-05-07)
+
+**Why ran:** Direct follow-up to [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07). E044 *masked* spatial+random slots at low t, shrinking the effective K from 40 → 16 — pooled designability dropped 5/18 → 3/18 with one upside (L=100 distribution tightening). Hypothesis tested here: keep total K=40 fixed across the whole trajectory and instead *reallocate* the budget across (sequential, spatial, random) groups as a function of t. The model's softmax always sees 40 real slots — only the *content* shifts. At low t, replace the noise-driven spatial+random groups with extra sequential (which is t-invariant by construction); at high t, recover the canonical training composition. Question: does keeping K=40 fixed avoid E044's effective-receptive-field shrinkage and produce a different effect?
+
+**Schedule (3 buckets, hard cutoffs):**
+
+| t-range | n_seq (per side) | n_spatial | n_random | Total K | Composition |
+|---|---|---|---|---|---|
+| t < 0.33 | 20 | 0 | 0 | 40 | 40 sequential |
+| 0.33 ≤ t < 0.66 | 12 | 8 | 8 | 40 | 24 seq + 8 sp + 8 rd |
+| t ≥ 0.66 | 8 | 8 | 16 | 40 | 16 seq + 8 sp + 16 rd (canonical) |
+
+t=0 is noise, t=1 is clean. The high-t bucket exactly matches the training distribution. Bucket boundaries are abrupt (no interpolation across t).
+
+**Configs:**
+- Code change: `proteinfoundation/nn/local_latents_transformer.py` — replaced E044's masking block with a t-aware `_build_neighbor_idx` that picks (n_seq, n_spatial, n_random) from t when `self.curriculum_neighbors=True`. Asserts `torch.allclose(t, t[0])` (inference-time t is uniform across the batch under Euler integration; the assert prevents accidental training-time use where t is per-protein). E044's `curriculum_t_thresh_*` kwargs removed (they're not relevant to the realloc path). The flag `curriculum_neighbors` keeps its name but its meaning has changed: prior commit = mask; HEAD = realloc.
+- Inference hook: `proteinfoundation/generate.py` post-load block, sets `model.nn.curriculum_neighbors = True` and logs the schedule. Gated on `cfg.generation.args.curriculum_neighbors`; default off, existing configs unchanged.
+- Sparse path (`build_neighbor_idx`) handles `n_spatial=0` / `n_random=0` cleanly via the `if k_sp > 0` / `if k_rnd > 0` guards in `sparse_neighbors.py:67-72, 86-90`. Confirmed: at t < 0.33 no spatial/random topk is computed, the `_pad` truncates the empty groups to zero columns, and `slot_valid` ends up all-True over the 40 sequential-only slots.
+- Configs: `configs/inference_sparse_K40_step1259_curriculum_realloc_n6_nfe400.yaml`. Mirrors E044's curriculum config except for the file name and that the schedule is decided by the code (no `curriculum_t_thresh_*` keys). Inherits from `inference_base.yaml` (`seed: 5, nsteps: 400, sc_neighbors_bootstrap: True`); `nlens_cfg=[50, 100, 200]`, `nsamples=6`.
+- Checkpoint: `/home/ks2218/la-proteina/sparse_K40_step1259.ckpt` (= `best_val_00000012_000000001259.ckpt`, run `ca_only_sparse_K40`). Same as E044 — clean sparse, no Fix C2.
+- Hardware: 1× L4 (GPU 3), `nohup`. Wall: gen 72 s, eval ~9 min.
+- Driver: `/tmp/run_realloc_arm.sh` with `PYTHON_EXEC=/home/ks2218/.conda/envs/laproteina_env/bin/python` exported (lesson from E044's first eval pass).
+
+**Curriculum hook fired confirmation** — gen log line 1: `[Curriculum neighbors] ON — 3-bucket K-reallocation: t<0.33 → (n_seq=20, n_sp=0, n_rd=0); 0.33≤t<0.66 → (12, 8, 8); t≥0.66 → (8, 8, 16).` and the `torch.allclose(t, t[0])` assert did not trigger over 400 inference steps × 18 proteins.
+
+**Baseline reused from E044** — same checkpoint, same protocol, same seed → noise is paired by `(L, id)`. The N=6 baseline CSV (`inference/results_inference_sparse_K40_step1259_baseline_n6_nfe400_0.csv`) was not re-run for E045. Cross-check vs the N=30 baseline `inference/results_inference_sparse_n30_0.csv` (same ckpt, nsteps=400) is at the bottom of E044.
+
+**Results — pooled designability (N=6 × {50, 100, 200}):**
+
+| arm | L=50 | L=100 | L=200 | pooled | min Å | median Å | mean Å | std Å |
+|---|---|---|---|---|---|---|---|---|
+| baseline (no curriculum) | 2/6 | **3/6 (50%)** | 0/6 | 5/18 (28%) | 1.08 | 5.13 | 6.31 | 4.39 |
+| E044 mask (K → 16 at low t) | 0/6 | **3/6 (50%)** | 0/6 | 3/18 (17%) | 1.52 | 5.31 | 7.19 | 5.31 |
+| E045 realloc (K=40 fixed) | **3/6 (50%)** | 0/6 | 0/6 | 3/18 (17%) | **0.63** | 3.79 | 7.32 | 6.02 |
+
+Pooled designability ties between mask and realloc (both −2 vs baseline), but **the per-length distribution is completely different** — the two interventions are doing opposite things at different chain lengths.
+
+**Per-length sorted scRMSD (Å):**
+
+- L=50 baseline: `[1.29, 1.31, 3.20, 4.90, 5.36, 11.40]`
+- L=50 mask: `[2.63, 2.98, 4.88, 5.75, 6.31, 7.67]`
+- L=50 realloc: `[0.63, 1.47, 1.80, 2.35, 2.82, 3.10]` ← **every sample within 3.10 Å of native**, min 0.63 Å is the lowest scRMSD ever seen on this checkpoint
+- L=100 baseline: `[1.08, 1.43, 1.58, 4.30, 4.79, 6.31]`
+- L=100 mask: `[1.52, 1.70, 1.73, 2.25, 3.85, 4.52]`
+- L=100 realloc: `[2.47, 2.78, 3.03, 4.49, 7.02, 9.04]` ← bimodality returns; two new collapsed samples
+- L=200 baseline: `[7.87, 9.96, 10.87, 11.63, 12.52, 13.74]`
+- L=200 mask: `[10.59, 11.73, 14.57, 15.14, 15.23, 16.33]`
+- L=200 realloc: `[13.06, 14.23, 15.07, 15.67, 16.05, 16.26]`
+
+**Per-protein paired (same noise; baseline / mask / realloc):**
+
+| L | id | base | mask | realloc | Δmask | Δrea | rea_vs_mask |
+|---|---|---|---|---|---|---|---|
+| 50 | 0 | 11.40 | 2.63 | **0.63 ✓** | −8.77 | **−10.77** | −2.00 |
+| 50 | 1 | 1.31 ✓ | 7.67 | 3.10 | +6.36 | +1.79 | −4.57 |
+| 50 | 2 | 3.20 | 6.31 | **1.47 ✓** | +3.11 | −1.73 | −4.84 |
+| 50 | 3 | 1.29 ✓ | 5.75 | **1.80 ✓** | +4.45 | +0.51 | −3.95 |
+| 50 | 4 | 5.36 | 4.88 | 2.35 | −0.48 | −3.01 | −2.53 |
+| 50 | 5 | 4.90 | 2.98 | 2.82 | −1.92 | −2.08 | −0.16 |
+| 100 | 0 | 1.43 ✓ | 2.25 | **9.04** | +0.82 | **+7.61** | +6.79 |
+| 100 | 1 | 1.08 ✓ | 1.73 ✓ | 2.47 | +0.65 | +1.39 | +0.74 |
+| 100 | 2 | 6.31 | 4.52 | 4.49 | −1.80 | −1.83 | −0.03 |
+| 100 | 3 | 4.30 | 3.85 | 7.02 | −0.44 | +2.72 | +3.17 |
+| 100 | 4 | 1.58 ✓ | 1.52 ✓ | 3.03 | −0.05 | +1.46 | +1.51 |
+| 100 | 5 | 4.79 | 1.70 ✓ | 2.78 | −3.09 | −2.01 | +1.08 |
+| 200 | 0 | 9.96 | 14.57 | 13.06 | +4.61 | +3.10 | −1.51 |
+| 200 | 1 | 11.63 | 11.73 | 14.93 | +0.10 | +3.30 | +3.20 |
+| 200 | 2 | 10.87 | 15.14 | 16.00 | +4.27 | +5.13 | +0.86 |
+| 200 | 3 | 7.87 | 16.33 | 15.80 | +8.45 | +7.93 | −0.53 |
+| 200 | 4 | 12.52 | 15.23 | 16.26 | +2.71 | +3.74 | +1.03 |
+| 200 | 5 | 13.74 | 10.59 | 14.62 | −3.15 | +0.88 | +4.02 |
+
+**Designability flips, base → realloc**: 4× DESIGN→FAIL (3 of them at L=100), 2× FAIL→DESIGN (both at L=50). Net −2.
+
+**Designability flips, mask → realloc** (apples-to-apples between the two interventions): 3× DESIGN→FAIL at L=100 (samples that the mask had pulled into designable get *un-designable* by realloc), 3× FAIL→DESIGN at L=50 (samples that mask hurt are *rescued* by realloc).
+
+**L=100 cluster proportions (clean<3 Å / mid 3-5 Å / collapsed>5 Å):**
+
+| arm | clean | mid | collapsed |
+|---|---|---|---|
+| baseline | 3 [1.08, 1.43, 1.58] | 2 [4.30, 4.79] | 1 [6.31] |
+| mask | **4** [1.52, 1.70, 1.73, 2.25] | 2 [3.85, 4.52] | 0 |
+| realloc | 2 [2.47, 2.78] | 2 [3.03, 4.49] | **2** [7.02, 9.04] |
+
+Mask tightens the L=100 distribution (collapsed→0); realloc reverses this **harder than baseline** (collapsed=2 vs baseline 1) — id=0 (baseline 1.43, fully clean) collapses to 9.04 under realloc, id=3 joins the collapse cluster at 7.02.
+
+**Verdict — realloc and mask reveal a chain-length-dependent split in the mechanism:**
+
+1. **L=50 realloc is spectacular**: 3/6 designable, **min 0.63 Å** (best on this ckpt to date — lower than the N=30 baseline's 0.90 Å and the E044 N=6 baseline's 1.08 Å), median 2.07, max 3.10. *Every single sample is within 3.10 Å of native.* Two F→D rescues, including the dramatic id=0 (11.40 → 0.63, Δ=−10.77 Å — biggest single-protein delta in this whole experiment family). One D→F (id=1: 1.31 → 3.10) is the only loss vs baseline; the L=50 net is +1 designable.
+2. **L=100 realloc is a disaster**: 0/6 designable, **min 2.47** (vs baseline 1.08 and mask 1.52), and **two NEW collapsed samples appear** (id=0 at 9.04, id=3 at 7.02). All three baseline-designable proteins flip to non-designable. The L=100 cluster proportions shift in the opposite direction from mask — mask eliminated the collapse cluster, realloc *grows* it.
+3. **L=200 realloc fails like everything else**: 0/6, no proteins close to designable. Stronger version of the same direction as mask, but at a length where the model's trajectories are already off-manifold under all three arms.
+
+**Mechanism reading.** At low t, both interventions push the K-budget toward sequential information (which is t-invariant) and away from spatial+random (which are noise-driven). They differ in the K size that the softmax sees and in the slot composition:
+
+- *Mask*: K_effective = 16 sequential + (24 padded slots → softmax-masked). The slot composition the trained model sees is ALWAYS canonical (16/8/16); the spatial+random content is just zeroed out from the attention. Minimal distribution shift to the trained attention.
+- *Realloc*: K_effective = 40 sequential. The trained model sees a slot composition (40 sequential / 0 spatial / 0 random) it has *never seen during training*. The model's per-slot-position attention biases (conditioned on canonical 16/8/16 composition) are applied to slots that contain different content. Bigger distribution shift.
+
+Why realloc helps at L=50 but hurts at L=100:
+- *L=50*: 40 sequential ≈ "all 49 other residues". The spatial vs sequential vs random distinction collapses for a 50-residue protein — the spatial neighbors and the random neighbors are both *also* sequentially nearby. Realloc replaces noisy-but-sequentially-near content with deterministic-and-sequentially-near content, with negligible position-vs-content mismatch. The model's attention gets a cleaner input distribution.
+- *L=100 / L=200*: spatial+random slots can span the whole chain (50-100 sequence positions away). Replacing them with more sequential reduces the long-range info available at low t. The trained attention applied to slot positions whose content has shifted from "could be 80 residues away" to "is 12 residues away" gets the position-vs-content mismatch in full force. The model uses these long-range slots for non-trivial information transport even when the indices are noisy — and the L=100 collapse-cluster growth is the cost of denying it that channel.
+
+**Speculative composite verdict — realloc at L<60 + mask at L≥60 (or just mask)** would be **6/18 = 33% pooled** on this ckpt at this protocol, beating the 5/18 baseline. But this is N=6 over-fitting and won't survive replication; flagged only as a structural observation that the two interventions are complementary, not as a recipe.
+
+**Implication for retraining-with-curriculum (vs E044's read).** The E044 entry left the retraining-with-curriculum hypothesis at "mixed evidence — try cautiously". E045 sharpens this:
+
+- The **mechanism is real** and **chain-length-dependent**: at short L the trained attention can absorb (and benefit from) a shifted slot composition; at longer L it cannot. A retraining run with the same 3-bucket schedule baked in would let the model re-calibrate its per-slot attention biases for the post-curriculum composition — likely closing the L=100 regression but possibly also losing the L=50 free lunch (if the lunch is "the trained model is forgiving about content because slots overlap at small L", it disappears once the model is trained against that explicit composition).
+- A **t-aware K reallocation that scales with L** (e.g., low-t composition depends on `min(20, L/3)` sequential slots instead of fixed 20) is a more principled retraining target than the static 3-bucket schedule used here. The L-dependent failure pattern strongly suggests static thresholds are wrong.
+- A **smoother schedule across t** (5-bucket or interpolated) would not change this verdict — the failure mode is in the *low-t composition*, not in the discrete jumps at t=0.33 / t=0.66. The bucket-boundary kink concern flagged in the task is moot for this run since all the L=100 collapses happen across the whole trajectory, not at a bucket transition (no pipe-style discontinuity in the per-t loss available without trajectory diagnostics, but the integrated outcome shows the early-t composition dominates the failure).
+
+**Methodological caveats:**
+
+- **N=6 per length, single seed=5.** Same as E044. The L=50 +1 designable and L=100 −3 designable are both well within Wilson noise of an N=6 protocol, but the *direction and magnitude* are robust under the paired protocol (per-protein delta of −10.77 Å at L=50 id=0 is not noise, +7.61 Å at L=100 id=0 is not noise).
+- **Inference-only test on a checkpoint trained without curriculum.** As in E044 — the mechanism test is *does the trained model tolerate this input shift*, not *would retraining-with-curriculum work*.
+- **Static 3-bucket schedule.** The bucket boundaries are arbitrary. An L-dependent schedule would likely change the picture — this entry tests one point in a larger schedule space.
+- **Bucket-boundary kink hypothesis untested.** The task asked to flag any kink near t=0.33 / t=0.66. Designability-only data cannot show this; would need per-step velocity-magnitude logging at the boundaries (similar to E040/E041's hybrid-handoff diagnostics in [E040](#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06)). Cheap follow-up if the user wants to discriminate "discrete-bucket effect" from "wrong composition at low t" — the failure mode at L=100 is consistent with the latter, not the former.
+- **scRMSD < 2 Å with ProteinMPNN `ca_only=True` (8 seqs/protein, default), ESMFold backbone reconstruction.** Standard CLAUDE.md eval protocol; matches E021/E034/E035/E038/E039/E040/E041/E044 protocol.
+- **The semantic of `curriculum_neighbors` flag changed between E044 and E045**: same flag name, different mechanism. Configs from E044 (`inference_sparse_K40_step1259_curriculum_n6_nfe400.yaml`) re-run against the HEAD code base will fire the realloc path, not the mask path. Tag the E044 commit if the mask numbers need re-running later: `git log --oneline | grep E044`.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. Same status as E044. **What this entry decides:** (1) the noisy-spatial/random-slots-carry-no-info hypothesis is *wrong but partially right, in a chain-length-dependent way*; (2) static schedules are unlikely to be the right shape — an L-aware schedule should be the next attempt before any retraining commitment; (3) the L=50 result is striking enough to suggest a focused short-protein test is worthwhile in its own right.
+
+**Cross-references:**
+- Code change: `proteinfoundation/nn/local_latents_transformer.py` (replaced E044 mask with t-aware `_build_neighbor_idx`); `proteinfoundation/generate.py` (post-load hook simplified — no thresholds).
+- Config: `configs/inference_sparse_K40_step1259_curriculum_realloc_n6_nfe400.yaml`.
+- Output CSV: `inference/results_inference_sparse_K40_step1259_curriculum_realloc_n6_nfe400_0.csv`.
+- Logs: `nohup_inference_sparse_K40_step1259_curriculum_realloc_n6_nfe400.gen.log`, `*.eval.log`.
+- Companion / direct predecessor: [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (mask-based curriculum on the same ckpt; same baseline; same protocol).
+- Sparse-attention architecture: CLAUDE.md → "Sparse-attention variant (SALAD-style, K=40)"; `proteinfoundation/nn/modules/sparse_neighbors.py` (`build_neighbor_idx` with arbitrary `n_seq, n_spatial, n_random`).

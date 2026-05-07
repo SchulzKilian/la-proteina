@@ -222,6 +222,56 @@ def load_ckpt_n_configure_inference(cfg: Dict) -> Proteina:
 
     model.configure_inference(cfg.generation, nn_ag=nn_ag)
 
+    # Inference-only neighbor-list curriculum (sparse-attention models only).
+    # Defaults to off; existing configs unchanged. The schedule itself
+    # (3-bucket reallocation of K=40 across sequential/spatial/random by t)
+    # lives inside `LocalLatentsTransformer._build_neighbor_idx`.
+    cur_on = cfg.generation.args.get("curriculum_neighbors", False)
+    if cur_on:
+        if not getattr(model.nn, "sparse_attention", False):
+            logger.warning(
+                "curriculum_neighbors=True but model is not sparse-attention — flag is a no-op."
+            )
+        model.nn.curriculum_neighbors = True
+        logger.info(
+            "[Curriculum neighbors] ON — 3-bucket K-reallocation: "
+            "t<0.33 → (n_seq=20, n_sp=0, n_rd=0); "
+            "0.33≤t<0.66 → (12, 8, 8); "
+            "t≥0.66 → (8, 8, 16)."
+        )
+
+    # Inference-only K-bump (sparse-attention models only). Override the
+    # trained 8/8/16 (K=40) neighbor counts post-load. Works because K is just
+    # an int attribute consumed at the call site — `build_neighbor_idx` and
+    # the sparse attention/pair paths derive K from `neighbor_idx.shape[-1]`,
+    # not from any pre-allocated buffer. q/k/v projections and softmax
+    # dynamics remain calibrated for K=40, so this is a distribution-shift
+    # test, not a clean architectural test.
+    if (
+        "n_seq_neighbors_override" in cfg.generation.args
+        or "n_spatial_neighbors_override" in cfg.generation.args
+        or "n_random_neighbors_override" in cfg.generation.args
+    ):
+        if not getattr(model.nn, "sparse_attention", False):
+            logger.warning(
+                "K-bump override set but model is not sparse-attention — overrides are no-ops."
+            )
+        n_seq = cfg.generation.args.get("n_seq_neighbors_override",
+                                         model.nn.n_seq_neighbors)
+        n_sp = cfg.generation.args.get("n_spatial_neighbors_override",
+                                        model.nn.n_spatial_neighbors)
+        n_rd = cfg.generation.args.get("n_random_neighbors_override",
+                                        model.nn.n_random_neighbors)
+        model.nn.n_seq_neighbors = n_seq
+        model.nn.n_spatial_neighbors = n_sp
+        model.nn.n_random_neighbors = n_rd
+        K_total = 2 * n_seq + n_sp + n_rd
+        logger.info(
+            f"[K-bump] override → n_seq={n_seq} (×2 = {2*n_seq} sequential), "
+            f"n_spatial={n_sp}, n_random={n_rd} → K_total={K_total} "
+            f"(trained at K=40)."
+        )
+
     return model
 
 

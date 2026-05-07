@@ -38,7 +38,7 @@ python -m steering.generate \
     --lengths 300 \
     --output_dir results/steering_eval/smoke_test \
     --device cuda:0 \
-    --nsteps 100
+    --nsteps 400  # was 100; flipped 2026-05-07 — nsteps<400 is below the integrator-convergence bar (22 Å vs 0.8 Å scRMSD cliff). See CLAUDE.md "Sampling — nsteps=400 is a HARD RULE".
 
 # Step 2: Evaluate properties
 echo ""

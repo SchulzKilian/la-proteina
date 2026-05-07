@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv_to_canonical_t06_n6_nfe400
+config_name: inference_hybrid_conv_to_canonical_t06_n6_nfe400
+
+# E041 redo at nsteps=400. Hybrid: conv (1D-downsampling) for t < t_switch,
+# canonical wd=0.05 trunk for t >= t_switch. Original probe was at nsteps=200.
+# With t_switch=0.6 + log schedule, the conv:canonical step split shifts under
+# nsteps=400 — recompute per-step boundary if you cite NFE proportions.
+ckpt_path_a: /home/ks2218/la-proteina   # conv (early, t < t_switch)
+ckpt_name_a: best_val_00000023_000000002331.ckpt
+ckpt_path_b: /home/ks2218/la-proteina   # canonical wd=0.05 trunk (late)
+ckpt_name_b: best_val_00000024_000000002457.ckpt
+t_switch: 0.6
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000023_000000002331.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: False
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

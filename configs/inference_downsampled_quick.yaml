@@ -15,7 +15,7 @@ autoencoder_ckpt_path:
 # Probe: 3 lengths × 6 samples × 200 ODE steps (matches E021 protocol).
 generation:
   args:
-    nsteps: 200
+    nsteps: 400
   dataset:
     nsamples: 6
     max_nsamples_per_batch: 6

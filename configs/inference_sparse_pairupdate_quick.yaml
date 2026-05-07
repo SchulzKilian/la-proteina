@@ -12,10 +12,11 @@ ckpt_path: /home/ks2218/la-proteina
 ckpt_name: best_val_00000011_000000001133.ckpt
 autoencoder_ckpt_path:
 
-# Probe: 3 lengths × 6 samples × 200 ODE steps (matches E018 paramgroups N=6 protocol).
+# Probe: 3 lengths × 6 samples × 400 ODE steps. nsteps=400 is the production
+# minimum (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"); flipped 2026-05-07.
 generation:
   args:
-    nsteps: 200
+    nsteps: 400
   dataset:
     nsamples: 6
     max_nsamples_per_batch: 6

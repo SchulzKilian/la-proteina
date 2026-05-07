@@ -1,0 +1,40 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv_to_scnbr_quick
+config_name: inference_hybrid_conv_to_scnbr_quick
+
+# Hybrid sampling: conv (1D-downsampling) for t < t_switch, scnbr_K40 for t >= t_switch.
+# Both checkpoints are CA-only (data_modes = ['bb_ca']) so the integrator is the same.
+# t-convention: t=0 noise → t=1 clean. t_switch=0.75 means conv runs the bulk
+# denoising, scnbr handles the last ~25% (final detailing).
+#
+# scnbr's sc_neighbors_t_threshold=0.4 < t_switch=0.75 by construction, so scnbr
+# always reads its neighbor coords from x_t (never x_sc) — Fix C2 bootstrap not needed.
+ckpt_path_a: /home/ks2218/la-proteina   # conv (early, t < t_switch)
+ckpt_name_a: best_val_00000023_000000002331.ckpt
+ckpt_path_b: /home/ks2218/la-proteina   # scnbr_K40_t04 (late, t >= t_switch)
+ckpt_name_b: best_val_00000011_000000001133.ckpt
+t_switch: 0.75
+
+# Need ckpt_path/ckpt_name to satisfy inference_base assertions (some downstream
+# code paths read these). Point them at the conv ckpt as a "primary" identity.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000023_000000002331.ckpt
+autoencoder_ckpt_path:
+
+# Probe: 3 lengths × 6 samples × 400 ODE steps. nsteps=400 production minimum
+# (CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"); flipped from 200 on
+# 2026-05-07. With t_switch=0.75 + log schedule the conv:scnbr step split
+# changes — recompute per-step boundary if you cite NFE proportions.
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: False  # see header note
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

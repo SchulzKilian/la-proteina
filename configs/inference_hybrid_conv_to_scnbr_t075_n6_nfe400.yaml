@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv_to_scnbr_t075_n6_nfe400
+config_name: inference_hybrid_conv_to_scnbr_t075_n6_nfe400
+
+# E040 redo at nsteps=400. Hybrid: conv → scnbr_K40 + Fix C2 at t_switch=0.75.
+# Original was N=6 partial (L=200 OOM'd from co-tenant) at nsteps=200.
+# scnbr's sc_neighbors_t_threshold=0.4 < t_switch=0.75 by construction, so
+# scnbr always reads neighbor coords from x_t — Fix C2 bootstrap not needed.
+ckpt_path_a: /home/ks2218/la-proteina
+ckpt_name_a: best_val_00000023_000000002331.ckpt
+ckpt_path_b: /home/ks2218/la-proteina
+ckpt_name_b: best_val_00000011_000000001133.ckpt
+t_switch: 0.75
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000023_000000002331.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: False
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

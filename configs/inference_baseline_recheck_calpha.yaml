@@ -15,7 +15,7 @@ autoencoder_ckpt_path:
 
 generation:
   args:
-    nsteps: 200
+    nsteps: 400  # nsteps=400 production minimum; flipped from 200 on 2026-05-07.
   dataset:
     nsamples: 3
     max_nsamples_per_batch: 3

@@ -8,14 +8,20 @@ config_name: inference_sparse_scnbr_t04_quick
 
 # Checkpoint rsynced from HPC:
 #   /rds/user/ks2218/hpc-work/store/ca_only_sparse_K40_scnbr_t04/1778022317/checkpoints/
+# NOTE: the file `best_val_00000011_000000001133.ckpt` shares its name with
+# E021's old sparse+pairupdate ckpt (different variant; `update_pair_repr=True`
+# there vs scnbr_t04's False). The local copy was overwritten on 2026-05-06 —
+# verify `cfg_exp.run_name_` from the ckpt's hyper_parameters before re-running E021.
 ckpt_path: /home/ks2218/la-proteina
-ckpt_name: best_val_00000008_000000000819.ckpt
+ckpt_name: best_val_00000011_000000001133.ckpt
 autoencoder_ckpt_path:
 
-# Probe: 3 lengths × 6 samples × 200 ODE steps (matches E021 protocol).
+# Probe: 3 lengths × 6 samples × 400 ODE steps. nsteps=400 is the production
+# minimum (see CLAUDE.md "Sampling — nsteps=400 is a HARD RULE"); was 200 before
+# 2026-05-07, which made E021/E034/E035/E038/E039 numbers handicapped.
 generation:
   args:
-    nsteps: 200
+    nsteps: 400
   dataset:
     nsamples: 6
     max_nsamples_per_batch: 6

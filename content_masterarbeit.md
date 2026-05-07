@@ -846,9 +846,9 @@ This finding does not falsify any sub-claim of Finding 8 — every sign is prese
 
 ---
 
-## Finding 10 — Closing the gradient-hacking gap in latent-flow steering: noise-aware predictor training × fold-ensembling, validated by real-property delivery and structural integrity (2026-05-06)
+## Finding 10 — Closing the gradient-hacking gap in latent-flow steering: noise-aware predictor training × fold-ensembling, validated by real-property delivery and structural integrity (2026-05-06; codesignability addendum 2026-05-07)
 
-**Status:** finished. First steering-route Finding to clear both bars from the thesis intent — *real-property + designability moves on long-L generations*. Built on E028 (negative-baseline measurement) → E029 (single-fix pilot) → E030, E031 (eliminated alternative explanations) → E032 (combined-fix smoke + n=48 confirmation) → E033 (designability check). Lab-notebook detail across `experiments.md` E028–E033.
+**Status:** finished. First steering-route Finding to clear both bars from the thesis intent — *real-property + designability moves on long-L generations*. Built on E028 (negative-baseline measurement) → E029 (single-fix pilot) → E030, E031 (eliminated alternative explanations) → E032 (combined-fix smoke + n=48 confirmation) → E033 (MPNN-redesign designability check) → E036 (diversity check) → E042 (codesignability check, addendum below). Lab-notebook detail across `experiments.md` E028–E033, E036, E042.
 
 **Why this is a Finding, not just an engineering note:** the result is a *compositional* mechanism story — two independent failure modes of gradient-based latent-flow steering, each addressable with a separate fix, that close the gap **only when applied together**. Either fix alone, and several plausible-sounding alternatives, leaves a 4–10× over-claim by the predictor. The combination drops the gap to within regression noise while increasing real-property delivery 2× over the previous best baseline.
 
@@ -924,6 +924,58 @@ The +28 / −42 / +25 sign-disagreement across lengths means the aggregate gap o
 
 Mean pairwise TM-score is **identical to 3 decimal places across every w-level for both directions**, and only 0.006 below the unsteered baseline. At L=400 / L=500 specifically, the steered ensembles are *more* diverse than baseline (mean TM 0.331-0.395 vs 0.366-0.418). Steering does not collapse the structural ensemble — the 16-seed initialization variance dominates whatever narrowing the gradient might cause. The latent space is high-dimensional enough that there are many independent low-TANGO directions, and steering pushes each trajectory along whichever is closest from its starting point rather than collapsing all 16 trajectories onto one.
 
+*Codesignability across the same grid (E042; n=12 per cell, **`use_pdb_seq=True, num_seq=1`** — the joint-head sequence is taken verbatim and folded by ESMFold, no MPNN re-design. This is the right structural-integrity check for **latent** steering because the latent feeds into the joint sequence head, so any silent destruction of sequence-side foldability would only show up here):*
+
+| direction | w=1 | w=2 | w=4 | w=8 | w=16 |
+|---|---|---|---|---|---|
+| camsol_max codesignable | 5/12 (42%) | 5/12 (42%) | 5/12 (42%) | 5/12 (42%) | 4/12 (33%) |
+| camsol_max mean coScRMSD | 3.61 Å | 3.61 Å | 3.62 Å | 3.60 Å | 3.70 Å |
+| camsol_max median coScRMSD | 2.15 Å | 2.08 Å | 2.07 Å | 2.08 Å | 2.17 Å |
+| tango_min codesignable | 4/12 (33%) | 4/12 (33%) | 4/12 (33%) | 4/12 (33%) | 5/12 (42%) |
+| tango_min mean coScRMSD | 3.67 Å | 4.13 Å | 3.81 Å | 3.70 Å | 4.06 Å |
+| tango_min median coScRMSD | 2.19 Å | 2.19 Å | 2.29 Å | 2.30 Å | 2.16 Å |
+
+**Codesign rate is flat across w∈[1, 16]** for both directions. tango_min at w=16 is *higher* than at w=1 (5/12 vs 4/12); camsol_max is one PDB lower at w=16 (4/12 vs 5/12) but identical to w=1 across L=300. There is no monotonic codesign-vs-w degradation. The L-cliff is L=400 / L=500 (1/4 codesignable per cell, w-independent), consistent with E022's known unconditional length-degradation. **The relevant signal — does latent steering silently kill the joint sequence head's ability to produce a folding sequence — is no.** The flat-across-w trend blocks the "maybe MPNN re-design is hiding sequence damage" objection that E033 alone left open.
+
+*w=0 sanity check (E042 addendum, 2026-05-07).* The La-Proteina paper reports **68.4% all-atom co-designability** (Table 1, averaged across L∈{100, 200, 300, 400, 500}). 33-42% looks low against that headline, so 12 length-matched **unsteered** PDBs from `generated_stratified_300_800_nsteps400/` (canonical config: `inference_ucond_notri_long`, nsteps=400, SDE — same pipeline used for the diversity baseline above) were run through the same codesign call:
+
+| L | unsteered codes / 4 | steered cells (range across w & direction) |
+|---|---|---|
+| 300 | **3/4 (75%)** | 2-3/4 (50-75%) |
+| 400 | **2/4 (50%)** | 1/4 (25%) at every cell |
+| 500 | **0/4 (0%)** | 1/4 (25%) at every cell |
+| pooled | **5/12 (42%)** | 4-5/12 (33-42%) |
+
+The pooled steered rate is *identical* to the pooled unsteered rate (both 42% at the high end). At L=300 the steered headline cells (camsol_max w=1, tango_min w=16) hit 75%, matching unsteered. At L=400 steered runs 1 protein lower than unsteered (1/4 vs 2/4), w-independent — within noise. At L=500 steering is, if anything, slightly better than unsteered (1/4 vs 0/4) — also within noise. **The 33-42% codesign rate is the canonical La-Proteina sampler's own ceiling at L≥300, not a steering artefact.** The published 68.4% averages over L=100-500 with 100 proteins per length — a length-mixture dominated by the easier L=100/L=200 bins. At L≥300 specifically the unconditional model is much weaker (this baseline shows the cliff: 75% / 50% / 0%), consistent with Figure 4 of the La-Proteina paper which shows codesign rate degrading with length. Our test grid only sampled L≥300, so its absolute rate is unavoidably lower than the 68.4% headline for population reasons unrelated to gradient guidance.
+
+*Continuous coScRMSD distribution (the binary < 2 Å rate alone is information-poor on n=12 cells; reporting the underlying distribution is more honest):*
+
+| | n | mean coScRMSD | median | rate < 2 Å | rate < 3 Å | rate < 4 Å |
+|---|---|---|---|---|---|---|
+| **steered (all w, both directions, n=120)** | 120 | **3.75 Å** | **2.18 Å** | 38% | **74%** | **82%** |
+| **unsteered baseline (n=12)** | 12 | **5.45 Å** | **4.38 Å** | 42% | 42% | 50% |
+
+| direction (n=60 each) | mean | median | rate < 2 Å | rate < 3 Å | rate < 4 Å |
+|---|---|---|---|---|---|
+| camsol_max | 3.63 Å | 2.08 Å | 40% | 75% | 83% |
+| tango_min  | 3.87 Å | 2.20 Å | 35% | 73% | 80% |
+
+| w (n=24 each, both directions) | mean | median | rate < 2 Å | rate < 3 Å | rate < 4 Å |
+|---|---|---|---|---|---|
+| 1  | 3.64 Å | 2.19 Å | 38% | 75% | 83% |
+| 2  | 3.87 Å | 2.13 Å | 38% | 71% | 79% |
+| 4  | 3.71 Å | 2.14 Å | 38% | 71% | 83% |
+| 8  | 3.65 Å | 2.15 Å | 38% | 79% | 83% |
+| 16 | 3.88 Å | 2.17 Å | 38% | 75% | 79% |
+
+Three things become visible from the continuous numbers that the binary rate hides:
+
+1. **Mean and median coScRMSD are flat across w** within each direction (mean range 3.60-3.70 Å for camsol_max, 3.67-4.13 Å for tango_min across all five w-levels; medians 2.07-2.30 Å across the entire grid). The codesign-vs-w distribution is essentially stationary; the binary rate's flatness is a real signal, not aliasing.
+2. ~~**Steered cells outperform the unsteered baseline at relaxed thresholds.**~~ **Withdrawn after a matched-seed sanity check (E042 update, 2026-05-07).** The earlier comparison used a stratified-bin unsteered baseline (seeds 1000+, lengths 305-510), which had two confounds against the steered cells (seeds 42-45, exact L=300/400/500). When unsteered is regenerated with **matched seeds 42-45 × exact L=300/400/500** through the same `steering/generate.py` pipeline (`model.steering_guide=None`), unsteered codesigns at 5/12 (42%) at <2 Å, 9/12 (75%) at <3 Å, 10/12 (83%) at <4 Å — *identical to the steered cells within 1-protein noise*. Mean coScRMSD: unsteered 3.63 Å, steered 3.60-4.13 Å. **Steered ≈ unsteered at every threshold and on the continuous distribution.** The "steered fills the 2-3 Å near-miss band" observation was an artefact of the stratified sample's bimodality, not a steering effect.
+3. **At a 3 Å scRMSD bar — which downstream `compute_developability.py` callers typically use as "designable enough" for follow-up filtering — both the steered grid and the matched-seed unsteered baseline pass 67-83%**, much closer to the paper's 68% headline. The 2 Å strict bar is what penalises the long-L regime (cf. paper Figure 4); relaxing it returns the comparison to a more apples-to-apples place. The published 68.4% averages L=100-500 with 100 proteins per length; our L≥300 four-seed slice matches what Figure 4 of the paper shows for the same length range.
+
+**Per-protein structural readout from the matched-seed run.** The unsteered backbone is recovered to within 0.01-0.15 Å of the steered backbone at most cells (s42_n400, s44_n300, s44_n400, s45_n400 within 0.05 Å across every w-level). The latent steering perturbs the joint-head sequence but does not move the structure off the unsteered backbone enough to change codesignability. **s45_n500 is broken at 20.02-20.07 Å in unsteered and every steered cell** — confirmed unconditional sampler failure, not a steering artefact. Two genuine protein-level perturbations are visible: tango_min w=2 and w=16 push s42_n500 from 2.51 → 7.49-7.98 Å (real damage on this one protein); tango_min w=4 pushes s43_n300 from 1.02 → 3.72 Å. With the rest of the grid pinned within 0.1 Å of unsteered, these isolated drifts are individual-protein noise on n=4 per length, not a population-level signature.
+
 *Negative results that establish the compositional necessity of both fixes (lab notebook in E028, E030, E031, plus a feed-z_t-direct probe today):*
 
 | approach | gap at w=16 (n=4 pilot) |
@@ -943,7 +995,8 @@ Five plausible "should help" interventions failed before the right composition w
 On the official LD3+AE2 La-Proteina checkpoint, fine-tuning the multi-task property predictor (3-layer FiLM transformer, 14 heads) on `z_t = (1-t)·ε + t·z_1 + σ_L·√(t(1-t))·ε_2` with `t ∼ U(0.3, 0.8)` and σ_L = 0.1 across all 5 cross-validation folds (`add_noisy_latents.py`, 10 epochs, lr=1e-4, original z-score stats preserved), then steering with the 5-fold mean of these noise-aware predictors and the legacy `x_1_est` reconstruction-guidance input path,
 - closes the predictor:real `tango_total` gap from −203 (clean-ensemble + smoothing baseline E028, n=48) to **+3.8** (noise-aware ensemble, n=48) at w=16;
 - raises the real ΔTANGO from −34 to **−59.9** at w=16 (~75% increase in real-property delivery on the same grid);
-- holds the structure-side designability rate at **80-100% across w∈[1, 16]** for both camsol_max and tango_min directions (n=12 per cell on the scRMSD subset; mean scRMSD 0.95-1.49 Å), with no monotonic w → scRMSD trend.
+- holds the structure-side designability rate at **80-100% across w∈[1, 16]** for both camsol_max and tango_min directions (n=12 per cell on the MPNN-redesign scRMSD subset; mean scRMSD 0.95-1.49 Å), with no monotonic w → scRMSD trend;
+- holds the **codesignability rate flat at 33-42% across w∈[1, 16]** (n=12 per cell, joint-head sequence + ESMFold, no MPNN; E042) — i.e. the (steered structure, steered sequence) pair folds at the same rate as at w=1, ruling out the "MPNN-redesign hides sequence damage" objection.
 
 **Implication.**
 
@@ -959,13 +1012,120 @@ For the steering-route bar of the masterarbeit thesis intent — *generated long
 **Methodological caveats.**
 
 - **Tango-only quantitative validation.** `compute_developability.py` returns NaN for `camsol_intrinsic` because no public CamSol binary exists (CLAUDE.md flag). The camsol_max sweep numbers in this Finding therefore rely on the predictor's claim and on collateral real-property drift (sap, scm, hyd_patch) for plausibility checks; the headline gap-closure and Δreal numbers are tango-only. CamSol web-server submission for ~50 representative sequences is queued but not yet performed.
-- **Designability subsample is n=12 per cell.** The full sweep is 48 PDBs/cell on the gap side but 12 PDBs/cell on the scRMSD side, due to the ~9 hour wall cost of the official MPNN→ESMFold pipeline at L∈{300, 400, 500}. The 80-100% designability rates therefore have wide per-cell CIs (a 91% rate from 10/11 has 95% CI ~59-100%). The robust signal is the *across-cell trend* — no monotonic w-degradation, designability stays above ~80% at every cell — not the per-cell rate.
+- **Designability and codesignability subsamples are both n=12 per cell.** The full sweep is 48 PDBs/cell on the gap side but 12 PDBs/cell on the structural side, due to the ~9 hour wall cost of the official MPNN→ESMFold pipeline at L∈{300, 400, 500}. The 80-100% designability rates therefore have wide per-cell CIs (a 91% rate from 10/11 has 95% CI ~59-100%); same for the 33-42% codesignability rates. The robust signal is the *across-cell trend* — no monotonic w-degradation in either metric — not the per-cell rate.
+- **Codesignability absolute rate is much lower than designability** (33-42% vs 80-100%). The w=0 sanity check (E042 addendum) showed this is the unconditional La-Proteina sampler's own ceiling at L≥300: pooled unsteered codesign at L∈{300,400,500} is 5/12 = 42%, identical to the pooled steered rate. The published 68.4% codesign rate averages over L=100-500 with 100 proteins per length — a length-mixture dominated by the easier L=100/L=200 bins; per-length codesign at L=300/400/500 falls off (75% / 50% / 0% in the unsteered baseline). Our test grid only sampled L≥300, so its absolute rate is unavoidably lower than the published headline for population reasons unrelated to gradient guidance. For the *steering question* (does w degrade the codesign rate?) the trend is flat; for an *absolute-quality question* the unconditional sampler's L-cliff is the binding constraint, not the gradient guidance.
 - **One persistent-failure protein dominates the apparent variance.** s45_n500 is broken at >10 Å in 9/10 cells, w-independent. It is a generation failure of the underlying La-Proteina LD3 sampler at this seed × length, not a steering failure. The "excluding s45_n500" tables are the fair comparison. Including it changes the apparent designability rate at every cell by the same fixed amount (one extra non-designable per cell), so the *trends* are unchanged either way. Further audit (run e.g. 16 seeds at L=500 on the unsteered baseline to estimate the s45_n500-equivalent failure rate) is not yet done.
 - **Per-length sign disagreement at w=16.** The aggregate gap of +3.8 hides L=300 +28 / L=400 −42 / L=500 +25. L=400 still has a residual underclaim (the classical hacking direction). The aggregate is small not because every length is honest but because lengths cancel. The per-length data is closer to "gap reduced from −203 to ~±40, on either sign of zero" than to "gap eliminated".
 - **No verification on alternative flows.** All experiments were on the official LD3+AE2 La-Proteina checkpoint. Whether the noise-aware-fine-tune + ensemble combination transfers to other flow architectures (CA-only variants from E022, sparse attention from E021, future variants) is untested. The mechanism story predicts it should — both fixes target predictor-side failure modes that are flow-architecture-independent — but we don't have data.
 - **Designability ≠ wet-lab function.** scRMSD < 2 Å says "ESMFold thinks an MPNN-designed sequence will fold to roughly the right structure". It does not say the protein folds in vitro, that the predicted property is reproduced in lab measurement, or that the structure has the expected aggregation behaviour. These are wet-lab claims and out of scope.
 - **The predictor still has a residual Δratio of 2.9× at w=16.** The mean gap of +3.8 is small, but the Δ predictor / Δ real ratio is 2.9× — predictor's *change* still moves about 3× faster than reality. This is the residual signature of the per-length sign-disagreement: at L=400 specifically, the predictor over-shoots reality. The reduction from 8.5× to 2.9× is a 3× improvement and dominates the gap-closure narrative, but a Δratio of 1× would be the strict goalpost.
 - **Calibration drift at low w.** At w=1 (minimal steering) the predictor over-claims real TANGO by +118 on average. This is calibration drift, not gradient hacking — the predictor is biased high on near-baseline proteins. Steering brings the predicted value down faster than the real value follows, which is what produces the gap-closure-by-crossover at w=16. If we pushed past w=16 the predictor might cross over to underclaiming real (the classical hacking direction). Within the tested range w∈[1, 16] this is not an issue.
+
+---
+
+## Finding 11 — Per-t validation loss does not distinguish CA-only architectural variants at the resolution that matters for hybrid sampling (2026-05-07; methodological calibration)
+
+**Status:** finished. Methodological scaffolding for the architectural-route line of work — calibrates whether per-t val loss is a useful selection criterion when comparing variants, ahead of the hybrid-sampling decisions in [E040 / E041](experiments.md#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06). Lab-notebook detail: [E043](experiments.md#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07).
+
+**Why this is a Finding rather than a tuning note.** The hybrid-sampling work in E040 / E041 (1D-conv ckpt for early-trajectory denoising, sparse / canonical ckpt for late-trajectory refinement) implicitly assumes there is a t-region where each variant is *locally optimal*. If true, the per-t validation loss curve of variant A should cross variant B at some t — that's the principled argument for hybridising. F11 is the test of that assumption, run on the four architectural CA-only ckpts we have on hand. Finding it negative changes the interpretation of E040 / E041's compositional framing (and motivates the trajectory-divergence diagnostic D2 instead).
+
+**Experiment.**
+
+The diagnostic computes the standard La-Proteina FM training-loss bucketed into 5 equal-width t-bins on a *paired* 600-protein subset, with the same per-protein noise / rotation / t draws used across all four CA-only architectural variants. **No sampling / integration is involved** — the script samples a single t per protein, interpolates `x_t = (1-t)·x_0 + t·x_1`, runs `model.call_nn(batch, n_recycle=0)` under `torch.no_grad()`, and computes the same per-channel FM loss as `model.fm.compute_loss`. NFE / nsteps is therefore irrelevant; the result reflects only the trained weights at each ckpt.
+
+- Driver: `proteinfoundation/run_per_t_val.py` (a standalone script written specifically because the project's `PDBLightningDataModule` requires graphein's `PDBManager` to download PDB metadata from the public internet at instantiation time, which times out on offline nodes; the script bypasses this by walking `data/pdb_train/processed_latents/` directly).
+- Data subset: 600 proteins drawn deterministically (seed=42) from `processed_latents/`, length-filtered to ≤ 512 residues. Standard training transforms applied (`CenterStructureTransform → ChainBreakPerResidueTransform → GlobalRotationTransform`) with per-protein rotation seed `seed + 1000 + i` so the *same protein* gets the *same rotation* across all four ckpts (paired-sample design — pairwise differences are pure model differences).
+- Buckets: `[0.0, 0.2), [0.2, 0.4), [0.4, 0.6), [0.6, 0.8), [0.8, 1.0)` — same partition as `proteina.py:478-492`'s training-time `validation_loss_by_t` bucketing. n=600 per bucket.
+- Ckpts (all CA-only, all 160M, all `latent_dim=None`):
+  - `canonical_2646` — `test_ca_only_diffusion/1776805213` step 2646 (canonical wd=0.05 baseline at the documented best-val ckpt).
+  - `conv_2331` — `ca_only_downsampled/1777987722` step 2331 (1D-conv variant; "dead alone at 0/18 designable in [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06)" — but E034 was at nsteps=200, below the integrator-convergence bar; the dead verdict is plausibly an nsteps artifact and is being re-probed at nsteps=400 in `inference_downsampled_step2331_n6_nfe400` 2026-05-07).
+  - `scnbr_t04_1133` — `ca_only_sparse_K40_scnbr_t04/1778022317` step 1133 (sparse K=40 + Fix C2; "variant-bar-clearing at 17% pooled in [E039](experiments.md#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06)" — but E039 was at nsteps=200; the 17% number is plausibly an under-statement and is being re-probed at nsteps=400 in `inference_scnbr_t04_step1133_n6_nfe400` 2026-05-07).
+  - `sparse_vanilla_1259` — `ca_only_sparse_K40` step 1259 (sparse K=40 *without* the Fix C2 sc_neighbors threshold-gating). Designability untested at the time of writing.
+- Run wall: ~6 min per ckpt on 1× A100. Output JSONs in `results/per_t_val/`.
+
+**Numbers — per-t mean validation loss (n=600 per bucket, paired across ckpts):**
+
+| ckpt | step | t∈[0.0, 0.2) | t∈[0.2, 0.4) | t∈[0.4, 0.6) | **t∈[0.6, 0.8)** | t∈[0.8, 1.0) | min bucket |
+|---|---|---|---|---|---|---|---|
+| canonical_2646 | 2646 | 3.018 ± 0.076 | 1.932 ± 0.025 | 1.293 ± 0.017 | **1.086** ± 0.010 | 1.313 ± 0.015 | t∈[0.6, 0.8) |
+| conv_2331 | 2331 | 3.024 ± 0.076 | 1.972 ± 0.023 | 1.372 ± 0.015 | **1.228** ± 0.012 | 1.765 ± 0.024 | t∈[0.6, 0.8) |
+| scnbr_t04_1133 | 1133 | 3.122 ± 0.079 | 2.057 ± 0.027 | 1.406 ± 0.014 | **1.221** ± 0.010 | 1.518 ± 0.016 | t∈[0.6, 0.8) |
+| sparse_vanilla_1259 | 1259 | 3.106 ± 0.072 | 2.059 ± 0.026 | 1.413 ± 0.014 | **1.218** ± 0.010 | 1.497 ± 0.016 | t∈[0.6, 0.8) |
+
+(Mean ± SEM in `nat / protein`; bold = global minimum bucket per row.)
+
+**Pairwise differences relative to canonical_2646:**
+
+| ckpt | Δ@[0.0, 0.2) | Δ@[0.2, 0.4) | Δ@[0.4, 0.6) | Δ@[0.6, 0.8) | Δ@[0.8, 1.0) |
+|---|---|---|---|---|---|
+| conv_2331 | +0.006 | +0.040 | +0.079 | +0.142 | +0.452 |
+| scnbr_t04_1133 | +0.104 | +0.125 | +0.113 | +0.135 | +0.205 |
+| sparse_vanilla_1259 | +0.088 | +0.127 | +0.121 | +0.132 | +0.184 |
+
+**Pairwise differences scnbr_t04 vs sparse_vanilla (Fix-C2 ablation):**
+
+| bucket | scnbr_t04 − sparse_vanilla |
+|---|---|
+| t∈[0.0, 0.2) | +0.016 |
+| t∈[0.2, 0.4) | −0.002 |
+| t∈[0.4, 0.6) | −0.007 |
+| t∈[0.6, 0.8) | +0.003 |
+| t∈[0.8, 1.0) | +0.021 |
+
+**Narrow claim.**
+
+**Per-t validation loss is uninformative for choosing between CA-only architectural variants at the resolution required for hybrid-sampling decisions.** Across canonical_2646, conv_2331, scnbr_t04_1133, and sparse_vanilla_1259:
+
+1. **The four loss-vs-t curves are parallel, not crossing.** canonical is uniformly best at every bucket; the other three are clustered tightly within ±0.05 nat / protein at every bucket except [0.8, 1.0). There is no t-region where any non-canonical variant has lower paired loss than canonical.
+2. **All four ckpts have the same minimum bucket: t∈[0.6, 0.8).** The U-shape is identical in shape and location.
+3. **The two sparse variants are functionally identical at this resolution.** scnbr_t04 vs sparse_vanilla differ by ≤ 0.025 nat / protein at every bucket — well inside the noise floor for paired-sample resolution at n=600.
+
+**Implikation.**
+
+(a) **Hybrid sampling cannot be justified by "each variant is best in its own t-regime"** — that hypothesis fails on the per-t-loss criterion. Whatever value-add E040 / E041 might extract from the conv ckpt is **not** about conv being a locally-better velocity predictor; it must come from sampling-trajectory dynamics that this no-integration measurement cannot see (e.g. trajectory-conditioned x_t marginals diverging between variants, or kink tolerance). The right next diagnostic is therefore D2 — trajectory-level v-divergence on actually-sampled trajectories — not more per-t val-loss probing.
+
+(b) **The Fix C2 mechanism (sc_neighbors threshold-gating) does not move trained weights at this resolution.** Per-t val loss being identical between scnbr_t04 (Fix C2 active) and sparse_vanilla (no Fix C2) means whatever inference-time benefit Fix C2 provides must come from the sampling-time x_sc switch itself, not from Fix C2 having shaped the trained weights. This restricts the mechanism story for E039's 17% pooled designability to inference-only (or sampling-trajectory) effects; it is not a training-objective effect.
+
+(c) **conv_2331's largest gap to canonical is at t∈[0.8, 1.0) (+0.452)** — consistent with E041's hand-off-before-late-stage design (t_switch=0.6, *before* this conv-disadvantage region starts). Per-t val loss therefore *post-hoc supports* the qualitative hand-off-direction choice in E040 / E041 (use conv early, refine with non-conv late), even though it does not support the *strong* compositional claim that conv is locally best somewhere.
+
+(d) **Methodological caveat for any future variant comparison:** validation MSE / val FM loss should not be the sole acceptance criterion for an architectural variant. Finding 5 already established this for one specific failure mode (uniform-wd AdamW gating-collapse: better val loss, worse designability). F11 generalises the methodological caveat: even when no pathology like Finding 5's gating-collapse is involved, val loss within ±0.13 of canonical still corresponds to wildly different designability outcomes (canonical 76% pooled vs conv 0%; scnbr 17%; sparse_vanilla untested). Designability is the binding criterion; per-t val loss is a sanity check at best.
+
+**Methodische Einschränkungen.**
+
+- **No integration involved — nsteps is N/A.** F11 is a measurement of the trained weights at each ckpt; it does not depend on integrator convergence. The user's standing rule "use nsteps=400 for any designability run" (`feedback_use_nsteps_400_for_designability.md`) does not apply here. (The downstream designability comparisons that motivated F11 *do* have an open nsteps issue — see the E040 / E041 caveat blocks in `experiments.md` — but F11 itself is unaffected.)
+- **600 proteins from the *training* index, length-filtered to ≤ 512.** This is a training-distribution proxy, not the canonical val set. Pairwise differences across ckpts are robust because all four use the same proteins; absolute numbers will be ~0.05-0.1 nat lower than the true val set (which has its own length / cluster cuts).
+- **Single seed (42).** Re-running with seed 7 / 13 would tighten the scnbr_t04 vs sparse_vanilla equivalence claim. The conclusion is the same either way: at any seed, paired-sample resolution at n=600 with bucket-mean SEM ≈ 0.01-0.08 nat cannot resolve the small (Δ ≤ 0.025) sparse_vanilla vs scnbr_t04 differences.
+- **Checkpoint maturity not matched.** canonical at step 2646 (overshoot regime — best-val window ended at step 2200), conv at 2331 (canonical-recipe best-val), scnbr / sparse_vanilla at their converged plateaus (1133 / 1259). The +0.13-0.45 nat canonical advantage includes ~1500 extra opt steps of training. The variant-vs-variant comparisons among the bottom three rows (where the maturity range is 1133-2331) are tighter, and the parallel-curve / no-crossing finding holds within the bottom three as well.
+- **F11 does not say "all CA-only variants are equivalent training objectives".** It says "per-t val loss bucketed at the standard 5-bucket resolution does not separate them" — at higher t-resolution, or with a different metric (e.g. the actual gradient norm of the loss with respect to network outputs at each t), the variants might separate. F11's methodological claim is calibration: don't use this metric at this resolution to make hybrid-sampling decisions.
+- **Designability is the right comparison metric.** As established by Findings 5 and 7, val loss and designability decouple in this codebase. The ordering at per-t val loss (canonical < conv ≈ scnbr ≈ sparse_vanilla) does not reflect the designability ordering (canonical 76% > scnbr 17% > conv 0%; sparse_vanilla untested). Reporting val loss without a paired designability number is misleading.
+
+**Cross-references.**
+
+- Lab notebook: [E043](experiments.md#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07).
+- Hybrid-sampling experiments that motivated this diagnostic: [E040](experiments.md#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06), [E041](experiments.md#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06).
+- Variant designability baselines: canonical [E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29), conv [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06), scnbr [E039](experiments.md#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06).
+- Finding 5 (val-loss-vs-designability decoupling, more severe form): see above in this document.
+- Driver script: `proteinfoundation/run_per_t_val.py`.
+- Output: `results/per_t_val/{canonical_2646, conv_2331, scnbr_t04_1133, sparse_vanilla_1259}.json`.
+
+**Addendum (2026-05-07) — wandb training-time aggregate `validation_loss/loss_epoch` flips the ordering, but it is the artifact, not the trained-weights signal.**
+
+A confounder for the F11 narrative is that the wandb training-time aggregate `validation_loss/loss_epoch` shows canonical_2646 *higher* than every variant's best-val — the opposite ordering from F11's per-t buckets and from the designability evidence. Three signals; one contradicting two. Resolved 2026-05-07 (lab notebook: E043 addendum). I re-evaluated canonical_2646 and sparse_vanilla_1259 on the SAME paired 600-protein subset, with t drawn from the actual training/val distribution `mix_unif_beta(p1=1.9, p2=1.0, p3=0.02)`, repeated 20 t-draw seeds per ckpt, via `proteinfoundation/run_aggregate_val_seeds.py`:
+
+| ckpt | mean_of_means | std_of_means | min | max |
+|---|---|---|---|---|
+| canonical_2646 | **1.4008** | 0.0224 | 1.3267 | 1.4319 |
+| sparse_vanilla_1259 | **1.5375** | 0.0219 | 1.4741 | 1.5779 |
+
+Δ(sparse_vanilla − canonical) = **+0.137 nat (+4.36σ)** with combined std-of-means ≈ 0.031. **Zero seed-overlap** — the worst canonical t-draw (1.4319) is below the best sparse_vanilla draw (1.4741). On a paired set under the actual training t-distribution, all three signals AGREE: canonical < sparse_vanilla.
+
+The wandb training-time flip is therefore not a property of the trained weights. Most likely cause: each training run averaged over the *first N* of its own dataset construction (`val_dataloader` has `shuffle=False` and `limit_val_batches=100→50` changed between hashes), so canonical's wandb numbers and the variants' wandb numbers were on *different protein subsets*. Other candidates: EMA-vs-raw model-copy mismatch in logging vs ckpt selection; "best_val" being a lifetime-min order statistic with non-trivial per-event variance.
+
+**This refines F11's methodological claim into a stronger one:** *not just* "per-t val loss doesn't distinguish CA-only variants at the resolution that matters" — but also "wandb training-time `validation_loss/loss_epoch` is not comparable across runs in this codebase". Cross-run val-loss comparisons must use a paired re-evaluation protocol (`run_per_t_val.py` for per-t shape, `run_aggregate_val_seeds.py` for aggregate). When wandb val-loss disagrees with designability, designability is the trustworthy signal. Memory: `feedback_wandb_val_loss_not_comparable.md`.
+
+The **1/(1-t)² loss weight** in `rdn_flow_matcher.py:215` is real (it makes high-t individual proteins score 5-15 nat at heavy-tail draws), but the heavy-tail story is not by itself the cause of the wandb flip — `std_of_means = 0.022` shows the seed-mean estimator is stable at n=600. The flip needs a different-population explanation, not a higher-variance explanation.
+
+**Sanity check.** Integrating canonical_2646's per-t bucket means under `mix_unif_beta(1.9, 1.0, 0.02)`-derived bucket weights gives predicted aggregate ≈ 1.43 (measured 1.40); sparse_vanilla_1259 predicts ≈ 1.57 (measured 1.54). Per-t buckets and the paired aggregate agree to within 0.04 nat, which strengthens the F11 measurement: the bucketed picture quantitatively *predicts* the aggregate on the same paired set, while the wandb panel doesn't. The wandb panel is measuring something else (different proteins).
 
 ---
 

@@ -1,0 +1,27 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_K128_n6_nfe400
+config_name: inference_sparse_K40_step1259_K128_n6_nfe400
+
+# E046 — inference-only K-bump on plain sparse_K40 step 1259. K_total = 128
+# via (n_seq=24, n_spatial=24, n_random=56) ⇒ 48 + 24 + 56 = 128.
+# Composition preserves the canonical 40/20/40 sequential/spatial/random ratio.
+# Curriculum OFF; same ckpt + seed as E044/E045 baseline → noise paired.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    n_seq_neighbors_override: 24
+    n_spatial_neighbors_override: 24
+    n_random_neighbors_override: 56
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

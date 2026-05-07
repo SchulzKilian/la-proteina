@@ -38,7 +38,7 @@ python -m steering.generate \
     --lengths 400 \
     --output_dir $OUTPUT_DIR \
     --device cuda:0 \
-    --nsteps 100
+    --nsteps 400  # was 100; flipped 2026-05-07 — this script was the original source of the nsteps bug (clean predictor-side dose-response at nsteps=100, but unguided scRMSD = 22 Å). See CLAUDE.md "Sampling — nsteps=400 is a HARD RULE".
 
 # Step 2: Evaluate properties (CPU, skip TANGO since this round is just net_charge)
 echo ""

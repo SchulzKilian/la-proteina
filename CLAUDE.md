@@ -71,6 +71,24 @@ sbatch script_utils/run_developability.sh                     # property panel
 
 No formal test suite. Tracking via Weights & Biases.
 
+## Sampling — `nsteps=400` is a HARD RULE
+
+**Every inference run that produces structures evaluated with scRMSD or any structure-derived property MUST use `nsteps=400`.** This is non-negotiable, the user has restated it multiple times, and violating it has invalidated entries repeatedly. `inference_base.yaml` ships with `nsteps: 400` — *do not override it downward.*
+
+The cliff is real: identical seed, identical model (LD3+AE2), identical L=300 — single-protein scRMSD goes from **22.5 Å at nsteps=200 → 0.80 Å at nsteps=400**. Below 400, the integrator hasn't converged to the data manifold; structures are off-manifold garbage even when the model is fine.
+
+**Every nsteps<400 run produces a number that is below the integrator-convergence bar and therefore not comparable to canonical (E019).** This has poisoned multiple comparisons:
+- E020 / E026 (1000-protein stratified property/AA-composition panels) — ran nsteps=200; superseded by E025 / E028 nsteps=400 regen, originals retained as historical record only.
+- E021 / E034 / E035 / E038 / E039 (variant probes) and E040 / E041 (hybrid probes) — all ran nsteps=200 against canonical-at-nsteps=400. Variant numbers are handicapped; "variant vs canonical" claims are not defensible without an nsteps=400 re-probe.
+- The original net_charge steering sweep (`run_steering_camsol_tango.sh`, NSTEPS=100) had a clean predictor-side dose-response with 22 Å scRMSD outputs.
+
+**Hard rules for new configs and runs:**
+- `configs/inference_*.yaml` should inherit `nsteps` from `inference_base.yaml`. Do not add a `generation.args.nsteps` override unless the goal is *not* a structure-quality eval (e.g. latent-trajectory diagnostics, predictor-side dose-response, per-t validation loss). "I want it to run faster" is not a reason.
+- `script_utils/run_*.sh` driver scripts must pin `NSTEPS=400`, not 100/200.
+- Wall-cost: `nsteps=400` is roughly 2× `nsteps=200` — ~3-4 h on 1× A100 for an N=6 designability probe at L∈{50, 100, 200}. Not catastrophic.
+- The `*_quick.yaml` and `*_smoke.yaml` historical templates that overrode to 200 have been flipped to 400 (2026-05-07). Don't restore them. New `_quick`/`_smoke` configs must also stay at 400.
+- An entry that uses `nsteps < 400` for designability evaluation must call it out as a methodological caveat in the entry's caveats list and explain why.
+
 ## Architecture Pointers
 
 - `proteinfoundation/proteina.py` — central `LightningModule`. `_ca_only_mode` is True when `local_latents` is absent from `product_flowmatcher` (skips AE; `latent_dim=None`).

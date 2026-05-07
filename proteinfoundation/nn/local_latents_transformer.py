@@ -131,6 +131,17 @@ class LocalLatentsTransformer(torch.nn.Module):
                 f"present; otherwise falls back to x_t."
             )
 
+        # Inference-only neighbor-list curriculum: reallocate the K=40 budget across
+        # (sequential, spatial, random) groups as a function of t while keeping the
+        # total K constant. At low t (noisy x_t), spend the entire budget on
+        # sequential neighbors (which are t-invariant); at high t, recover the
+        # canonical training composition. The softmax always operates over K=40
+        # real slots — only what fills them shifts. Default off so existing
+        # checkpoints / training are unchanged. Replaces the E044 masking variant:
+        # E044 shrunk effective K to 16 at low t (pad-mask spatial+random); E045
+        # holds K=40 fixed.
+        self.curriculum_neighbors = kwargs.get("curriculum_neighbors", False)
+
         self.latent_dim = kwargs.get("latent_dim", None)
         if self.latent_dim is not None:
             self.local_latents_linear = torch.nn.Sequential(
@@ -152,7 +163,10 @@ class LocalLatentsTransformer(torch.nn.Module):
         )
 
     def _build_neighbor_idx(
-        self, ca_coors: torch.Tensor, mask: torch.Tensor
+        self,
+        ca_coors: torch.Tensor,
+        mask: torch.Tensor,
+        t: Optional[torch.Tensor] = None,
     ) -> tuple:
         """Compute sparse neighbor indices and slot validity.
 
@@ -160,13 +174,38 @@ class LocalLatentsTransformer(torch.nn.Module):
             neighbor_idx: [b, n, K] int64 — neighbor residue indices
             slot_valid:   [b, n, K] bool  — True for real neighbors, False for padding slots
                           (padding only occurs for proteins shorter than K=2*n_seq+n_spatial+n_random)
+
+        When `self.curriculum_neighbors` is True and `t` is provided, the
+        (n_seq, n_spatial, n_random) triple is picked from t via a 3-bucket
+        schedule. Total K is held constant across regimes:
+            t < 0.33      → (20, 0, 0)   = 40  (sequential-only)
+            0.33 ≤ t<0.66 → (12, 8, 8)   = 40  (interpolate)
+            t ≥ 0.66      → (8, 8, 16)   = 40  (canonical training composition)
         """
+        n_seq = self.n_seq_neighbors
+        n_sp = self.n_spatial_neighbors
+        n_rd = self.n_random_neighbors
+        if self.curriculum_neighbors and t is not None:
+            # At inference, the integrator advances t in lockstep across the batch
+            # (Euler / SDE step is uniform), so a scalar branch suffices.
+            assert torch.allclose(t, t[0]), (
+                "curriculum_neighbors expects scalar-equivalent t (inference path); "
+                "got per-protein t. The schedule below is shared across the batch — "
+                "wire per-protein logic before training-time use."
+            )
+            t_scalar = t[0].item()
+            if t_scalar < 0.33:
+                n_seq, n_sp, n_rd = 20, 0, 0
+            elif t_scalar < 0.66:
+                n_seq, n_sp, n_rd = 12, 8, 8
+            else:
+                n_seq, n_sp, n_rd = 8, 8, 16
         return build_neighbor_idx(
             ca_coors,
             mask,
-            n_seq=self.n_seq_neighbors,
-            n_spatial=self.n_spatial_neighbors,
-            n_random=self.n_random_neighbors,
+            n_seq=n_seq,
+            n_spatial=n_sp,
+            n_random=n_rd,
         )
 
     def _subsample_input(self, inp: Dict, n: int, mask: Optional[torch.Tensor] = None, stride: int = 2) -> Dict:
@@ -311,7 +350,11 @@ class LocalLatentsTransformer(torch.nn.Module):
                         x_sc_ca,
                         coords_for_neighbors,
                     )
-                neighbor_idx, slot_valid = self._build_neighbor_idx(coords_for_neighbors, mask)
+                # Pass t into the neighbor builder so the curriculum (if on) can
+                # reallocate (n_seq, n_spatial, n_random) for this step. K stays 40.
+                neighbor_idx, slot_valid = self._build_neighbor_idx(
+                    coords_for_neighbors, mask, t=input["t"]["bb_ca"]
+                )
             else:
                 neighbor_idx, slot_valid = None, None
             pair_rep = self.pair_repr_builder(input, neighbor_idx=neighbor_idx, slot_valid=slot_valid)

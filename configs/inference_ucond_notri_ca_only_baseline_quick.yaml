@@ -17,12 +17,13 @@ ckpt_path: /home/ks2218/la-proteina/store/test_ca_only_diffusion/1776805213/chec
 ckpt_name: best_val_00000026_000000002646.ckpt
 autoencoder_ckpt_path:
 
-# Same workload as v2_quick: 4 lengths × 10 samples × 200 ODE steps.
+# Same workload as v2_quick: 4 lengths × 10 samples × 400 ODE steps.
 # Lengths chosen to match the per-length val-loss bins (50-175, 175-300,
 # 300-425, 425-513) so designability lines up with training-time val curves.
+# nsteps=400 production minimum; flipped from 200 on 2026-05-07.
 generation:
   args:
-    nsteps: 200
+    nsteps: 400
   dataset:
     nsamples: 10
     max_nsamples_per_batch: 10

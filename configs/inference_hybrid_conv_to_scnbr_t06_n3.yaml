@@ -1,0 +1,32 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv_to_scnbr_t06_n3
+config_name: inference_hybrid_conv_to_scnbr_t06_n3
+
+# Hybrid sampling: conv (1D-downsampling) for t < t_switch, scnbr_K40 for t >= t_switch.
+# t_switch=0.6 → conv handles ~60% of trajectory by t-distance, scnbr last 40%.
+# Logs kink ‖v_conv − v_scnbr‖ at the first step crossing t_switch
+# (writes inference/<config_name>/kink_log.json).
+ckpt_path_a: /home/ks2218/la-proteina   # conv (early, t < t_switch)
+ckpt_name_a: best_val_00000023_000000002331.ckpt
+ckpt_path_b: /home/ks2218/la-proteina   # scnbr_K40_t04 (late, t >= t_switch)
+ckpt_name_b: best_val_00000011_000000001133.ckpt
+t_switch: 0.6
+
+# Need ckpt_path/ckpt_name to satisfy inference_base assertions.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000023_000000002331.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400  # nsteps=400 production minimum; flipped from 200 on 2026-05-07. With t_switch=0.6 + log schedule, the conv:scnbr step split changes — recompute per-step boundary if you cite NFE proportions.
+    sc_neighbors_bootstrap: False
+  dataset:
+    nsamples: 3
+    max_nsamples_per_batch: 3
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

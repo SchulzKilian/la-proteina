@@ -1,0 +1,33 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_curriculum_realloc_n6_nfe400
+config_name: inference_sparse_K40_step1259_curriculum_realloc_n6_nfe400
+
+# E045 — t-dependent K-reallocation curriculum on plain sparse_K40 step 1259.
+# Total K=40 is held constant across regimes; only the (n_seq, n_spatial, n_random)
+# split varies with t:
+#   t < 0.33      → (20, 0, 0)   = 40  (sequential-only at low t)
+#   0.33 ≤ t<0.66 → (12, 8, 8)   = 40  (interpolate)
+#   t ≥ 0.66      → (8, 8, 16)   = 40  (canonical training composition)
+#
+# Different intervention from E044 (which masked spatial+random slots at low t,
+# shrinking effective K to 16). Here the softmax always sees 40 real neighbors;
+# only the composition shifts. See proteinfoundation/nn/local_latents_transformer.py
+# `_build_neighbor_idx` for the schedule and the assert that t is uniform across
+# the inference batch.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    curriculum_neighbors: True
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

@@ -12,15 +12,16 @@ ckpt_path: /home/ks2218/la-proteina/store/ca_only_diffusion_baseline_v2/17769752
 ckpt_name: best_val_00000020_000000002078.ckpt
 autoencoder_ckpt_path:
 
-# Quick eval: 4 lengths × 10 samples × 200 ODE steps = 40 samples.
+# Quick eval: 4 lengths × 10 samples × 400 ODE steps = 40 samples.
+# nsteps=400 production minimum (CLAUDE.md hard rule); flipped from 200 on 2026-05-07.
 # One length per per-length val-loss bin from training:
 #   50  ∈ 50-175,  150 ∈ 175-300 (lower edge),  300 ∈ 300-425,  450 ∈ 425-513.
 # This matches the same length granularity the v2 training run logged val on,
 # so designability per length lines up directly with the val curves.
-# Time budget on 1 A100: ~14 min generation + ~29 min ESMFold = ~43 min total.
+# Time budget on 1 A100: ~28 min generation + ~29 min ESMFold = ~57 min total.
 generation:
   args:
-    nsteps: 200
+    nsteps: 400
   dataset:
     nsamples: 10
     max_nsamples_per_batch: 10

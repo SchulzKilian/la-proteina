@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv_to_canonical_t06_n3
+config_name: inference_hybrid_conv_to_canonical_t06_n3
+
+# Hybrid: 1D-conv (downsampling) for t < t_switch, canonical wd=0.05 trunk for t >= t_switch.
+# canonical ckpt: best_val_00000024_000000002457.ckpt (run id 1776805213, run_name_ = test_ca_only_diffusion).
+# This is 189 opt steps before the highest-step canonical ckpt cited anywhere (2646 in
+# CLAUDE.md, but unverified — local truth is 2457). Same training run, same recipe.
+ckpt_path_a: /home/ks2218/la-proteina   # conv (early, t < t_switch)
+ckpt_name_a: best_val_00000023_000000002331.ckpt
+ckpt_path_b: /home/ks2218/la-proteina   # canonical (late, t >= t_switch)
+ckpt_name_b: best_val_00000024_000000002457.ckpt
+t_switch: 0.6
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000023_000000002331.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400  # nsteps=400 production minimum; flipped from 200 on 2026-05-07. With t_switch=0.6 + log schedule, the conv:canonical step split changes — recompute per-step boundary if you cite NFE proportions.
+    sc_neighbors_bootstrap: False
+  dataset:
+    nsamples: 3
+    max_nsamples_per_batch: 3
+    nlens_cfg:
+      nres_lens: [50, 100, 200]
