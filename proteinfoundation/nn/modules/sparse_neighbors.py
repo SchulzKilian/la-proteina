@@ -39,10 +39,12 @@ def build_neighbor_idx(
     # ------------------------------------------------------------------ #
     dists = torch.cdist(ca_coors.float(), ca_coors.float())  # [b, n, n]
 
-    # Base invalid mask: self + masked residues are never valid neighbors
+    # Base invalid mask: only masked residues are never valid neighbors. Self
+    # is now allowed in the K-set (lands in slot 0 of the sequential group via
+    # seq_dist[i, i] = 0). Pair-bias bins for |i - j| = 0 and d = 0 receive
+    # gradients during training.
     invalid_j = ~mask[:, None, :].expand(B, N, N)          # [b, n, n]
-    eye = torch.eye(N, device=device, dtype=torch.bool).unsqueeze(0).expand(B, N, N)
-    base_invalid = invalid_j | eye                          # [b, n, n]
+    base_invalid = invalid_j                                # [b, n, n]
 
     # `selected` tracks positions already chosen (or intrinsically invalid).
     # Used to exclude them from subsequent selection rounds.

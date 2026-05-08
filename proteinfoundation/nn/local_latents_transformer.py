@@ -131,15 +131,19 @@ class LocalLatentsTransformer(torch.nn.Module):
                 f"present; otherwise falls back to x_t."
             )
 
-        # Inference-only neighbor-list curriculum: reallocate the K=40 budget across
-        # (sequential, spatial, random) groups as a function of t while keeping the
-        # total K constant. At low t (noisy x_t), spend the entire budget on
+        # Neighbor-list curriculum: reallocate the K=64 budget across
+        # (sequential, spatial, random) groups as a function of t while keeping
+        # the total K constant. At low t (noisy x_t), spend the entire budget on
         # sequential neighbors (which are t-invariant); at high t, recover the
-        # canonical training composition. The softmax always operates over K=40
-        # real slots — only what fills them shifts. Default off so existing
-        # checkpoints / training are unchanged. Replaces the E044 masking variant:
-        # E044 shrunk effective K to 16 at low t (pad-mask spatial+random); E045
-        # holds K=40 fixed.
+        # SALAD canonical composition (8 seq per side / 16 spatial / 32 random).
+        # The softmax always operates over K=64 real slots — only what fills
+        # them shifts. Per-protein t is supported (training: every protein in a
+        # batch can land in a different bucket; inference: t is uniform across
+        # the batch and the proteins all fall in the same bucket together).
+        # Default off so existing checkpoints / training are unchanged.
+        # NOTE: this schedule replaces an earlier K=40 inference-only schedule
+        # (E044/E045 era) — the flag name is kept but the per-bucket counts and
+        # total K have changed; that is intentional.
         self.curriculum_neighbors = kwargs.get("curriculum_neighbors", False)
 
         self.latent_dim = kwargs.get("latent_dim", None)
@@ -175,38 +179,59 @@ class LocalLatentsTransformer(torch.nn.Module):
             slot_valid:   [b, n, K] bool  — True for real neighbors, False for padding slots
                           (padding only occurs for proteins shorter than K=2*n_seq+n_spatial+n_random)
 
-        When `self.curriculum_neighbors` is True and `t` is provided, the
-        (n_seq, n_spatial, n_random) triple is picked from t via a 3-bucket
-        schedule. Total K is held constant across regimes:
-            t < 0.33      → (20, 0, 0)   = 40  (sequential-only)
-            0.33 ≤ t<0.66 → (12, 8, 8)   = 40  (interpolate)
-            t ≥ 0.66      → (8, 8, 16)   = 40  (canonical training composition)
+        When `self.curriculum_neighbors` is True and `t` is provided, each
+        protein in the batch picks a (n_seq, n_spatial, n_random) triple from
+        a 3-bucket schedule keyed on its own t. Total K is held constant at
+        K=64 across all regimes:
+            t < 0.33      → (32, 0, 0)   = 64  (sequential-only)
+            0.33 ≤ t<0.66 → (16, 8, 24)  = 64  (interpolate)
+            t ≥ 0.66      → (8, 16, 32)  = 64  (SALAD canonical composition)
+        Implementation: group the batch by bucket and call build_neighbor_idx
+        once per non-empty bucket, then scatter results back. Proteins in
+        different buckets within the same batch are supported (training); when
+        every t lands in the same bucket (inference), only one call fires.
         """
         n_seq = self.n_seq_neighbors
         n_sp = self.n_spatial_neighbors
         n_rd = self.n_random_neighbors
-        if self.curriculum_neighbors and t is not None:
-            # At inference, the integrator advances t in lockstep across the batch
-            # (Euler / SDE step is uniform), so a scalar branch suffices.
-            assert torch.allclose(t, t[0]), (
-                "curriculum_neighbors expects scalar-equivalent t (inference path); "
-                "got per-protein t. The schedule below is shared across the batch — "
-                "wire per-protein logic before training-time use."
+        if not (self.curriculum_neighbors and t is not None):
+            return build_neighbor_idx(
+                ca_coors,
+                mask,
+                n_seq=n_seq,
+                n_spatial=n_sp,
+                n_random=n_rd,
             )
-            t_scalar = t[0].item()
-            if t_scalar < 0.33:
-                n_seq, n_sp, n_rd = 20, 0, 0
-            elif t_scalar < 0.66:
-                n_seq, n_sp, n_rd = 12, 8, 8
-            else:
-                n_seq, n_sp, n_rd = 8, 8, 16
-        return build_neighbor_idx(
-            ca_coors,
-            mask,
-            n_seq=n_seq,
-            n_spatial=n_sp,
-            n_random=n_rd,
+
+        B, N, _ = ca_coors.shape
+        K = 2 * n_seq + n_sp + n_rd
+        assert K == 64, (
+            f"curriculum_neighbors schedule is K=64; static config has K={K}. "
+            "Set n_seq_neighbors=8, n_spatial_neighbors=16, n_random_neighbors=32."
         )
+        device = ca_coors.device
+        out_idx = torch.zeros(B, N, K, dtype=torch.long, device=device)
+        out_valid = torch.zeros(B, N, K, dtype=torch.bool, device=device)
+
+        # 3-bucket schedule. (n_seq_per_side, n_spatial, n_random); 2*n_seq + n_sp + n_rd = 64.
+        buckets = [
+            ((-float("inf"), 0.33), (32, 0, 0)),
+            ((0.33,         0.66), (16, 8, 24)),
+            ((0.66, float("inf")), (8, 16, 32)),
+        ]
+        t_cpu = t.detach().to(torch.float32)
+        for (lo, hi), (n_s, n_sp_b, n_rd_b) in buckets:
+            sel = (t_cpu >= lo) & (t_cpu < hi)
+            if not bool(sel.any()):
+                continue
+            bidx = torch.nonzero(sel, as_tuple=False).squeeze(-1)
+            sub_idx, sub_valid = build_neighbor_idx(
+                ca_coors[bidx], mask[bidx],
+                n_seq=n_s, n_spatial=n_sp_b, n_random=n_rd_b,
+            )
+            out_idx[bidx] = sub_idx
+            out_valid[bidx] = sub_valid
+        return out_idx, out_valid
 
     def _subsample_input(self, inp: Dict, n: int, mask: Optional[torch.Tensor] = None, stride: int = 2) -> Dict:
         """

@@ -1,0 +1,119 @@
+# SALAD-canonical sparse K=64 variant + low-t→SALAD curriculum + self-inclusion.
+#
+# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4).
+# DO NOT touch wd/LR/scheduler — confounds the curriculum question with the
+# v2/paramgroups failure. See CLAUDE.md "Canonical baseline run" and
+# variants.md §1 for the load-bearing rationale.
+#
+# This variant bundles three load-bearing changes vs the existing sparse K=40
+# (variants.md §5):
+#   1. K=64 with SALAD-canonical (8/16/32) at high t — doubles the
+#      coordinate-based budget that E045 implicated as load-bearing at L>=100.
+#   2. Curriculum: pure-sequential at low t → SALAD-canonical at high t. K
+#      stays 64 throughout; only the (n_seq, n_spatial, n_random) split
+#      shifts. Schedule lives in
+#      `LocalLatentsTransformer._build_neighbor_idx`.
+#   3. Self-inclusion: sparse path now allows self in the K-set (slot 0 of
+#      the sequential group). Single-line change in
+#      `sparse_neighbors.py`.
+# Plus throughput: torch.compile + expandable_segments to recover some of the
+# per-step disadvantage that sparse has at n=512 due to gather bandwidth.
+#
+# Deliberately NOT bundled (kept clean for the next variant axis):
+#   - sc_neighbors (Fix C2): didn't show a clean win at N=6.
+#   - update_pair_repr=True: separate axis, deferred.
+#   - per-layer K-refresh: separate axis, deferred.
+run_name_: ca_only_sparse_K64_curriculum_self
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  # Turn the K=64 curriculum on. Each protein in a training batch picks a
+  # (n_seq, n_spatial, n_random) split from its own t (3-bucket schedule);
+  # at inference t is uniform across the batch so all proteins fall into
+  # the same bucket together. The schedule itself lives in
+  # `LocalLatentsTransformer._build_neighbor_idx`.
+  curriculum_neighbors: True
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block.
+# Constant LR=2e-4 is achieved by omitting `scheduler:` entirely.
+# See proteina.py:228 — sched_cfg=None → returns optimizer alone (no LR schedule).
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  # Throughput: torch.compile the trunk. fullgraph=False so the per-bucket
+  # Python loop in the curriculum path graph-breaks gracefully. If the smoke
+  # test shows <5% speedup or compile fails, flip to False without touching
+  # the rest of the recipe.
+  compile_nn: True
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

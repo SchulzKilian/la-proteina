@@ -1,0 +1,64 @@
+# SALAD-canonical sparse-attention variant of the CA-only baseline.
+#
+# Architecture is byte-equivalent to `ca_only_sparse_160M.yaml`, which in
+# turn matches `ca_only_score_nn_160M.yaml` (the canonical baseline NN
+# config) except for the sparse_* keys at the bottom. The ONLY differences
+# vs `ca_only_sparse_160M.yaml` are the three sparse-K counts here:
+#   K = 2*n_seq + n_spatial + n_random = 16 + 16 + 32 = 64  (SALAD canonical)
+# vs the K=40 of the existing sparse_K40 variant. All other keys are identical.
+#
+# This static composition (8 / 16 / 32) is what the model trains against at
+# the high-t end of the curriculum (t >= 0.66). The training-time
+# `curriculum_neighbors=True` flag (set in the matching training config)
+# reshuffles the budget at lower t while keeping K=64 throughout.
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Match baseline: no pair update, no triangular multiplication, no downsampling.
+# Deliberately one-axis: K=64 + curriculum + self-inclusion. update_pair_repr
+# stays False (separate axis, deferred). use_tri_mult MUST stay False under
+# sparse — pair_update.py:65 raises if combined with sparse.
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# SALAD-canonical sparse attention. K = 2*8 + 16 + 32 = 64.
+# Composition at high t (t >= 0.66) matches Jendrusch & Korbel (Nat Mach Intell
+# 2025): 16 sequential, 16 spatial, 32 random ∝ 1/d³. The training-time
+# curriculum (training.curriculum_neighbors=True) reshuffles the budget at
+# lower t (sequential-only at t<0.33; intermediate at 0.33<=t<0.66).
+sparse_attention: true
+n_seq_neighbors: 8        # sequential per side → 16 sequential total at high t
+n_spatial_neighbors: 16   # nearest Cα neighbors (excluding sequential picks)
+n_random_neighbors: 32    # random neighbors sampled ∝ 1/d³_Cα (excluding seq + spatial)

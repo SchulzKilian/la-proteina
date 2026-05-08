@@ -113,6 +113,17 @@ export RESUME=1
 export WANDB_INIT_TIMEOUT=600
 export WANDB__SERVICE_WAIT=300
 
+# 5c. CUDA allocator: expandable_segments occasionally helps gather-heavy
+#     bf16 paths (sparse-attention is the load-bearing case). Numerically
+#     a no-op; only changes how the allocator releases / reuses blocks.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# 5d. Allow torch.compile to fire when a config opts in via opt.compile_nn=True.
+#     full_training_test.sh has a default `: "${TORCH_COMPILE_DISABLE:=1}"`; we
+#     drop the env var here so its default takes effect for non-compile configs
+#     while compile-enabled configs see TORCH_COMPILE_DISABLE=0 explicitly set.
+export TORCH_COMPILE_DISABLE=0
+
 # 6. Default config = training_ca_only. The user can still override with
 #    `-n some_other_config` when invoking this script.
 DEFAULT_CONFIG="training_ca_only"
@@ -169,4 +180,4 @@ bash script_utils/full_training_test.sh "$@" \
     opt.dist_strategy=auto \
     opt.lr=0.0002 \
     opt.accumulate_grad_batches=32 \
-    log.last_ckpt_every_n_steps=500
+    log.last_ckpt_every_n_steps=300

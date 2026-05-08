@@ -9,8 +9,13 @@ cd "$PROJECT_DIR"
 
 
 export SLURM_NTASKS=${SLURM_NTASKS:-4}
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-export TORCH_COMPILE_DISABLE=1
+# Allow caller to override these defaults — submit_train_ca_only_1gpu.sh sets
+# PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True for the gather-heavy sparse
+# path, and unsets TORCH_COMPILE_DISABLE for variants that opt into compile.
+: "${PYTORCH_CUDA_ALLOC_CONF:=max_split_size_mb:512}"
+export PYTORCH_CUDA_ALLOC_CONF
+: "${TORCH_COMPILE_DISABLE:=1}"
+export TORCH_COMPILE_DISABLE
 
 # ==============================================================================
 # 1. Configuration & Defaults

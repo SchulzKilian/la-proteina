@@ -18,6 +18,12 @@ wandb/
 **.ckpt
 **.pt
 **.ckpt
+**.pdb
+
+# Slurm / nohup output captures (these end in .out, not .log)
+slurm_*.out
+nohup*.out
+
 *.zip
 *.exe
 *.fasta

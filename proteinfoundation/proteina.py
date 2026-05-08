@@ -119,9 +119,13 @@ class Proteina(L.LightningModule):
         # Fix C2: source of truth for sc_neighbors lives under cfg_exp.training (alongside
         # self_cond), but the NN constructor only sees cfg_exp.nn. Plumb the resolved
         # values through as kwargs — defaults preserve existing behavior when absent.
+        # Same pattern for curriculum_neighbors (K=64 t-bucketed neighbor reallocation):
+        # source of truth is cfg_exp.training, plumbed as a kwarg so existing configs
+        # without the flag stay unchanged.
         _sc_neighbors_kwargs = {
             "sc_neighbors": cfg_exp.training.get("sc_neighbors", False),
             "sc_neighbors_t_threshold": cfg_exp.training.get("sc_neighbors_t_threshold", 0.4),
+            "curriculum_neighbors": cfg_exp.training.get("curriculum_neighbors", False),
         }
         if cfg_exp.nn.name == "local_latents_transformer":
             self.nn = LocalLatentsTransformer(
@@ -131,6 +135,15 @@ class Proteina(L.LightningModule):
             self.nn = LocalLatentsTransformerMotifUidx(**cfg_exp.nn, latent_dim=self.latent_dim)
         else:
             raise IOError(f"Wrong nn selected for CAFlow {cfg_exp.nn.name}")
+
+        # Optional torch.compile of the trunk. fullgraph=False so the per-bucket
+        # Python loop in _build_neighbor_idx (curriculum path) graph-breaks
+        # cleanly without erroring; mode="reduce-overhead" is the steady-state
+        # training mode (one-time compile, reuse compiled graph). Defaults off
+        # so existing checkpoints / runs are unchanged.
+        if cfg_exp.opt.get("compile_nn", False):
+            logger.info("opt.compile_nn=True — wrapping self.nn with torch.compile (mode=reduce-overhead, fullgraph=False).")
+            self.nn = torch.compile(self.nn, mode="reduce-overhead", fullgraph=False)
 
         # Scaling laws stuff
         self.nflops = 0

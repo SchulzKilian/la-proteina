@@ -222,10 +222,10 @@ def load_ckpt_n_configure_inference(cfg: Dict) -> Proteina:
 
     model.configure_inference(cfg.generation, nn_ag=nn_ag)
 
-    # Inference-only neighbor-list curriculum (sparse-attention models only).
-    # Defaults to off; existing configs unchanged. The schedule itself
-    # (3-bucket reallocation of K=40 across sequential/spatial/random by t)
-    # lives inside `LocalLatentsTransformer._build_neighbor_idx`.
+    # Neighbor-list curriculum (sparse-attention models only). Defaults to
+    # off; existing configs unchanged. The schedule itself (3-bucket
+    # reallocation of K=64 across sequential/spatial/random by t) lives
+    # inside `LocalLatentsTransformer._build_neighbor_idx`.
     cur_on = cfg.generation.args.get("curriculum_neighbors", False)
     if cur_on:
         if not getattr(model.nn, "sparse_attention", False):
@@ -234,10 +234,10 @@ def load_ckpt_n_configure_inference(cfg: Dict) -> Proteina:
             )
         model.nn.curriculum_neighbors = True
         logger.info(
-            "[Curriculum neighbors] ON — 3-bucket K-reallocation: "
-            "t<0.33 → (n_seq=20, n_sp=0, n_rd=0); "
-            "0.33≤t<0.66 → (12, 8, 8); "
-            "t≥0.66 → (8, 8, 16)."
+            "[Curriculum neighbors] ON — 3-bucket K=64 reallocation: "
+            "t<0.33 → (n_seq=32, n_sp=0, n_rd=0); "
+            "0.33≤t<0.66 → (16, 8, 24); "
+            "t≥0.66 → (8, 16, 32)."
         )
 
     # Inference-only K-bump (sparse-attention models only). Override the
