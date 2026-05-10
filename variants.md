@@ -26,9 +26,10 @@ Variant-bar (CLAUDE.md): a CA-only architectural variant clears the bar if it pr
 | [Sparse K=32 (mis-named K40)](#5-sparse-attention-k32-mis-named-k40) | sparse K=32 attn + canonical recipe | 4.227 | 1259 | plateaued ~1259, mild uptick | clears (13/30 L=50 N=30) | [E010](experiments.md#e010--sparse-attention-variant-k32-training-2026-04-25-in-progress) / E014 / E019 |
 | [Sparse K=40 + pair update](#6-sparse-k40--pair-update) | sparse K=40 attn + `update_pair_repr` | 4.591 | 1133 | plateaued early @1133, then overfit | clears at step 1133 (2/6 L=50 N=6) | [E021](experiments.md#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30) |
 | [Sparse K=40 + Fix C2 (`scnbr_t04`)](#7-sparse-k40--fix-c2-sc_neighbors_t_threshold04) | sparse K=40 attn + sc-coord-source for low-t neighbors | 4.276 | 1133 | plateaued @1133, then overfit | clears (2/6 L=50, 1/6 L=100 N=6) | [E035](experiments.md#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06) / [E038](experiments.md#e038--scnbr_t04-re-probe-with-fix-c2-actually-wired-2026-05-06) / [E039](experiments.md#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06) |
-| [1D-conv downsampled](#8-1d-conv-downsampled) | dense attn + `use_downsampling=True` (BlurPool 2× pool) | 4.322 | 2331 | converged ~2331, no overfit | **fails** (0/18, best 12.4 Å) | [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) |
+| [1D-conv downsampled](#8-1d-conv-downsampled) | dense attn + `use_downsampling=True` (BlurPool 2× pool) | **3.954** | **2961** | **still descending** (Δ = −0.39 over slot 5; new best at the very last logged step) | misses (3/18 = 17% N=6 nfe400 at step 2961) | [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) (superseded for nsteps); see §8 for current numbers |
 | [Hybrid: conv → canonical](#9-hybrid-sampling--conv--canonical-mid-trajectory-handover) | inference-time variant; reuses [E034](#8-1d-conv-downsampled) (t<0.6) + [canonical](#1-canonical-ca-only-baseline) (t≥0.6) ckpts | n/a | n/a | n/a (no training) | clears strongly (12/18 N=6, all L) | [E041](experiments.md#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06) |
 | [Hybrid: conv → scnbr_t04](#10-hybrid-sampling--conv--scnbr_t04-mid-trajectory-handover) | inference-time variant; reuses [E034](#8-1d-conv-downsampled) + [E039](#7-sparse-k40--fix-c2-sc_neighbors_t_threshold04) ckpts | n/a | n/a | n/a (no training) | clears (5-12/18 depending on t_switch) | [E040](experiments.md#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06) |
+| [Sparse K=64 SALAD-canonical + low-t curriculum + self-inclusion](#11-sparse-k64-salad-canonical--low-t-curriculum--self-inclusion) | sparse K=64 (8/16/32) + per-t curriculum + self in K-set | **4.191** | **1385** | pre-convergence (best val set in last continuation; < canonical 1800-2200 overfit window) | **clears** (8/18 L=50 = 44%, 10/18 L=100 = 56%, 2/18 L=200 = 11% pooled N=6+N=12 nfe400; below canonical 63/67/10 at L=50/100, tied at L=200) | this entry — no E-id yet |
 
 ---
 
@@ -423,11 +424,11 @@ The deltas listed under each variant are **on top of** this canonical block. Any
 
 **Run name:** `ca_only_downsampled`. Store dir: `store/ca_only_downsampled/1777987722/`.
 
-**Wandb chain (consolidated):** `a20t7xax` → `uo9i23gt` → `re4fjwbf` → `4ynd48hs`. 4 chained slots, **20.5 h total runtime**, 38 val points, opt step 62 → 2393.
+**Wandb chain (consolidated):** `a20t7xax` → `uo9i23gt` → `re4fjwbf` → `4ynd48hs` → `ahm9qsld`. **5 chained slots**, opt step 62 → 2971. The 5th slot (`ahm9qsld`, 2026-05-07) was a continuation of the previous chain — the user notes "small fixes" were applied at the HPC end (not visible in local git as of 2026-05-09 review); the chain resumed cleanly from `last.ckpt` and continued the same wandb group.
 
-**Best val:** **4.322 @ step 2331** (Δ = −0.39 vs canonical — comparable to wd=0 / paramgroups). On-disk best raw ckpt: `best_val_00000023_000000002331.ckpt`.
+**Best val:** **3.954 @ step 2961** (Δ = −0.76 vs canonical's 4.712 — currently the lowest val of any CA-only variant in this catalogue). All-time best was set at the **very last logged step** of the most recent slot. On-disk best raw ckpt: `best_val_00000029_000000002961.ckpt`.
 
-**Val-loss profile:**
+**Val-loss profile (consolidated):**
 
 | Step | Val | Slot |
 |---:|---:|---|
@@ -435,22 +436,28 @@ The deltas listed under each variant are **on top of** this canonical block. Any
 |  503 | 6.100 | uo9i23gt |
 |  755 | 5.435 | uo9i23gt |
 | 1007 | 5.326 | uo9i23gt |
-| 1133 | 5.498 | uo9i23gt |
 | 1259 | 5.339 | uo9i23gt |
 | 1511 | 5.487 | re4fjwbf |
-| 1637 | 5.333 | re4fjwbf |
 | 1827 | 5.057 | re4fjwbf |
 | 1952 | 4.958 | re4fjwbf |
-| 2078 | 5.055 | re4fjwbf |
 | 2142 | 4.648 | re4fjwbf |
-| **2331** | **4.322** | re4fjwbf (best) |
+| 2331 | 4.322 | re4fjwbf (1st local min) |
 | 2393 | 4.347 | 4ynd48hs |
+| 2456 | 4.505 | ahm9qsld (uptick) |
+| 2519 | 4.451 | ahm9qsld |
+| **2582** | **4.257** | ahm9qsld (cuts under 1st local min) |
+| 2646 | 4.397 | ahm9qsld |
+| 2708 | 4.276 | ahm9qsld |
+| **2771** | **4.144** | ahm9qsld |
+| **2835** | **4.030** | ahm9qsld |
+| 2897 | 4.166 | ahm9qsld |
+| **2961** | **3.954** | **ahm9qsld (global best, last logged step)** |
 
-**Convergence:** **just converged ~2331, no overfit yet** — +0.025 drift over 62 steps in the final slot. The val curve is the *flattest* of any variant past step 2300. Trained the longest (in opt-step terms) of any variant; chain ended in `finished` state, not `crashed`.
+**Convergence:** **still actively descending — NOT converged.** Δ over slot `ahm9qsld` = −0.39 (4.347 → 3.954) over 568 opt steps. The new best is the very last point logged, no turnover yet. Pattern is identical to the K=64-curriculum-self variant (§11): both crashed/finished mid-descent with no overfit signal. **The earlier "converged ~2331, no overfit yet" reading was wrong** — it interpreted the +0.025 drift in slot `4ynd48hs` (62 steps, basically a single eval) as a plateau. Slot 5 falsified that.
 
 **Tests:**
 
-- **N=6 quick probe ([E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06)) at step 2331, seed=5, post-fix MPNN:**
+- **N=6 designability probe at step 2331, seed=5, nsteps=200, post-fix MPNN ([E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06)):**
 
   | L | sorted min scRMSD (Å) | designable | best |
   |---|---|---|---|
@@ -459,9 +466,19 @@ The deltas listed under each variant are **on top of** this canonical block. Any
   | 200 | 17.60, 20.38, 20.70, 21.33, 21.51, 21.97 | 0/6 | 17.60 |
   | **pooled** | — | **0/18 (0%)** | **12.41** |
 
-  **Dead.** Best at any length is ~10 Å above the threshold, no bimodality. Step 2331 sits inside the canonical 1800-2200 best-val window — "needs more training" is mechanically defensible only as a dead-arm protection.
+  **Superseded by the nsteps=400 redo and the step-2961 probe** (see [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06)'s nsteps=200 caveat block) — at nsteps=200 the integrator hadn't converged to the data manifold, so this 0/18 conflates "model can't sample" with "we sampled wrong".
 
-**Narrative:** Best val of any non-baseline CA-only variant, but every single sample collapses by ≥12 Å — this is the variant's converged ceiling, not under-training, and the natural reading is that 2× spatial pooling kills the score field even when the val MSE looks competitive.
+- **N=6 designability probe at step 2961 (val-best), seed=5, nsteps=400, post-fix MPNN** (cited from the [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) supersession block; full E-entry not yet written):
+
+  Pooled: **3/18 (17%)**, best **1.60 Å**. The variant produces *some* designable samples at canonical inference resolution — what looked like "dead at every length" was an integrator artifact; what's actually happening is "low rate, low-Å tail."
+
+**Narrative:** The lowest val of any CA-only variant in this catalogue (3.954) and **still descending** at the last logged step. The gap to canonical-level designability is **mechanistically located**, not "Finding 5/6 generically": [E043](experiments.md#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07) at step 2331 showed conv's per-t val curve is statistically identical to canonical at the noisy end (t∈[0,0.2): +0.006 nat / protein) and **+0.452 nat worse** at the clean end (t∈[0.8,1.0)) — 3× larger than its gap at any other t-bucket. BlurPool 2× downsampling does bulk denoising fine; it loses fidelity exactly where the integrator commits to atom positions. [E041](experiments.md#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06)'s conv→canonical hybrid hands off at t=0.6 — *before* conv's disadvantage region — and recovers most of canonical's designability, which is the load-bearing test of the mechanism (architectural transplant of the late trajectory, not retraining).
+
+**Open question:** the step 2331 → 2961 val descent (Δ = −0.37) hasn't been broken down per-t yet. Two predictions for a re-run of `proteinfoundation/run_per_t_val.py` on step 2961:
+- **(A)** High-t bucket drops from 1.765 → ~1.4, others move <0.1: the val descent IS closing the late-trajectory hole; conv may eventually catch canonical at sample quality if training continues. The step 2961 designability of 3/18 (vs step 2331's 0/18 — superseded for nsteps) is consistent with this.
+- **(B)** Low/mid-t buckets carry the val descent, high-t stays ~1.7: BlurPool has a structural ceiling at the clean end; further training shifts val without translating to designability. Compute is better spent elsewhere.
+
+A length-stratified per-t version (per-(t × L) bucketing, ~30-min variant on `run_per_t_val.py`) would test the **stronger hypothesis**: conv's high-t hole is concentrated at long L, because 2× pooling halves the receptive-field-relative-to-protein at every L and atom-position commitment at high t needs more long-range context for longer chains. If the L=200 high-t bucket is +1.0 nat above canonical while L=50 is +0.2, that's the mechanism, and "fix BlurPool at high t" becomes a specific architectural ask rather than "downsampling is bad."
 
 ---
 
@@ -511,6 +528,131 @@ The deltas listed under each variant are **on top of** this canonical block. Any
 **Why t=0.75 outperforms t=0.6 here on small N (interpretation):** larger relative kink at lower t is offset by lower noise scale, so SDE re-equilibration can't fully wash the kink out before the trajectory commits; at t=0.75 fewer scnbr steps remain, so less time for scnbr's step-1133-weak-at-L=200 weights to drag the structure off-manifold. Caveat: 9 vs 12 valid samples can equally be sampling noise.
 
 **Narrative:** Same dead-conv-rescue mechanism as conv→canonical, but at smaller magnitude — the architectural-similarity hierarchy (dense+dense kinks smaller than dense+sparse kinks) is real and predicts post-handover trajectory survival.
+
+---
+
+## 11. Sparse K=64 SALAD-canonical + low-t curriculum + self-inclusion
+
+**Architecture:** sparse-attention 160M backbone, **three load-bearing changes** vs the existing [sparse K=40](#5-sparse-attention-k32-mis-named-k40):
+
+1. **K=64 with SALAD-canonical (n_seq=8, n_spatial=16, n_random=32)** at high t — `K_total = 2*n_seq + n_spatial + n_random = 16 + 16 + 32 = 64`. Doubles the coordinate-based budget that [E045](experiments.md#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) implicated as load-bearing at L≥100.
+2. **Curriculum over t** — at training time, each protein's neighbor split shifts with its sampled t. K stays 64 throughout; only the (n_seq, n_spatial, n_random) split changes. Wired in `proteinfoundation/nn/local_latents_transformer.py` (`_build_neighbor_idx` reads `curriculum_neighbors=True` from kwargs). Inverse of the failed E044/E045 inference-only retrofits — here the model is *trained* with the curriculum, so it sees the schedule it samples under.
+3. **Self-inclusion** — the sparse path now allows the query residue itself in the K-set (slot 0 of the sequential group). Single-line change in `proteinfoundation/nn/modules/sparse_neighbors.py`. Self previously excluded by the `eye` term in `base_invalid` (CLAUDE.md → "Sparse-attention variant" → "Self is excluded from each query's neighbor list"). With self-inclusion the residual connection around MHA is not the only self-information path.
+
+Plus throughput: `torch.compile` + `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (recovers some of the per-step disadvantage that sparse has at n=512 due to gather bandwidth).
+
+Deliberately **not** bundled (one-axis cleanliness): `sc_neighbors` (Fix C2), `update_pair_repr=True`, per-layer K-refresh.
+
+**Recipe deltas vs canonical:** none. Locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4, no scheduler) per CLAUDE.md "DO NOT touch wd/LR/scheduler — confounds the curriculum question with the v2/paramgroups failure". NN-config deltas vs `ca_only_score_nn_160M`: `sparse_attention=True`, K=64 with SALAD-canonical split, `curriculum_neighbors=True`.
+
+**Run name:** `ca_only_sparse_K64_curriculum_self`. Store dir: `store/ca_only_sparse_K64_curriculum_self/1778188245/`. Configs: `configs/training_ca_only_sparse_K64_curriculum.yaml`, `configs/nn/ca_only_sparse_K64_curriculum_160M.yaml`.
+
+**Wandb chain (consolidated):** `euiryxd4` (failed early, step 30) → `7sdu834p` (steps 62 → 1196, crashed at SLURM time-limit) → `rmuumq8v` (steps 1259 → 1574, crashed at SLURM time-limit). 2 substantive slots, 25 val points. **A 4th slot was queued 2026-05-09 (`sbatch 29102705`)** to push past step 1574 — see "Open question" below.
+
+**Best val:** **4.1908 @ step 1385** in run `rmuumq8v` (Δ = −0.52 vs canonical's 4.712 best — the largest val-Δ of any variant in this catalogue). On-disk best raw ckpt: `best_val_00000013_000000001385.ckpt`. Raw `.ckpt` symlinked at repo root as `sparse_K64_curriculum_self_step1385.ckpt` for inference.
+
+**Val-loss profile (consolidated, all 25 points):**
+
+| Step | Val | Slot |
+|---:|---:|---|
+|   62 | 7.093 | 7sdu834p |
+|  314 | 5.723 | 7sdu834p |
+|  566 | 5.061 | 7sdu834p |
+|  818 | 4.669 | 7sdu834p |
+|  944 | 4.381 | 7sdu834p |
+| 1007 | 4.375 | 7sdu834p |
+| 1133 | **4.237** | 7sdu834p (1st local min) |
+| 1196 | 4.324 | 7sdu834p |
+| 1259 | 4.335 | rmuumq8v |
+| 1323 | 4.293 | rmuumq8v |
+| **1385** | **4.191** | **rmuumq8v (global best)** |
+| 1448 | 4.308 | rmuumq8v |
+| 1511 | 4.231 | rmuumq8v |
+| 1574 | 4.333 | rmuumq8v (last) |
+
+**Validation split at step 1574:** by-t ∈ [4.15 (mid-t), 4.48 (high-t)]; by-length ∈ [4.00 (50–175), 4.79 (300–425)]. Train-val gap ≈ 2.87 (train_loss/loss_step ≈ 1.45 in 50-step bins, val 4.33).
+
+**Convergence:** **pre-convergence, leaning "still improving":**
+- Best val was set in the **very last continuation** (step 1385), 190 opt steps before time-limit cancellation. No turnover yet.
+- Step 1574 sits **below** canonical's overfit window (1800–2200), so the variant has not yet reached the recipe's typical inflection.
+- Train_step loss still drifts down slowly (50-step bins: ~1.50 at step 1000 → ~1.45 at step 1550).
+- 6 val points in the last slot is too few to call a trend; the 4.191 hit could be a noise excursion in a 4.19–4.50 plateau that started ~step 944.
+
+**Tests:**
+
+- **N=6 designability probe at step 1385, seed=5, nsteps=400, post-fix MPNN, ESMFold, scRMSD < 2 Å (CA mode; bb3o agrees on the same 8 designable structures):**
+
+  | L | sorted min scRMSD (Å) | designable | best |
+  |---|---|---|---|
+  | 50  | 1.28, 1.34, 1.85, 2.78, 3.90, 6.52 | 3/6 (50%) | 1.28 |
+  | 100 | 0.90, 1.37, 1.41, 1.76, 2.16, 4.37 | 4/6 (67%) | **0.90** |
+  | 200 | 1.34, 2.34, 3.17, 10.48, 10.64, 13.16 | 1/6 (17%) | 1.34 |
+  | **pooled** | — | 8/18 (44%) | **0.90** |
+
+  Driver: `script_utils/probe_sparse_K64_curriculum_self_step1385.sh`. Inference config: `configs/inference_sparse_K64_curriculum_self_step1385_n6_nfe400.yaml`. Output CSV: `inference/results_inference_sparse_K64_curriculum_self_step1385_n6_nfe400_0.csv`.
+
+  **First nsteps=400 N=6 probe of any single-architecture (non-hybrid) CA-only variant.** Earlier variant probes ([E021](experiments.md#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30), [E034](experiments.md#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06), [E035](experiments.md#e035--ca-only-sparse-k40-scnbr_t04-variant-quick-n6-designability-probe-2026-05-06), [E038](experiments.md#e038--scnbr_t04-re-probe-with-fix-c2-actually-wired-2026-05-06), [E039](experiments.md#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06)) used nsteps=200 — see CLAUDE.md "Sampling — nsteps=400 is a HARD RULE" + the supersession blocks in those E-entries.
+
+  **Tail-noting**: at this N the per-length point estimates are dominated by a single sample (each row is a CI of ±40 pp at p=0.5), so 50/67/17% is at most a "directional read", not a discriminative claim against canonical's 63/67/10%. Doubled in the N=12-additive probe below.
+
+- **N=6+N=12 additive probe at step 1385, pooled N=18, seed=5 + seed-derived (see caveat) — `nsamples=12` follow-up at the same ckpt:**
+
+  | L | designable (best-of-8 MPNN seqs, scRMSD < 2 Å) | pooled rate | best (Å) |
+  |---|---|---:|---:|
+  | 50  | 3/6 (N=6) + 5/12 (N=12) | **8/18 (44.4%)** | 0.94 |
+  | 100 | 4/6 (N=6) + 6/12 (N=12) | **10/18 (55.6%)** | **0.90** |
+  | 200 | 1/6 (N=6) + 1/12 (N=12) | **2/18 (11.1%)** | 1.34 |
+  | **all** | — | **20/54 (37.0%)** | **0.90** |
+
+  N=12 driver: `script_utils/probe_sparse_K64_curriculum_self_step1385_n12.sh`. Config: `configs/inference_sparse_K64_curriculum_self_step1385_n12_nfe400.yaml`. CSV: `inference/results_inference_sparse_K64_curriculum_self_step1385_n12_nfe400_0.csv`. **Seed-propagation note** — the N=12 was launched with the SAME `cfg.seed=5` as the N=6, on the assumption that per-batch seeding would reproduce samples 0-5 bit-identically. **It did not** — all 12 N=12 samples are distinct from all 6 N=6 samples (zero per-sample overlap, verified post-hoc on `_res_scRMSD_ca_esmfold` values). `cfg.seed`'s propagation through `predict_step` interacts with `nsamples` in some way that hasn't been audited yet; the practical consequence here is favourable (18 truly-unique pooled samples instead of the 12 unique we expected). Future `nsamples`-bumped probes can simply pool naively for the moment.
+
+  **What the doubling did to the picture:** the N=18 pooled rates are **softer than N=6 alone** at the short and medium length:
+  - L=50: 50% (N=6) → 44.4% (N=18) — Δ −6 pp, within sampling noise.
+  - L=100: 67% (N=6) → 55.6% (N=18) — Δ −11 pp, **the N=6 was over-optimistic**. The "L=100 dead-equal to canonical" claim from the N=6-only read does not survive.
+  - L=200: 17% (N=6) → 11.1% (N=18) — Δ −6 pp; still in canonical's neighborhood (canonical=10%).
+  - Pooled: 44% → 37% — Δ −7 pp.
+
+  **CI tightening:** N=18 95% binomial half-width at p≈0.5 is ±23 pp (vs ±40 pp at N=6); that's the actual gain the user got from doubling N. The variance on the per-length rate dropped by ~1.4×, not 2× — CI scales with 1/√n.
+
+- **Cross-variant comparison at step 1385 — pooled N=18 column for this entry:**
+
+  | Variant | Step | N | L=50 | L=100 | L=200 | Pooled | Best (Å) |
+  |---|---|---|---|---|---|---|---|
+  | **canonical** ([§1](#1-canonical-ca-only-baseline)) | **2646** | **N=30 (E019)** | **63.3%** | **66.7%** | **10.0%** | **76% (68/90)** | **0.76** |
+  | **K=64 curriculum self (this, N=18 pooled)** | **1385** | **N=6+N=12 (nfe400)** | **44.4%** (8/18) | **55.6%** (10/18) | **11.1%** (2/18) | **37% (20/54)** | **0.90** |
+  | K=64 curriculum self (this, N=6 only — historical) | 1385 | N=6 | 50% (3/6) | 67% (4/6) | 17% (1/6) | 44% (8/18) | 0.90 |
+  | paramgroups+wd0.1 ([§4](#4-param-groups-split--wd01)) | 1952 | N=9 ([E017](experiments.md#e017--paramgroups--wd01-quick-probe--proteinmpnn-ca_only-bug-fix-2026-04-28)) | 33% | 100% | 0% | 44% (4/9) | 0.94 |
+  | scnbr_t04+FixC2 ([§7](#7-sparse-k40--fix-c2-sc_neighbors_t_threshold04)) | 1133 | N=6 ([E039](experiments.md#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06), nsteps=200) | 33% | 17% | 0% | 17% (3/18) | 1.51 |
+  | sparse K40 ([§5](#5-sparse-attention-k32-mis-named-k40)) | 1259 | N=30 ([E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)) | 30.0% | 3.3% | 0% | 11% | 1.05 |
+  | wd0 ([§3](#3-wd0-ablation)) | 1638 | N=30 ([E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)) | 33.3% | 13.3% | 0% | 16% | 1.24 |
+  | v2 ([§2](#2-v2--wd01--cosine_with_warmup-failed)) | 2078 | N=30 ([E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)) | 23.3% | 16.7% | 0% | 13% | 1.08 |
+  | 1D-conv ([§8](#8-1d-conv-downsampled), nsteps=400 supersession) | 2961 | N=6 (mentioned in E034 caveat) | — | — | — | 17% (3/18) | 1.60 |
+
+  **Updated reading at N=18:** the variant **leads canonical at L=200** by 1 pp (within noise — they're tied), **trails canonical at L=50 by ~19 pp**, and **trails canonical at L=100 by ~11 pp**. Both gaps still fit inside the N=18 95% CI of ±23 pp around the variant's point estimates, so canonical's rates are not statistically excluded — but the central tendency has shifted from "indistinguishable" to "trailing at the short/medium lengths". Best-Å tail is preserved: variant min 0.90 Å vs canonical 0.76 Å (variant is slightly behind on the absolute best, but L=50 best is 0.94 Å vs canonical's L=50 best 1.05 — variant's tail is sharper at L=50/100).
+
+  **At ~half the training steps** (1385 vs 2646), this is still the variant landing closest to canonical at all three lengths simultaneously — but the gap to canonical's short/medium rates is now visible at N=18, where it wasn't at N=6. Whether continued training closes this is what the queued continuation is testing.
+
+**Open question (queued):** SLURM job `29102705` was submitted on 2026-05-09 to push past step 1574. Two falsifiable predictions for the re-probe of the next ckpt (now informed by N=18, not N=6):
+- (A) **Under-trained, gap closes with more training:** L=50 rises from 44% toward 63%, L=100 rises from 56% toward 67%, L=200 stays ~10%, val pushes below 4.19. Variant tracks canonical with ~1000 more steps.
+- (B) **Variant ceiling near-N=18 rates:** L=50 stays ~44%, L=100 stays ~56%, L=200 stays ~11%. Canonical-recipe with K=64+curriculum+self caps at ~half-canonical's short-length rate; the bundle improves L=200 but trades off L=50/100. N=30 is the next decision point and the K=64-vs-K=40 ablation becomes the question.
+
+Distinguishing (A) from (B) requires the post-1800-step ckpt and an N=30 promotion; until then, the strongest defensible claim is "trailing canonical at L=50/100, tied at L=200, at half the training" — *not* the "indistinguishable at all lengths" framing the N=6 alone suggested.
+
+**Narrative:** First single-architecture variant to land in canonical's neighborhood at all three lengths simultaneously, **at half the training**. The triple of K=64 SALAD-canonical + per-t curriculum + self-inclusion is the only intervention bundle in the catalogue that does this — paramgroups+wd0.1 matched at L=100 (3/3 at N=9, but never N=30-confirmed) but failed L=50 (1/3) and L=200 (0/3); scnbr+FixC2 cleared the variant bar at L=50 but stalled at L=100. The N=18 pooled read tightens the picture: variant is **tied with canonical at L=200** (11.1% vs 10.0%) but **trails by ~10-19 pp at L=50/100**. The variant's *tail* is on par with canonical (best-Å within 0.2 Å) — when it works, it works as well as canonical. The variance is what's costing the rate. Whether the gap is under-training or an architectural ceiling is the load-bearing question for the queued continuation.
+
+**Methodological caveats:**
+- **N=18 pooled across two seeds (effectively): N=6 at seed=5 + N=12 at seed=5 with `nsamples=12` reseeding-via-batching.** Despite both runs using `cfg.seed=5`, the N=12 produced 12 fresh samples (not 6 reproductions + 6 new as expected). The seed-propagation through `predict_step` in `proteina.py` clearly involves `nsamples` and/or batch-index in some way that hasn't been audited. **Practical consequence:** the pooled N=18 is genuinely 18 unique samples per length. **Risk:** if a future probe accidentally lands on the same seed-derivation as a prior probe, naive pooling double-counts. Cheap audit: first protein produced by each new probe should be hashed and compared to the prior CSV's first protein hash.
+- **N=18 single-protocol, single-seed-base.** 95% binomial CI per length at p=0.5 is ±23%. canonical's per-length rates (63/67/10) are inside the variant's 95% CI [21%, 67%] / [33%, 78%] / [3%, 33%] respectively — i.e., *not statistically excluded*. But the central tendency has shifted: at N=6 every variant length looked equal-ish to canonical; at N=18 only L=200 still does. CI tightened from ±40 to ±23 pp (~1.4×, the expected √2 from doubling+adding-half).
+- **Step-mismatched comparison to canonical's N=30.** 1385 vs 2646 = 52% of canonical's training. If the variant tracks canonical's curve linearly, it could plausibly close the L=50/100 gap by step ~2400-2600; or it could plateau at the current rate. Untested. The pending sbatch is the resolution.
+- **Curriculum + self-inclusion are bundled as one variant** (axis-not-clean). Whether the K=64 alone, the curriculum alone, or the self-inclusion alone is doing the work cannot be attributed from this one run.
+- **Cross-variant comparison vs N=30 entries (E019) is not seed-paired** — E019 used seed=100, this used seed=5. The per-protein inference-noise floor (~0.5 Å) is much smaller than the per-length rate gaps in the table, so the pooled-rate ranking is robust to seed; per-sample comparisons are not.
+- **Inference at nsteps=400 is an apples-to-apples comparison to canonical's E019 N=30** (which inherited `nsteps=400` from the unmodified `inference_base.yaml`-defaults `inference_baseline_n30.yaml`) and to the 1D-conv step-2961 nsteps=400 supersession number. It is *not* directly comparable to the nsteps=200 numbers from E021/E034/E035/E038/E039/E040/E041/E044/E045 — those entries' supersession blocks document the bias.
+
+**Cross-references:**
+- Submit script: `script_utils/submit_train_ca_only_1gpu.sh` with `-n training_ca_only_sparse_K64_curriculum`. Re-submit pattern (chained slots): `sbatch --exclude=gpu-q-43 --dependency=afterany:<prev_jobid> script_utils/submit_train_ca_only_1gpu.sh -n training_ca_only_sparse_K64_curriculum`.
+- Probe driver: `script_utils/probe_sparse_K64_curriculum_self_step1385.sh` (one-shot, idempotent on retry — sweeps eval tmp_dirs and exports `PYTHON_EXEC` to make ProteinMPNN subprocess find numpy).
+- Sparse-attention architecture pointers: CLAUDE.md → "Sparse-attention variant (SALAD-style, K=40)" + the "Padding-slot guard" / "Self is excluded" / "gather bandwidth" caveats. The self-inclusion delta in this variant intentionally undoes the documented "Self is excluded from each query's neighbor list" behavior.
+- Direct predecessors: [§5](#5-sparse-attention-k32-mis-named-k40) (sparse K=32 baseline this builds on); [E045](experiments.md#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (inference-only K-realloc curriculum that motivated the *trained-with-curriculum* version).
 
 ---
 

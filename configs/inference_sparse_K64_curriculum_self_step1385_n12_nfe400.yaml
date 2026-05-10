@@ -1,0 +1,26 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_curriculum_self_step1385_n12_nfe400
+config_name: inference_sparse_K64_curriculum_self_step1385_n12_nfe400
+
+# Doubled-N follow-up to the N=6 probe at the same step-1385 ckpt.
+# Same seed=5 (inherited from inference_base.yaml), same model, same nsteps=400
+# → samples 0-5 will reproduce the N=6 probe bit-identically (deterministic
+# noise from seed); samples 6-11 are new draws. Confidence interval per length
+# tightens from ~±20% (N=6) to ~±18% (N=12) — modest tightening, but enough
+# to test whether the N=6 point estimates (50/67/17%) survive a doubling.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_curriculum_self_step1385.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 12
+    # Keep batch size at 6 for L=200 safety on A100 (per E034 / E021 patterns).
+    # 12 samples → 2 batches of 6 per length → 6 batches total over L∈{50,100,200}.
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

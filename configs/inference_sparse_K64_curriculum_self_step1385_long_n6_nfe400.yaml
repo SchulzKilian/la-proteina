@@ -1,0 +1,33 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_curriculum_self_step1385_long_n6_nfe400
+config_name: inference_sparse_K64_curriculum_self_step1385_long_n6_nfe400
+
+# Long-length companion to the L∈{50,100,200} N=18 probe at the same ckpt.
+# L set matches canonical's E022 long-length probe (300/400/500) so the
+# variant-vs-canonical comparison is L-paired. nsteps=400 inherited from
+# inference_base.yaml — DO NOT override (CLAUDE.md hard rule).
+#
+# Explicit fresh seed=42 so this probe's samples are unambiguously independent
+# of any prior step-1385 probe (the seed=5 N=6 and N=12 probes already on
+# disk). This avoids the seed×nsamples interaction surprise documented in
+# memory feedback_seed_propagation_audit.md.
+seed: 42
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_curriculum_self_step1385.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 6
+    # L=500 at the K=64 sparse path with nsteps=400 will OOM on A100 if
+    # batched > 1; keep max_nsamples_per_batch=1 to be safe. ESMFold has its
+    # own L>250 batch_size=1 patch (folding_models.py) which is no-op for
+    # L≤200 but kicks in for these long lengths.
+    max_nsamples_per_batch: 1
+    nlens_cfg:
+      nres_lens: [300, 400, 500]
