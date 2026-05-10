@@ -1,0 +1,17 @@
+steering:
+  enabled: true
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_0_best.pt
+  objectives:
+  - property: tango
+    direction: minimize
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 16.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true
