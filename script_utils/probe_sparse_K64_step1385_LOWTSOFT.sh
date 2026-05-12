@@ -1,48 +1,37 @@
 #!/bin/bash
-# One-shot designability probe for ca_only_sparse_K64_curriculum_self step 1385
-# (best_val_00000013_000000001385.ckpt, val=4.1908 — best of full run).
+# Inference-only low-t bucket softening probe: K=64 curriculum-self ckpt with
+# curriculum ON but t<0.33 bucket overridden from (32, 0, 0) to (16, 8, 24).
+# Distribution-shift test against the trained-with-(32,0,0)-low-t ckpt.
+# See `inference_sparse_K64_step1385_LOWTSOFT_n6_nfe400.yaml` header.
 #
 # N=6 × L∈{50, 100, 200} × nsteps=400. ~30 min on 1× A100.
-# Bar (CLAUDE.md "Sample-quality bar"): 1-2/3 designable at L=50 and L=100
-# (scRMSD < 2 Å) — that's the convergence-relevant threshold.
+# Compare designability vs:
+#   - probe_sparse_K64_curriculum_self_step1385.sh (same ckpt, curriculum ON, (32,0,0) low-t — canonical)
+#   - probe_sparse_K64_step1385_NOCURR_salad.sh    (same ckpt, curriculum OFF, static (8,16,32) at all t)
 
 set -uo pipefail
 cd /home/ks2218/la-proteina
 
 export PYTHON_EXEC=/home/ks2218/conda_envs/laproteina_env/bin/python
 export PATH=/home/ks2218/conda_envs/laproteina_env/bin:$PATH
-CFG=inference_sparse_K64_curriculum_self_step1385_n6_nfe400
+CFG=inference_sparse_K64_step1385_LOWTSOFT_n6_nfe400
 GPU=${CUDA_VISIBLE_DEVICES:-0}
 LOGBASE=/home/ks2218/la-proteina/nohup_${CFG}
 
 echo "[$(date)] [GPU $GPU] === probe start: $CFG ==="
 
-# Pre-flight: nuke stale per-CFG gen state if there's no valid results CSV.
-# Two stale-state failure modes the cleanup handles together:
-#   (a) Empty CSV: generate.py:448 early-exits if the CSV file exists, even if
-#       it's just a header. Gen never runs, eval finds no PDBs, loop forever.
-#   (b) Stale job dirs: generate.py:382 calls os.makedirs(sample_root_path,
-#       exist_ok=False). If a prior crashed gen left empty job_0_*_id_* dirs,
-#       this re-run crashes on the first sample.
-# If the CSV is missing OR empty, treat as "fresh re-run needed" and nuke
-# BOTH the CSV and the entire inference/<CFG>/ tree. Surgical, no globs.
+# Pre-flight: generate.py:448 early-exits if results CSV already exists. A prior
+# crashed eval leaves an EMPTY CSV behind; gen would then skip on every re-run.
+# Self-heal: if the CSV is present but empty, remove it so gen re-runs.
 CSV=/home/ks2218/la-proteina/inference/results_${CFG}_0.csv
-GENDIR=/home/ks2218/la-proteina/inference/${CFG}
-NEED_FRESH=0
-if [ ! -f "$CSV" ]; then
-    NEED_FRESH=1
-else
+if [ -f "$CSV" ]; then
     NROWS=$($PYTHON_EXEC -c "import pandas as pd; print(len(pd.read_csv('$CSV')))" 2>/dev/null || echo 0)
     if [ "$NROWS" -eq 0 ]; then
-        echo "[$(date)] [GPU $GPU] Stale empty CSV at $CSV — fresh re-run needed."
-        NEED_FRESH=1
+        echo "[$(date)] [GPU $GPU] Stale empty CSV at $CSV — removing so gen re-runs."
+        rm -f "$CSV"
     else
         echo "[$(date)] [GPU $GPU] Found populated CSV at $CSV ($NROWS rows) — gen will early-exit per generate.py:448."
     fi
-fi
-if [ "$NEED_FRESH" -eq 1 ]; then
-    [ -f "$CSV"    ] && { echo "[$(date)] [GPU $GPU] rm -f  $CSV";    rm -f  "$CSV";    }
-    [ -d "$GENDIR" ] && { echo "[$(date)] [GPU $GPU] rm -rf $GENDIR"; rm -rf "$GENDIR"; }
 fi
 
 echo "[$(date)] [GPU $GPU] gen → ${LOGBASE}.gen.log"
@@ -56,14 +45,10 @@ if [ $GENRC -ne 0 ]; then
     exit $GENRC
 fi
 
-# evaluate.py:207-209 creates tmp_dir = "<sample_dir>/<sample_basename>" before
-# running MPNN. If MPNN crashes, tmp_dirs get left behind, and the next eval
-# bombs every PDB on `assert not os.path.exists(tmp_dir)`. Sweep leftovers.
-# Use `rm -rf` (not `rmdir`) because crashed-MPNN leftovers contain partial files
-# and `rmdir` only succeeds on empty dirs. The targeted path is the nested
-# same-named DIRECTORY (`$d/$(basename "$d")`), never the sibling PDB FILE
-# (`$d/$(basename "$d").pdb`) — `[ -d … ]` guards against accidentally hitting
-# the file even though their paths differ by the .pdb suffix.
+# Sweep crash-left-over eval tmp_dirs (evaluate.py:207-209 asserts non-existence).
+# Use `rm -rf` because crashed-MPNN leftovers contain partial files. The
+# targeted path is the nested same-named DIRECTORY, never the sibling .pdb
+# FILE — `[ -d … ]` guards against accidentally matching the file.
 GENDIR=/home/ks2218/la-proteina/inference/${CFG}
 if [ -d "$GENDIR" ]; then
     for d in "$GENDIR"/job_0_n_*_id_*; do
@@ -94,7 +79,6 @@ df = pd.read_csv('$CSV')
 cols = [c for c in df.columns if 'scrmsd' in c.lower() or c == 'L' or 'length' in c.lower() or 'len' == c.lower()]
 print(df[cols].to_string(index=False) if cols else df.to_string(index=False))
 print()
-# best scRMSD per sample (over folding models / modes if multi-col), grouped by length
 scrmsd_cols = [c for c in df.columns if 'scrmsd' in c.lower()]
 len_col = next((c for c in df.columns if c == 'L' or c.lower() in ('length','nres','seq_len')), None)
 if scrmsd_cols and len_col:

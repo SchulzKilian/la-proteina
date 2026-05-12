@@ -226,7 +226,7 @@ def load_ckpt_n_configure_inference(cfg: Dict) -> Proteina:
     # off; existing configs unchanged. The schedule itself (3-bucket
     # reallocation of K=64 across sequential/spatial/random by t) lives
     # inside `LocalLatentsTransformer._build_neighbor_idx`.
-    cur_on = cfg.generation.args.get("curriculum_neighbors", False)
+    cur_on = cfg.generation.args.get("curriculum_neighbors", None)
     if cur_on:
         if not getattr(model.nn, "sparse_attention", False):
             logger.warning(
@@ -238,6 +238,33 @@ def load_ckpt_n_configure_inference(cfg: Dict) -> Proteina:
             "t<0.33 → (n_seq=32, n_sp=0, n_rd=0); "
             "0.33≤t<0.66 → (16, 8, 24); "
             "t≥0.66 → (8, 16, 32)."
+        )
+    elif cur_on is False:
+        # Force off against a curriculum-trained ckpt → use the static
+        # (n_seq_neighbors, n_spatial_neighbors, n_random_neighbors) at all t.
+        # Distribution-shift test (the model was trained against the schedule),
+        # not a clean architectural comparison — see the K-bump caveat below.
+        model.nn.curriculum_neighbors = False
+        logger.info(
+            "[Curriculum neighbors] OFF — static neighbor split at all t "
+            f"(n_seq={getattr(model.nn, 'n_seq_neighbors', '?')} per side, "
+            f"n_spatial={getattr(model.nn, 'n_spatial_neighbors', '?')}, "
+            f"n_random={getattr(model.nn, 'n_random_neighbors', '?')})."
+        )
+
+    # Optional inference-time override for the low-t bucket split (only meaningful
+    # when curriculum_neighbors is left ON). Distribution-shift test against a
+    # ckpt trained with (32, 0, 0) at low t — same caveat as the K-bump override.
+    low_t_override = cfg.generation.args.get("curriculum_low_t_split", None)
+    if low_t_override is not None and getattr(model.nn, "curriculum_neighbors", False):
+        split = tuple(low_t_override)
+        assert 2 * split[0] + split[1] + split[2] == 64, (
+            f"curriculum_low_t_split={split} must sum to K=64."
+        )
+        model.nn.curriculum_low_t_split = split
+        logger.info(
+            f"[Curriculum neighbors] low-t bucket overridden to "
+            f"(n_seq={split[0]}, n_sp={split[1]}, n_rd={split[2]}) for t<0.33."
         )
 
     # Inference-only K-bump (sparse-attention models only). Override the

@@ -1,0 +1,129 @@
+# K=64 SALAD-canonical sparse + softened low-t curriculum + self-inclusion
+# + BigBird CLS globals (n=4) + pair update every 3 layers + cap-fix in code.
+#
+# Variants.md §12-LowTSoft (forthcoming, NOT YET in variants.md). This is the
+# FIRST training run that bundles the planned §12 architecture (BigBird +
+# pair-update on top of §11's K=64-curriculum-self trunk) with the LOWTSOFT
+# low-t bucket softening; no prior checkpoint has been trained with these.
+#
+# NB: step-1385 (`sparse_K64_curriculum_self_step1385.ckpt`) is the §11
+# variant — K=64 + curriculum + self-inclusion only. Its on-disk
+# `exp_config_ca_only_sparse_K64_curriculum_self.json` has
+# `n_global_tokens: None` and `update_pair_repr: False`. Earlier wording in
+# adjacent experiments.md entries that called step-1385 the
+# "bigbird_pairupdate variant" was incorrect — corrected 2026-05-12.
+#
+# Two changes relative to the (untrained) `..._bigbird_pairupdate.yaml` §12
+# sibling:
+#
+#   1. curriculum_low_t_split: [16, 8, 24] — at t<0.33, use the mid-bucket
+#      composition (16 sequential per side + 8 spatial + 24 random) instead
+#      of the harsh sequential-only (32, 0, 0). Mid + high buckets unchanged.
+#      Motivated by 2026-05-11 inference-only LOWTSOFT probe at step-1385
+#      (§11 variant): same ckpt, same code, only the low-t bucket swapped →
+#      L=100 jumped from 3/6 (canonical) to 4/6 (lowtsoft) on the N=6 probe,
+#      and pooled designability went 7/18 (39%) → 8/18 (44%) with best Å at
+#      every length. NOCURR (drop curriculum entirely) DROPPED L=100 to 1/6,
+#      so the schedule shape matters but the harsh low-t bucket specifically
+#      is suboptimal.
+#
+#   2. Off-by-one cap fix is in sparse_neighbors.py:61,69,88 (`min(2*n_seq, N)`
+#      not `N-1`). Live as of the 2026-05-11 investigation; affects all
+#      training/inference at N ≤ K_canonical = 64. Training-side correctness
+#      change; baked in for any retrain from now on.
+#
+# Everything else byte-equivalent to `..._bigbird_pairupdate.yaml`:
+# same NN (ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M.yaml,
+# K=68 with 4 BigBird globals + pair-update every 3 layers), same OLD recipe
+# (wd=0.05, constant LR=2e-4, no scheduler), same dataset.
+#
+# COLD START — matches the original variant's decision. Warm-starting from
+# step-1385 would transfer bug-adapted weights AND make attributability of
+# the lowtsoft change muddier.
+run_name_: ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:  # null → cold start
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  curriculum_neighbors: True
+  # Soften the low-t bucket: keep spatial+random capacity at t<0.33.
+  # Must sum to K=64 = 2*n_seq + n_sp + n_rd.
+  curriculum_low_t_split: [16, 8, 24]
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block. Constant LR=2e-4
+# via omitting `scheduler:`.
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  compile_nn: True
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

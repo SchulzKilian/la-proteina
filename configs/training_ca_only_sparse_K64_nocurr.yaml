@@ -1,0 +1,98 @@
+# K=64 sparse, NO curriculum (static SALAD-canonical split at all t).
+#
+# Sibling of training_ca_only_sparse_K64_curriculum.yaml. Identical recipe
+# and NN config except curriculum_neighbors is OFF — uses the static
+# (n_seq=8 per side → 16 sequential, n_sp=16, n_rd=32; K=64) split at every t.
+#
+# Motivation (investigation 2026-05-11): the curriculum's harsh low-t
+# bucket (32, 0, 0) is suspected of bottlenecking long-range information
+# at L=100. This config is the cold-start clean comparison: does the
+# curriculum actually help, or is plain K=64-sparse without scheduling
+# the better baseline? Pair with `training_ca_only_sparse_K64_curriculum.yaml`
+# for the A/B.
+#
+# RECIPE: locked to canonical OLD recipe (wd=0.05, constant LR=2e-4, no
+# scheduler).
+run_name_: ca_only_sparse_K64_nocurr
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:  # null → cold start
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  # Curriculum OFF — use the static (n_seq=8/n_sp=16/n_rd=32) at all t.
+  curriculum_neighbors: False
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  compile_nn: True
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

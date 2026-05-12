@@ -1,0 +1,86 @@
+# SALAD-canonical K=64 sparse + low-t→SALAD curriculum + self-inclusion
+# + BigBird-style learnable CLS globals + pair-update refinement.
+#
+# This is variants.md §12 (forthcoming). Builds on §11's K=64-curriculum-self
+# trunk by adding two new mechanisms:
+#
+#   1. BigBird globals (n_global_tokens=4) — four learnable CLS tokens
+#      appended at indices [N, N+4). Every residue query's K-set always
+#      contains those four globals at the end (fixed slots), and the
+#      globals' K-set is a stratified linspace sample of K_canonical=64
+#      real residues plus all four globals. K_total = 64 + 4 = 68.
+#      Pair-bias entries for (residue, global), (global, residue),
+#      (global, global) are zero-init learnable parameters.
+#
+#   2. Pair update every 3 layers (update_pair_repr=True,
+#      update_pair_repr_every_n=3 → 5 updates over 14 layers). Matches §6
+#      exactly. use_tri_mult=False (forbidden under sparse via
+#      pair_update.py:65). The motivation specific to this variant: globals
+#      are static placeholders without pair-rep refinement — pair update
+#      lets the model iteratively teach the (residue, global) pair entries
+#      to carry useful long-range routing info.
+#
+# Everything else is byte-equivalent to ca_only_sparse_K64_curriculum_160M.yaml,
+# which is in turn byte-equivalent to ca_only_score_nn_160M.yaml except for
+# the sparse_* keys at the bottom + curriculum_neighbors plumbing (training-side).
+#
+# Three load-bearing decisions documented:
+#   - K_total = K_canonical + G = 68 (4 globals ON TOP of curriculum K=64;
+#     replacing slots would break the (32, 0, 0) sequential-only bucket at low t).
+#   - Globals attend via the sparse path at K=68 (not dense), keeping K uniform
+#     across queries; globals' residue slots are stratified linspace, not random.
+#   - Pair update at K=68 works as-is (pair_update.py reads K from
+#     neighbor_idx.shape[-1] dynamically and gathers from seqs of N+G length).
+#
+# Cold start; canonical OLD recipe. See matching training config.
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Pair update every 3 layers (matches §6). use_tri_mult MUST stay False under
+# sparse — pair_update.py:65 raises if combined with sparse.
+update_pair_repr: True
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# SALAD-canonical sparse attention. K_canonical = 2*8 + 16 + 32 = 64 at high t.
+# Curriculum reshuffles split at lower t (sequential-only at t<0.33; intermediate
+# at 0.33≤t<0.66). Self-inclusion in K-set is handled in sparse_neighbors.py.
+sparse_attention: true
+n_seq_neighbors: 8        # sequential per side → 16 sequential total at high t
+n_spatial_neighbors: 16
+n_random_neighbors: 32
+
+# BigBird-style learnable global tokens. 4 CLS embeddings appended at
+# [N, N+4). K_total inside the trunk = K_canonical + 4 = 68.
+n_global_tokens: 4

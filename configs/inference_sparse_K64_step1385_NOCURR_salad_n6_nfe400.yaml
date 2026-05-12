@@ -1,0 +1,37 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_step1385_NOCURR_salad_n6_nfe400
+config_name: inference_sparse_K64_step1385_NOCURR_salad_n6_nfe400
+
+# Inference-only schedule-sensitivity probe on the K=64 curriculum-self ckpt
+# (best_val_00000013_000000001385.ckpt, val=4.1908).
+#
+# Loads the same ckpt as `inference_sparse_K64_curriculum_self_step1385_n6_nfe400`
+# but FORCES curriculum_neighbors=False post-load so the model uses the static
+# SALAD-canonical split (n_seq=8 per side → 16 sequential, n_spatial=16,
+# n_random=32; K=64 total) at all t — i.e. the high-t bucket applied
+# everywhere, no t<0.33 sequential-only collapse, no t<0.66 interpolation.
+#
+# Distribution-shift test, NOT a clean architectural comparison: the trunk's
+# attention and pair-bias were calibrated against the 3-bucket reallocation,
+# so seeing the SALAD-canonical split at low t is OOD for the trained weights.
+# Same caveat as `generate.py`'s K-bump override block. The point is to
+# falsify "schedule shape matters at inference for this ckpt" cheaply, before
+# committing a training slot to a different schedule.
+#
+# nsteps inherited from `inference_base.yaml` (=400) per CLAUDE.md hard rule.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_curriculum_self_step1385.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    curriculum_neighbors: False
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

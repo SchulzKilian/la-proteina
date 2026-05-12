@@ -58,7 +58,12 @@ def build_neighbor_idx(
     seq_dist = seq_dist.unsqueeze(0).expand(B, N, N)
     seq_dist_masked = seq_dist.masked_fill(base_invalid, INF)
 
-    k_seq = min(2 * n_seq, N - 1)
+    # Cap is N (not N-1): self is allowed in the K-set, so the maximum number
+    # of pickable residues per query is N, not N-1. Using N-1 systematically
+    # drops one residue per query whenever N ≤ 2*n_seq. Slots beyond a
+    # protein's actual valid-residue count get caught by `nbr_valid` (the
+    # batch-level mask) inside the attention masked_fill.
+    k_seq = min(2 * n_seq, N)
     _, seq_nbrs = seq_dist_masked.topk(k_seq, dim=-1, largest=False)   # [b, n, k_seq]
     selected.scatter_(2, seq_nbrs, True)
 
@@ -66,7 +71,7 @@ def build_neighbor_idx(
     # 2. Spatial neighbors — nearest Cα not already selected
     # ------------------------------------------------------------------ #
     dists_sp = dists.masked_fill(selected, INF)
-    k_sp = min(n_spatial, max(N - 1 - k_seq, 0))
+    k_sp = min(n_spatial, max(N - k_seq, 0))
     if k_sp > 0:
         _, sp_nbrs = dists_sp.topk(k_sp, dim=-1, largest=False)        # [b, n, k_sp]
         selected.scatter_(2, sp_nbrs, True)
@@ -85,7 +90,7 @@ def build_neighbor_idx(
     )
     log_w = weights.log().masked_fill(~valid_rnd, -float("inf"))
     gumbel = -torch.log(-torch.log(torch.rand_like(log_w).clamp(min=1e-20)))
-    k_rnd = min(n_random, max(N - 1 - k_seq - k_sp, 0))
+    k_rnd = min(n_random, max(N - k_seq - k_sp, 0))
     if k_rnd > 0:
         _, rnd_nbrs = (log_w + gumbel).topk(k_rnd, dim=-1, largest=True)   # [b, n, k_rnd]
     else:

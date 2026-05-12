@@ -1,0 +1,29 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_step1385_LOWTSOFT_n12_nfe400
+config_name: inference_sparse_K64_step1385_LOWTSOFT_n12_nfe400
+
+# N=12 follow-up to the N=6 LOWTSOFT probe. Same ckpt, same curriculum +
+# low-t override (16, 8, 24), same nsteps=400. Per variants.md §12 the
+# seed=5 propagation through predict_step produces FRESH samples per
+# nsamples-batch rather than reproducing the N=6 + adding 6 — so this run's
+# 12 samples per length pool with the N=6 to make N=18 total, all unique.
+#
+# Verifies the N=6 LOWTSOFT signal (L=100: 4/6 = 67%) at higher N for a
+# clean N=18 paired comparison vs the canonical schedule.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_curriculum_self_step1385.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    curriculum_neighbors: True
+    curriculum_low_t_split: [16, 8, 24]
+  dataset:
+    nsamples: 12
+    max_nsamples_per_batch: 12
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

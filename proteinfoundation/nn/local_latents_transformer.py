@@ -146,6 +146,58 @@ class LocalLatentsTransformer(torch.nn.Module):
         # total K have changed; that is intentional.
         self.curriculum_neighbors = kwargs.get("curriculum_neighbors", False)
 
+        # Low-t bucket override. Default (32, 0, 0) is sequential-only at t<0.33
+        # — the SALAD-canonical curriculum's harshest bucket. Setting this to
+        # (16, 8, 24) keeps some spatial+random capacity at low t (useful if
+        # the low-t bucket is suspected of bottlenecking long-range information
+        # at small N — see investigation 2026-05-11). Must sum to K=64 with
+        # 2*n_seq + n_sp + n_rd; an assert below enforces this.
+        self.curriculum_low_t_split = tuple(
+            kwargs.get("curriculum_low_t_split", (32, 0, 0))
+        )
+
+        # BigBird-style learnable global tokens appended at indices [N, N+G).
+        # Each query (residue or global) always attends to all G globals via
+        # fixed slots [K_canonical, K_canonical+G) in its K-set. Globals query
+        # a stratified linspace sample of K_canonical residues plus all G
+        # globals (self-inclusion in K-set as in §11). Pair-bias entries for
+        # (residue, global), (global, residue), (global, global) are learned
+        # parameters since globals have no coords / sequence position to derive
+        # standard pair features from. K_total = K_canonical + G.
+        # Requires sparse_attention=True and use_downsampling=False.
+        self.n_global_tokens = int(kwargs.get("n_global_tokens", 0))
+        if self.n_global_tokens > 0:
+            assert self.sparse_attention, (
+                "n_global_tokens > 0 requires sparse_attention=True "
+                "(globals participate via the sparse K-set, not dense attention)."
+            )
+            assert not self.use_downsampling, (
+                "n_global_tokens > 0 is incompatible with use_downsampling=True "
+                "(the downsampling path runs dense attention on a pooled grid)."
+            )
+            G = self.n_global_tokens
+            self.global_token_emb = torch.nn.Parameter(
+                torch.randn(G, self.token_dim) * 0.02
+            )
+            self.global_cond_emb = torch.nn.Parameter(
+                torch.zeros(G, kwargs["dim_cond"])
+            )
+            # Pair-bias entries — zero-init so initial behavior is bias-free
+            # and the model has to learn what to put in globals' pair slots.
+            self.global_pair_bias_res_to_glob = torch.nn.Parameter(
+                torch.zeros(G, self.pair_repr_dim)
+            )
+            self.global_pair_bias_glob_to_res = torch.nn.Parameter(
+                torch.zeros(G, self.pair_repr_dim)
+            )
+            self.global_pair_bias_glob_to_glob = torch.nn.Parameter(
+                torch.zeros(G, G, self.pair_repr_dim)
+            )
+            print(
+                f"[BigBird globals] n_global_tokens={G}: learnable CLS tokens "
+                f"appended at indices [N, N+{G}); K_total = K_canonical + {G}."
+            )
+
         self.latent_dim = kwargs.get("latent_dim", None)
         if self.latent_dim is not None:
             self.local_latents_linear = torch.nn.Sequential(
@@ -214,8 +266,13 @@ class LocalLatentsTransformer(torch.nn.Module):
         out_valid = torch.zeros(B, N, K, dtype=torch.bool, device=device)
 
         # 3-bucket schedule. (n_seq_per_side, n_spatial, n_random); 2*n_seq + n_sp + n_rd = 64.
+        low_n_s, low_n_sp, low_n_rd = self.curriculum_low_t_split
+        assert 2 * low_n_s + low_n_sp + low_n_rd == 64, (
+            f"curriculum_low_t_split={self.curriculum_low_t_split} must sum to "
+            f"2*n_seq + n_sp + n_rd = 64; got {2*low_n_s + low_n_sp + low_n_rd}."
+        )
         buckets = [
-            ((-float("inf"), 0.33), (32, 0, 0)),
+            ((-float("inf"), 0.33), (low_n_s, low_n_sp, low_n_rd)),
             ((0.33,         0.66), (16, 8, 24)),
             ((0.66, float("inf")), (8, 16, 32)),
         ]
@@ -232,6 +289,98 @@ class LocalLatentsTransformer(torch.nn.Module):
             out_idx[bidx] = sub_idx
             out_valid[bidx] = sub_valid
         return out_idx, out_valid
+
+    def _attach_globals(
+        self,
+        seqs: torch.Tensor,           # [B, N, token_dim]
+        cond: torch.Tensor,           # [B, N, dim_cond]
+        mask: torch.Tensor,           # [B, N] bool
+        neighbor_idx: torch.Tensor,   # [B, N, K_canonical] int64
+        slot_valid: torch.Tensor,     # [B, N, K_canonical] bool
+        pair_rep: torch.Tensor,       # [B, N, K_canonical, dim_pair]
+    ) -> tuple:
+        """Append G learnable global tokens at indices [N, N+G) and extend
+        every tensor the trunk sees. Returns extended versions of all six.
+
+        The residue queries get G fixed slots at the end of their K-set
+        pointing at global indices. The global queries get a stratified
+        linspace sample of K_canonical residues plus all G globals.
+        """
+        B, N, K_canonical = neighbor_idx.shape
+        G = self.n_global_tokens
+        K_total = K_canonical + G
+        device = seqs.device
+
+        # 1. Extend seqs / cond / mask by appending globals at indices [N, N+G).
+        global_seqs = self.global_token_emb.unsqueeze(0).expand(B, G, self.token_dim)
+        global_cond = self.global_cond_emb.unsqueeze(0).expand(B, G, cond.shape[-1])
+        global_mask = torch.ones(B, G, dtype=mask.dtype, device=device)
+        seqs_ext = torch.cat([seqs, global_seqs], dim=1)            # [B, N+G, token_dim]
+        cond_ext = torch.cat([cond, global_cond], dim=1)            # [B, N+G, dim_cond]
+        mask_ext = torch.cat([mask, global_mask], dim=1)            # [B, N+G]
+
+        # 2. Build extended neighbor_idx [B, N+G, K_total].
+        # Residue queries (rows 0..N-1): cat([existing K_canonical, global_indices]).
+        global_idx_row = torch.arange(N, N + G, device=device, dtype=neighbor_idx.dtype)
+        global_idx_for_res = global_idx_row.view(1, 1, G).expand(B, N, G)
+        res_rows = torch.cat([neighbor_idx, global_idx_for_res], dim=-1)  # [B, N, K_total]
+
+        # Global queries (rows N..N+G-1): stratified linspace residue sample + all globals.
+        # Stratification is length-aware per protein: residues at indices
+        # round(linspace(0, max(0, len_b - 1), K_canonical)). For len_b < K_canonical
+        # the linspace creates duplicates; slot_valid below marks any duplicate
+        # after the first as invalid so attention doesn't double-count.
+        if mask.dtype == torch.bool:
+            lens = mask.sum(dim=-1).to(torch.long)                  # [B]
+        else:
+            lens = mask.sum(dim=-1).to(torch.long)
+        lens_clamped = lens.clamp(min=1)                            # [B]
+        lin = torch.linspace(0.0, 1.0, steps=K_canonical, device=device)  # [K_canonical]
+        glob_res_idx = (lin.view(1, K_canonical) * (lens_clamped - 1).view(B, 1).float())
+        glob_res_idx = glob_res_idx.round().to(torch.long)          # [B, K_canonical]
+        glob_res_idx = glob_res_idx.unsqueeze(1).expand(B, G, K_canonical)  # [B, G, K_canonical]
+        glob_glob_idx = global_idx_row.view(1, 1, G).expand(B, G, G)        # [B, G, G]
+        glob_rows = torch.cat([glob_res_idx, glob_glob_idx], dim=-1)        # [B, G, K_total]
+
+        neighbor_idx_ext = torch.cat([res_rows, glob_rows], dim=1)  # [B, N+G, K_total]
+
+        # 3. Build extended slot_valid [B, N+G, K_total].
+        # Residue rows: existing slot_valid for first K_canonical slots; globals always valid.
+        glob_slot_for_res = torch.ones(B, N, G, dtype=torch.bool, device=device)
+        res_slot_valid = torch.cat([slot_valid, glob_slot_for_res], dim=-1)  # [B, N, K_total]
+
+        # Global rows: residue slots valid iff stratified index < len_b AND first occurrence
+        # (suppress duplicates for short proteins). Global-to-global slots always valid.
+        valid_res_pos = glob_res_idx < lens.view(B, 1, 1)            # [B, G, K_canonical]
+        # Mark duplicates: for short proteins the linspace round can repeat indices.
+        # Keep only the first occurrence in each row.
+        sorted_idx, _ = glob_res_idx.sort(dim=-1)
+        # First-occurrence detection per (B, G) row.
+        first_occ = torch.ones_like(valid_res_pos)
+        first_occ[..., 1:] = glob_res_idx[..., 1:] != glob_res_idx[..., :-1]
+        valid_res_pos = valid_res_pos & first_occ
+        glob_glob_valid = torch.ones(B, G, G, dtype=torch.bool, device=device)
+        glob_slot_valid = torch.cat([valid_res_pos, glob_glob_valid], dim=-1)  # [B, G, K_total]
+
+        slot_valid_ext = torch.cat([res_slot_valid, glob_slot_valid], dim=1)  # [B, N+G, K_total]
+
+        # 4. Build extended pair_rep [B, N+G, K_total, dim_pair].
+        # Residue rows:
+        #   slots [0..K_canonical): existing pair_rep
+        #   slots [K_canonical..K_total): broadcast self.global_pair_bias_res_to_glob[g] across residue
+        res_to_glob = self.global_pair_bias_res_to_glob.view(1, 1, G, self.pair_repr_dim).expand(B, N, G, self.pair_repr_dim)
+        res_pair_rep = torch.cat([pair_rep, res_to_glob], dim=2)  # [B, N, K_total, dim_pair]
+
+        # Global rows:
+        #   slots [0..K_canonical): broadcast self.global_pair_bias_glob_to_res[g] across residue index
+        #   slots [K_canonical..K_total): self.global_pair_bias_glob_to_glob[g, g']
+        glob_to_res = self.global_pair_bias_glob_to_res.view(1, G, 1, self.pair_repr_dim).expand(B, G, K_canonical, self.pair_repr_dim)
+        glob_to_glob = self.global_pair_bias_glob_to_glob.view(1, G, G, self.pair_repr_dim).expand(B, G, G, self.pair_repr_dim)
+        glob_pair_rep = torch.cat([glob_to_res, glob_to_glob], dim=2)  # [B, G, K_total, dim_pair]
+
+        pair_rep_ext = torch.cat([res_pair_rep, glob_pair_rep], dim=1)  # [B, N+G, K_total, dim_pair]
+
+        return seqs_ext, cond_ext, mask_ext, neighbor_idx_ext, slot_valid_ext, pair_rep_ext
 
     def _subsample_input(self, inp: Dict, n: int, mask: Optional[torch.Tensor] = None, stride: int = 2) -> Dict:
         """
@@ -384,6 +533,18 @@ class LocalLatentsTransformer(torch.nn.Module):
                 neighbor_idx, slot_valid = None, None
             pair_rep = self.pair_repr_builder(input, neighbor_idx=neighbor_idx, slot_valid=slot_valid)
 
+        # BigBird globals: extend seqs / cond / mask / neighbor_idx / slot_valid / pair_rep
+        # from N to N+G if globals are configured. The trunk runs on the extended state;
+        # we strip globals before the output head. n_global_tokens=0 → no-op, bit-identical
+        # to the pre-globals code path.
+        n_residues = seqs.shape[1]
+        if self.n_global_tokens > 0:
+            assert not self.use_downsampling, "globals + downsampling not supported"
+            assert neighbor_idx is not None, "globals require sparse_attention=True"
+            seqs, c, mask, neighbor_idx, slot_valid, pair_rep = self._attach_globals(
+                seqs, c, mask, neighbor_idx, slot_valid, pair_rep,
+            )
+
         # Run trunk
         for i in range(self.nlayers):
             seqs = self.transformer_layers[i](
@@ -396,6 +557,11 @@ class LocalLatentsTransformer(torch.nn.Module):
                         pair_rep = self.pair_update_layers[i](
                             seqs, pair_rep, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
                         )
+
+        # Strip globals before the output head — output stays [B, N, *] over real residues.
+        if self.n_global_tokens > 0:
+            seqs = seqs[:, :n_residues, :]
+            mask = input["mask"]
 
         if self.use_downsampling:
             # UpsampleBlock has zero-init out_proj + zero-init parity_emb, so at

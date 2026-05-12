@@ -67,6 +67,8 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E043](#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07) | 2026-05-06 → 2026-05-07 | finished | D1 of the hybrid-sampling diagnostic plan. Bucket FM val loss into 5 t-bins on the same 600-protein subset (paired across ckpts, seed=42) for `canonical_2646`, `conv_2331`, `scnbr_t04_1133`, and `sparse_vanilla_1259`. Bypasses the broken `PDBLightningDataModule` via `proteinfoundation/run_per_t_val.py`. | → Finding 11. **No regime where a non-canonical variant beats canonical at per-t val loss.** All four ckpts have the same minimum bucket (t∈[0.6, 0.8)). Loss-vs-t curves are *parallel*, not crossing: canonical (0.072 nat lowest at the min) < conv (+0.142 there) ≈ scnbr_t04 (+0.135) ≈ sparse_vanilla (+0.132). **Fix-C2 mechanism does not move per-t val loss**: scnbr_t04 vs sparse_vanilla within ±0.025 at every bucket — the trained weights are functionally identical, so any designability gap between them must come from the inference-time x_sc switch, not from training. conv's largest gap to canonical is at t∈[0.8, 1.0) (+0.452), consistent with E041's hand-off-before-late-stage design. |
 | [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Inference-only test of low-t neighbor-list curriculum on plain sparse_K40 step 1259: mask spatial slots when t<0.3, random slots when t<0.6 (sequential always kept). Hypothesis: at low t, x_t-built spatial+random neighbor groups are uninformative; masking them should not hurt, and may help. Paired N=6 × L∈{50,100,200} × seed=5 against same-ckpt baseline. | non-narrative — **curriculum hurts pooled designability** (5/18 → 3/18, −2 designable, 3× DESIGN→FAIL vs 1× FAIL→DESIGN). L=200 uniform degradation (5/6 paired proteins worse, mean +4.0 Å) and L=50 net negative (despite a single dramatic Δ=−8.77 Å rescue at id=0). **L=100 is the only redistribution-positive length**: count holds 3/6 but median 2.94→1.99, max 6.31→4.52, the collapsed sample disappears. Mechanism reading: noisy spatial+random groups carry non-trivial information at low t — the "they're noise so masking them is free" hypothesis is *not* supported. Untuned thresholds (0.3/0.6); t-sweep is the cheap next step before any retraining-with-curriculum commitment. |
 | [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Same ckpt + protocol as E044 but with K-reallocation instead of masking: keep total K=40 fixed across the whole trajectory, just reallocate (n_seq, n_spatial, n_random) by t. 3 buckets — t<0.33 → (20,0,0); t<0.66 → (12,8,8); t≥0.66 → canonical (8,8,16). Softmax always sees 40 real slots; only composition shifts. | non-narrative — **same pooled count as mask (3/18) but a completely different per-length distribution**. **L=50 spectacular** (3/6 designable, **min 0.63 Å** = best ever on this ckpt; every sample within 3.10 Å); paired Δ=−10.77 Å rescue at L=50 id=0 (11.40 → 0.63). **L=100 disaster**: 3/6 → 0/6, **two new collapsed samples appear** (id=0 1.43 → 9.04, id=3 4.30 → 7.02). L=200 fails uniformly. **Mechanism is chain-length-dependent**: at short L the spatial/random/sequential groups overlap heavily so realloc is a benign content shift; at L≥100 the model uses long-range info encoded in the spatial+random slots even when noisy, and stripping it for sequential causes collapse. Mask (E044) and realloc (E045) are complementary: hypothetical realloc-at-L<60 + mask-at-L≥60 would yield 6/18 (33%) — but L-dependent schedule, not static, is the principled next step before retraining. |
+| [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) | 2026-05-11 | finished (code fix + numerical tests + inference probes at step-1385) | Investigation of the K=64-curriculum-self variant's (variants.md §11; NO BigBird, NO pair-update) L=50/L=100 gap vs canonical. Numerical tests of `sparse_neighbors.build_neighbor_idx` and `PairBiasAttention._attn_sparse`. Found+fixed an off-by-one cap (`min(2*n_seq, N-1)` → `min(2*n_seq, N)`). Falsified four candidate bug mechanisms. Then re-probed step-1385 with three schedule variants (canonical, NOCURR, LOWTSOFT) and pushed LOWTSOFT to N=18 paired with the variants.md §11 baseline. | non-narrative — feeds the retrain decision ([E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)). **LOWTSOFT N=18 post-fix: 56 % / 61 % / 0 % at L=50/100/200** vs canonical N=18 pre-fix 44 % / 56 % / 11 % — **+12 pp at L=50 (paired with the cap fix) and +5 pp at L=100**, but **−11 pp at L=200 (one-or-two-protein swing on N=18)**. Same-day same-code paired probes give the cleanest A/B: at N=6 post-fix, canonical 4/3/0, NOCURR 4/1/0, LOWTSOFT 4/4/0 — i.e. removing the schedule entirely tanks L=100 (3→1), softening the low-t bucket improves it (3→4). Direction is consistent with the variant-design hypothesis. |
+| [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) | 2026-05-11 | in progress (running; SLURM 29210711, SL2 20h slot, started ~18:00 BST 2026-05-11) | Cold-start retrain of a FIVE-AXIS bundle: K=64 SALAD-canonical sparse + curriculum (`(16,8,24)` low-t / `(16,8,24)` mid / `(8,16,32)` high) + self-inclusion + **BigBird globals n=4 (FIRST TIME TRAINED)** + **pair-update every 3 layers (FIRST TIME TRAINED in K=64 sparse path)**, with the off-by-one cap fix from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) live in code. **Architecture differs from step-1385:** step-1385 is variants.md §11 (only K=64 + curriculum + self-inclusion, three axes — no BigBird, no pair-update); this retrain is the planned §12-LowTSoft bundle (five axes). OLD recipe wd=0.05 / constant LR=2e-4 / no scheduler / dataset / seed=42 / 160M trunk are unchanged from §11. | non-narrative — first cold-start training of BigBird + pair-update + lowtsoft simultaneously. **Predicted milestones:** val MSE convergence trajectory tracks below the §11 step-1385 curve once the new (BigBird + pair-update) parameters reach their working points (initial divergence is the cost of training 3 new architectural axes from zero-init); designability at step ~1800–2200 of the bundle vs §11's step-1385 reading (8/10/2 N=18); designability at step ~2400 vs canonical's E019 step-2646 N=30 baseline (19/20/3 = 63 % / 67 % / 10 %). Decision: if the bundle clears canonical at L=100 with the L=200 dropout not deeper than the LOWTSOFT-N=18 inference probe (−11 pp), the five-axis bundle is the new K=64 baseline; ablations (drop pair-update, drop BigBird, isolate cap-fix) follow. |
 
 ---
 
@@ -4129,3 +4131,158 @@ Why realloc helps at L=50 but hurts at L=100:
 - Logs: `nohup_inference_sparse_K40_step1259_curriculum_realloc_n6_nfe400.gen.log`, `*.eval.log`.
 - Companion / direct predecessor: [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (mask-based curriculum on the same ckpt; same baseline; same protocol).
 - Sparse-attention architecture: CLAUDE.md → "Sparse-attention variant (SALAD-style, K=40)"; `proteinfoundation/nn/modules/sparse_neighbors.py` (`build_neighbor_idx` with arbitrary `n_seq, n_spatial, n_random`).
+
+---
+
+## E046 — Sparse attention off-by-one cap investigation + fix + bf16 audit (2026-05-11)
+
+**Status:** finished (code change + numerical tests + three inference probes at step-1385 with same-day paired comparisons)
+
+**Why ran:** at step 1385 the K=64-curriculum-self variant (variants.md §11) trails canonical by ~19 pp at L=50 and ~11 pp at L=100 on N=18 pooled designability. That gap is too large for "step undercount" alone. The user asked for a focused diff between the dense baseline (`eb445ef`, parent of the first sparse-attention commit) and the current sparse code, plus actual numerical tests of the gather + masking + LN paths — with explicit emphasis on hypothesising big bugs rather than small effects. Decision the entry feeds: do we need to retrain after a correctness fix, or is the gap fully explained by the curriculum schedule + the training distribution?
+
+**Configs / hardware:** investigation only — code reading, fp32 + bf16 numerical micro-tests on CPU (no GPU/SLURM use), one CLAUDE.md update, no new training runs. Pair of probe drivers created for the re-probe but not launched yet:
+- Code paths read: `proteinfoundation/nn/modules/{sparse_neighbors,pair_bias_attn,pair_update,pair_rep_initial,adaptive_ln_scale}.py`; `proteinfoundation/nn/feature_factory.py`; `proteinfoundation/nn/local_latents_transformer.py`.
+- Diffs vs dense baseline saved temporarily to `/tmp/diff_*.txt`; covered 5 NN files, ~620 added lines, no functional change to the dense path beyond a `.nan_to_num(0.0)` guard.
+- Numerical tests (`python -c …` against `/home/ks2218/conda_envs/laproteina_env`): gather uniqueness at N=50 in all three curriculum buckets (50 queries × 64 slots); sparse-vs-dense numerical equivalence in fp32 and bf16 at N=20 (K=N identity), N=50 (K=64 builder, pre-fix), N=50 (manual full-N neighbor list); padding-clone count per row; FeatureFactory post-LN re-mask at padding slots; per-bucket coverage at N ∈ {10, 30, 50, 63, 64, 65, 100, 200, 300}.
+- Code change: `proteinfoundation/nn/modules/sparse_neighbors.py` — replace `min(2*n_seq, N-1)` with `min(2*n_seq, N)` at line 61, drop the `-1` symmetrically at lines 69 and 88. Three-line patch (plus a comment block explaining the cap is now correct for self-inclusion).
+- Plumbing: added `curriculum_low_t_split` kwarg to `LocalLatentsTransformer` (`proteinfoundation/nn/local_latents_transformer.py`), `proteina.py` plumbs it from `cfg_exp.training`, `generate.py` exposes it as an inference-time override. Default `(32, 0, 0)` preserves existing behavior. Asserts the override sums to K=64.
+- New training configs: `configs/training_ca_only_sparse_K64_nocurr.yaml`, `configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml`. Sibling configs of the existing K=64-curriculum training file; same recipe, only the curriculum flags differ.
+- New inference configs + drivers: `configs/inference_sparse_K64_step1385_FIXEDCAP_n6_nfe400.yaml` + `script_utils/probe_sparse_K64_step1385_FIXEDCAP.sh` (same ckpt, code w/ fix); `configs/inference_sparse_K64_step1385_LOWTSOFT_n6_nfe400.yaml` + `script_utils/probe_sparse_K64_step1385_LOWTSOFT.sh` (same ckpt, low-t bucket overridden to (16, 8, 24)). Distinct output prefixes preserve the existing pre-fix CSV.
+
+**Results — numerical:**
+
+| Test | Pre-fix | Post-fix |
+|---|---|---|
+| Unique valid neighbors per query at N=50, K=64 (all 3 buckets) | 49 / 50 | **50 / 50** |
+| Padding slots per query at N=50, K=64 | 15 | 14 |
+| Sparse-vs-dense max diff, N=50, K=64, fp32 (bucket (32,0,0)) | **2.03e-2** (~20 % rel. per-layer) | **5.96e-8** (machine ε) |
+| Sparse-vs-dense max diff, N=20, K=N identity, fp32 | 5.96e-8 | 5.96e-8 |
+| Sparse-vs-dense max diff at N=50, bf16 (post-fix) | n/a | 0.00 (sparse and dense both bf16-quantised to identical) |
+| Excess bf16 drift on sparse path beyond bf16-quantised dense | n/a | **−1.6e-3** (i.e. sparse path adds zero extra drift on top of dense bf16 quantisation) |
+| Coverage table at N ∈ {10, 30, 50, 60, 63, 64} pre-fix | 9, 29, 49, 59, 62, 63 valid / N | n/a |
+| Coverage table post-fix | n/a | **10, 30, 50, 60, 63, 64 valid / N** (full coverage at N ≤ K) |
+| Coverage table at N ∈ {65, 100, 200, 300} | 64 valid / N (saturated at K) | unchanged (bug doesn't apply) |
+
+**Results — hypothesis falsification:**
+
+Four candidate "big bug" mechanisms were tested directly and ruled out:
+
+1. **i==j special-case difference between dense `pair_repr[i, i]` and sparse `pair_repr[i, neighbor_idx[i, 0]=i]`:** ruled out. With K=N identity neighbor list, sparse and dense outputs agree to 5.96e-8 in fp32. Same `pair_repr` value gathered, same `to_bias` projection, same softmax weight. No special case fires.
+2. **bf16 -inf masked-fill gradient drift:** ruled out as a major contributor. bf16 sparse-vs-dense diff is 0.0; bf16 quantises both paths identically. bf16 vs fp32 introduces ~1.6e-3 of noise (~3.6 % relative to output magnitude), but this is symmetric between dense and sparse — not a sparse-specific issue.
+3. **`pair_rep_initial.py` adaln LN over unmasked padding:** ruled out empirically. FeatureFactory zeros padded slots after the post-linear LN (`feature_factory.py:2027,2036`). AdaLN's `nn.LayerNorm(dim, elementwise_affine=False)` normalises over the last dim only, then the closing `* mask[..., None]` re-zeros padded slots. Verified: pair-feat value at padded slots after FeatureFactory with `use_ln_out=True` is `0.0` exactly.
+4. **`pair_norm` in `PairBiasAttention` pooling over K including padding clones:** ruled out *by mechanism, not effect size*. `self.pair_norm = nn.LayerNorm(pair_dim)` normalises over the last (embedding) dim only — never over K. I verified: at N=50, residue 0 appears at 15-16 slots per row (1 real + 14-15 padding clones), but `LN(real_slots_only)` exactly matches `LN(real_and_padding)[real_slots]`. Padding clones do receive a non-zero `to_bias` projection but are killed by `softmax(-inf + finite) = 0`.
+
+**Results — actual bug:**
+
+`sparse_neighbors.py:61,69,88` used `N - 1` as the per-group cap, which was correct when self was excluded via `eye` in `base_invalid` (the configuration before commit `fbcc1ec`, 2026-05-08). Commit `fbcc1ec` removed the `eye` term to allow self-inclusion ("Self is now allowed in the K-set (lands in slot 0 of the sequential group via seq_dist[i, i] = 0)") but did not update the caps. Result: for any N ≤ K_canonical = 64, the cap is `min(2*n_seq, N-1) ≤ N-1`, so the top-k inside `build_neighbor_idx` systematically drops exactly one real residue per query — always the farthest by `|i-j|` for the sequential group. At N=50, coverage per query is 49 / 50 instead of 50 / 50; the missing residue's softmax weight (which dense gives mass to) goes to no one. Numerical impact: ~20 % relative per-attention-layer error vs the dense ground truth, compounded over 14 layers with residuals. **At N=100 and above, the cap saturates at `2*n_seq = 64 < N-1` so the bug does not fire** — coverage at L=100/200 is unchanged.
+
+The fix is a three-line edit. The replacement passes the existing numerical equivalence test at machine epsilon in every curriculum bucket at N=50, and is a no-op at N > K.
+
+**Results — designability A/B probes on step-1385 (same ckpt, post-fix code, seed=5, nsteps=400):**
+
+Three schedule variants probed; canonical was re-run as a "code-fixed-but-schedule-unchanged" reference. LOWTSOFT was then pushed to N=18 (N=6 + N=12) for a confidence-interval-tightening read. Same-day same-code paired comparison is the cleanest A/B.
+
+| Probe (step-1385, post-fix code) | L=50 | L=100 | L=200 | Pooled | Best Å |
+|---|---|---|---|---|---|
+| canonical schedule, N=6                                                | 4/6 (67 %) | 3/6 (50 %) | 0/6 (0 %)  | 7/18 (39 %)  | 0.87 |
+| NOCURR static `(8, 16, 32)` at all t, N=6                              | 4/6 (67 %) | **1/6 (17 %)** | 0/6 (0 %)  | 5/18 (28 %)  | 0.71 |
+| LOWTSOFT low-t → `(16, 8, 24)`, N=6                                    | 4/6 (67 %) | 4/6 (67 %) | 0/6 (0 %)  | 8/18 (44 %)  | 0.62 |
+| LOWTSOFT low-t → `(16, 8, 24)`, N=12 follow-up                         | 6/12 (50 %) | 7/12 (58 %) | 0/12 (0 %) | 13/36 (36 %) | 0.63 |
+| **LOWTSOFT N=18 pooled (N=6 + N=12)**                                  | **10/18 (56 %)** | **11/18 (61 %)** | **0/18 (0 %)** | **21/54 (39 %)** | **0.62** |
+| canonical N=18 pre-fix (variants.md §11 baseline — 3-axis, NO BigBird/PU) | 8/18 (44 %) | 10/18 (56 %) | 2/18 (11 %) | 20/54 (37 %) | 0.94 |
+
+**Reading:**
+- **L=50: cap-fix probably contributes some, lowtsoft probably contributes some.** Pre-fix → post-fix canonical at N=6 went 3/6 → 4/6 (+1, expected direction for cap-fix at N ≤ K=64). LOWTSOFT N=18 = 56 % vs canonical pre-fix N=18 = 44 % is +12 pp directional, but partly the cap fix (no lowtsoft change at all needed for that). Best-Å improves from 0.94 → 0.62 across all three post-fix probes — the model produces sharper structures with the cap correct.
+- **L=100: the schedule shape matters.** This is where the three post-fix probes disagree most. Removing the schedule entirely (NOCURR) drops L=100 from canonical's 3/6 to 1/6 — −2 designable, well outside N=6 noise. Softening the low-t bucket (LOWTSOFT) goes the other way, 3/6 → 4/6. At N=18 pooled, LOWTSOFT lands at 11/18 (61 %), +5 pp vs canonical pre-fix N=18. The harsh `(32, 0, 0)` low-t bucket is suboptimal but the *schedule itself* is doing useful work — keeping spatial+random capacity around at low t helps long-range mixing while the trained-with-the-schedule weights still expect the staged structure.
+- **L=200: −11 pp dropout with LOWTSOFT, but inside binomial noise.** Canonical pre-fix had 2/18; LOWTSOFT post-fix is 0/18. Binomial 95 % CI for 2/18 is [1 %, 35 %]; for 0/18 it is [0 %, 19 %] — the intervals overlap. Best-Å at L=200 is 2.03 Å in LOWTSOFT N=6 → 2.10 Å in N=12 — both within 0.10 Å of the 2 Å designability threshold. The model gets *close* at L=200 but doesn't quite clear; whether retraining with lowtsoft pushes it across or whether L=200 is a different failure mode (training distribution `min_length=50`, step undercount) is what [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) tests.
+
+**Negative-result corrections:**
+- The mid-day N=6 LOWTSOFT read (4/4/0 = 44 % pooled) over-stated the L=100 effect. N=18 pulls the LOWTSOFT L=100 rate down from 4/6 (67 %) toward 11/18 (61 %), with the L=50 rate also pulled from 4/6 (67 %) toward 10/18 (56 %). Direction holds, magnitude shrinks.
+- The original FIXEDCAP-driver probe was made redundant when the user re-ran the existing canonical driver after the cap fix was already in the code; the FIXEDCAP config + driver remain on disk but unused.
+- The user's manual `rm -rf .../job_0_n_*_id_*/job_0_n_*_id_*` recovery during the first canonical re-probe accidentally also matched `.pdb` files (the glob `*` matched `0.pdb`), wiping the gen output mid-eval. Cost: one 5-min gen re-run. Drivers were subsequently hardened (`rm -rf` of the nested *directory* with `[ -d ... ]` guard, never globs that could match a file).
+
+**Possible narrative:** non-narrative — code-correctness fix + falsified mechanisms. **What this entry decides:**
+- The L=50 portion of the K=64 variant's gap could be a bug-contribution. Re-probing the step-1385 ckpt with the fixed code (driver: `probe_sparse_K64_step1385_FIXEDCAP.sh`) will A/B-test this. **Cautious prediction:** the bug fires at every N ≤ 64 during training too, so the trained model may have absorbed it; the fix could be neutral or even slightly hurt at L=50 if the model has learned to compensate. L=100/200 should be unaffected (bug does not fire there).
+- The L=100/L=200 gap is **NOT** explained by this bug. The remaining major candidates (curriculum bucket (32,0,0) at low t restricting each query to a ±32-sequential window at L=100 → 36 unreachable residues per query during late refinement; training `min_length=50`; step undercount 1385 vs 2646) need separate tests. The new `curriculum_low_t_split` knob and the LOWTSOFT driver are the cheapest next probe.
+- bf16 is not the bug — sparse and dense quantise identically.
+
+**Methodological caveats:**
+- **Numerical tests use a fresh, untrained `PairBiasAttention` instance with random weights.** They show that the math is correct, not that the trained model behaves identically. The trained model may have learned to compensate for the off-by-one and the bucket schedule; the fix could shift inference outputs in either direction.
+- **The variants.md §11 step-1385 baseline (N=18, 44 % / 56 % / 11 %) pools N=6 at seed=5 with a separately-generated N=12 at seed=5; per CLAUDE.md auto-memory the seed-propagation through `predict_step` is non-trivial, so the FIXEDCAP and LOWTSOFT re-probes' N=6 numbers are not directly seed-paired with the existing 44 / 56 / 11 estimates.** Use the pre-fix N=6 numbers (50 / 67 / 17 % at L=50/100/200 from `probe_sparse_K64_curriculum_self_step1385.sh` alone) as the comparison baseline for the matched-N comparison.
+- **Training-side correctness:** the trained ckpt at step 1385 was *trained* with the off-by-one. If retraining is judged worthwhile, both the fix and any low-t-bucket change can be bundled into a single new training run (`training_ca_only_sparse_K64_curriculum_lowtsoft.yaml` is the lowtsoft variant; `training_ca_only_sparse_K64_nocurr.yaml` is the no-curriculum control).
+- **The bf16 audit ran on a small synthetic example (B=1, N=50, token_dim=256, pair_dim=64, 8 heads).** Re-running at full model scale on real coords + real weights could show a different absolute magnitude of bf16 noise, but the *symmetry* between dense and sparse is mechanism-level and not sample-size dependent.
+- **CLAUDE.md was updated** to reflect that self is now included (the previous "Self is excluded from each query's neighbor list" line was already stale from commit `fbcc1ec`); the new line also documents the cap fix.
+
+**Cross-references:**
+- Code change: `proteinfoundation/nn/modules/sparse_neighbors.py:61,69,88` (off-by-one cap fix).
+- New knob: `proteinfoundation/nn/local_latents_transformer.py` (`curriculum_low_t_split` kwarg + assert in `_build_neighbor_idx`); `proteinfoundation/proteina.py` (plumbing from `cfg_exp.training`); `proteinfoundation/generate.py` (inference override).
+- New configs: `configs/training_ca_only_sparse_K64_nocurr.yaml`, `configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml`, `configs/inference_sparse_K64_step1385_FIXEDCAP_n6_nfe400.yaml`, `configs/inference_sparse_K64_step1385_LOWTSOFT_n6_nfe400.yaml`.
+- New drivers: `script_utils/probe_sparse_K64_step1385_FIXEDCAP.sh`, `script_utils/probe_sparse_K64_step1385_LOWTSOFT.sh`.
+- CLAUDE.md update: lines 152 (`min(2 * n_seq, N)` not `N - 1`) and 167 ("Self is INCLUDED" replacement, with off-by-one note).
+- Related variants.md sections: §12 (K=64-curriculum-self-bigbird-pairupdate), §11 (K=64-curriculum-self trunk).
+- Architectural predecessors / context: [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07), [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (the K=40 inference-only curriculum probes that motivated the K=64 trained-with-curriculum variant); CLAUDE.md → "Sparse-attention variant (SALAD-style, K=40)".
+- Follow-up: [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) — cold-start retrain of the K=64 bundle with the cap fix + lowtsoft baked in.
+
+---
+
+## E047 — Cold-start retrain of the K=64 bundle with cap fix + LOWTSOFT low-t bucket (2026-05-11)
+
+**Status:** in progress — queued as SLURM job 29210711 on ampere SL2, 20h walltime, single slot. Submitted 2026-05-11 ≈ 18:00 BST.
+
+**Why ran:** [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11)'s inference-only LOWTSOFT probe on step-1385 of the **K=64-curriculum-self variant (variants.md §11; three axes: K=64 + curriculum + self-inclusion; NO BigBird, NO pair-update)** lands at **L=50 / L=100 / L=200 = 56 % / 61 % / 0 %** designable at N=18 pooled — vs the §11 pre-fix N=18 baseline of 44 % / 56 % / 11 %. The +12 pp at L=50 (cap fix + lowtsoft together) and +5 pp at L=100 (lowtsoft alone, since the cap fix is a no-op at N>K=64) are directional improvements consistent with the variant-design hypothesis (the harsh `(32, 0, 0)` low-t bucket bottlenecks long-range mixing at L=100), but the L=200 −11 pp dropout (2/18 → 0/18) is the question mark; binomial CI suggests it's inside noise but worth confirming with retrained weights. The inference-only signal is also **off-distribution** for the trained §11 ckpt (model trained on `(32, 0, 0)` low-t, probed at `(16, 8, 24)`), so training-with-lowtsoft should match or beat the inference-only-lowtsoft probe — that's what this entry tests. Decision the entry feeds: whether the planned five-axis §12-LowTSoft bundle (K=64 + curriculum + self + BigBird + pair-update, all with the soft low-t bucket) is the new K=64 baseline going forward, and what ablations (drop pair-update, drop BigBird, isolate cap-fix, isolate lowtsoft) attribute the contributions.
+
+**Configs / hardware:**
+- Training config: `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft.yaml` (NEW, sibling of `..._bigbird_pairupdate.yaml` — the variants.md §12-forthcoming config that has never been trained). Two differences vs `..._bigbird_pairupdate.yaml`:
+  1. `training.curriculum_low_t_split: [16, 8, 24]` (overrides the default `(32, 0, 0)` low-t bucket — plumbed via `proteina.py` from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11)).
+  2. `sparse_neighbors.py` cap fix is in code at train time (`min(2*n_seq, N)` not `N-1`) — affects every training step at N ≤ K=64.
+- NN config: `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M.yaml` — the §12-forthcoming NN file. 14 layers, token_dim=768, 12 heads, **K=68 = K_canonical=64 + 4 BigBird globals**, **pair-update every 3 layers (5 updates over 14 layers)**. **This is the FIRST training run that uses this NN config** — step-1385 used the simpler `ca_only_sparse_K64_curriculum_160M.yaml` (no BigBird, no pair-update).
+- Recipe: OLD canonical — wd=0.05, constant LR=2e-4, no scheduler, AdamW defaults, ema decay=0.999 every_n_steps=5, accumulate_grad_batches=32, val_check_interval=2000, seed=42, self_cond=True, compile_nn=True.
+- Cold start (no `pretrain_ckpt_path`). Could not warm-start from step-1385 anyway — step-1385's weights don't have BigBird or pair-update parameters.
+- Submit: `sbatch --time=20:00:00 --exclude=gpu-q-43 script_utils/submit_train_ca_only_1gpu.sh -n training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft` — single 20h SL2 slot. At canonical's ~131 opt-steps/h that's ~2600 opt steps in one shot, past the canonical 1800-2200 best-val window and into the canonical step-2646 baseline range. Slower in practice because of the new BigBird + pair-update parameters needing to find their working points.
+- `--exclude=gpu-q-43` (broken GPU per CLAUDE.md; `afterany` re-routes back to it).
+- Wandb group: `ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft` (auto-set from `run_name_` by the submit script). Wandb run id: `vru8hr9y`.
+
+**Early observation (steps 62–1196, pulled from wandb 2026-05-12 14:00 BST):**
+
+Tracks the §11 K=64-curriculum-self curve at low steps then diverges below it by ~0.3-0.4 mse from step ~600 onward. Best val so far: 4.712 at step 944 (vs §11's 4.19 at step 1385). Three runs at adjacent steps for context:
+
+| Step | this run (§12-LowTSoft) | §11 K=64-curric-self best slot | scnbr K=40 | sparse K=40 | canonical dense |
+|---|---|---|---|---|---|
+| 200  | 6.41 | 6.38 | 6.07 | 6.38 | — |
+| 600  | 5.28 | 5.06 | 5.07 | 5.03 | — |
+| 1000 | **4.71** | 4.38 | 4.45 | 4.41 | 5.62 |
+| 1200 | **4.62** | 4.24 | 4.28 | 4.28 | 5.38 |
+
+Plausible explanation: the §12 bundle introduces 3 new architectural axes (BigBird globals + pair-update + lowtsoft) that need to train from cold-init simultaneously, while §11 only had to learn the K=64 trunk + curriculum + self-inclusion. The 0.3-0.4 mse gap is the cost of carrying 4 new global parameters + ~5 new pair-update MLP blocks + a harder low-t schedule. Whether the bundle catches up by step ~2000 or plateaus higher is the load-bearing question; the 20 h slot ends at step ~2400-2600 in principle.
+
+**Predicted milestones (to verify against actual checkpoints):**
+- val MSE at step ~1800-2200 — does it cross below §11's 4.19? If yes, the bundle eventually pays back the slower start.
+- Designability probe at step ~1800 (whichever ckpt sits closest to §11 step-1385's val ≈ 4.19) — matched-val A/B vs E046's inference-only LOWTSOFT N=18 (10/11/0 = 56/61/0%): if the retrain matches or exceeds it, training-with-lowtsoft + BigBird + pair-update outperforms inference-only-lowtsoft on the simpler architecture.
+- Designability probe at step ~2400 vs canonical's E019 step-2646 N=30 baseline (19/20/3 = 63 / 67 / 10%): the clean "did the five-axis bundle clear canonical at L=100" test.
+
+**Results:** pending — entry will be updated once the first probe-worthy checkpoint lands. New inference config + driver to be written for the retrained ckpt path (separate output dir from the §11 step-1385 inference outputs, no collision).
+
+**Possible narrative:** non-narrative *yet* — this is the load-bearing test entry. If the bundle clears the canonical bar at L=100 at step ~2400, this becomes the basis for a Finding (the five-axis K=64 + curriculum + self + BigBird + pair-update + lowtsoft bundle as the new K=64 baseline; ablations to attribute). If it plateaus higher, the picture stays "lowtsoft helps at inference but doesn't transfer cleanly to training with 3 new architectural axes" and the right move is to test lowtsoft on the simpler §11 architecture first (`configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml` already on disk).
+
+**Methodological caveats:**
+- **Cold start, not warm.** Couldn't warm-start from step-1385 even if desired — step-1385's weights lack the BigBird `global_pair_bias_*` and pair-update MLP parameters that the §12 NN config introduces. So the slow-start is unavoidable for this bundle.
+- **Three new axes at once.** BigBird, pair-update, and lowtsoft are introduced together; we cannot attribute individual contributions from this run alone. The natural ablations are:
+  - Cap-fix isolation: re-run `..._bigbird_pairupdate.yaml` (no lowtsoft, but cap fix in code).
+  - Lowtsoft-on-§11: re-run `..._curriculum.yaml` with `curriculum_low_t_split: [16, 8, 24]`. (Config sibling already exists as `training_ca_only_sparse_K64_curriculum_lowtsoft.yaml`.)
+  - BigBird isolation: re-run `..._bigbird_pairupdate_lowtsoft.yaml` with `n_global_tokens: 0` in the NN config.
+  - Pair-update isolation: same but `update_pair_repr: False`.
+  Each ablation = one more 20 h SL2 slot; deferred until E047 returns a verdict.
+- **20 h single slot may not reach the bundle's best-val window.** At the early pace (~75% of canonical's opt-steps/h on a single A100 with compile_nn + a heavier architecture), 20 h gets to step ~2400 not ~2600. Canonical's best-val window is 1800-2200 so we're still inside it; chained slot would be needed only if the bundle's own best-val window is shifted later (which is plausible given the 3-axis cold start cost).
+- **Same seed=5 / nsamples-batching propagation as §11** applies to all designability probes on the retrained ckpts. Pool N=6 + N=12 → N=18 same as the LOWTSOFT N=18 inference probe.
+- **CLAUDE.md hard rule: `nsteps=400`.** Probe drivers on the retrained ckpts inherit it from `inference_base.yaml`.
+
+**Cross-references:**
+- Training config: `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft.yaml`.
+- NN config (§12-forthcoming, first time trained): `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M.yaml`.
+- Submit script: `script_utils/submit_train_ca_only_1gpu.sh` (canonical 1-GPU pattern; 20 h overridden via CLI).
+- Code dependencies (E046): `sparse_neighbors.py:61,69,88` cap fix; `LocalLatentsTransformer.curriculum_low_t_split` kwarg + assert; `proteina.py` plumbing; `generate.py` inference override (only matters for downstream probes, not the training run).
+- Predecessor / immediate ancestor: [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) (bug investigation, code fix, inference-only LOWTSOFT signal at N=18 on step-1385 of the §11 variant).
+- Comparison baseline for designability: variants.md §11 step-1385 N=18 pooled (44 / 56 / 11 % at L=50 / 100 / 200 — pre-fix, three-axis variant).
+- Architecture: variants.md §11 trunk (K=64-curriculum-self) plus §12-forthcoming additions (BigBird + pair-update). The §12 entry will be added to variants.md once a checkpoint has been probed.
+- Sibling untrained config: `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate.yaml` (the §12 forthcoming reference — never trained; this run replaces it with lowtsoft baked in).
+- Deferred ablation candidates: `configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml` (drops BigBird + pair-update, keeps lowtsoft); `configs/training_ca_only_sparse_K64_nocurr.yaml` (drops curriculum entirely); not-yet-written cap-fix-isolation config (= `..._bigbird_pairupdate.yaml` re-run with cap fix in code but `(32, 0, 0)` low-t).

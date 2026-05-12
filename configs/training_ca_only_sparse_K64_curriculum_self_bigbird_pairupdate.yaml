@@ -1,0 +1,106 @@
+# SALAD-canonical K=64 sparse + curriculum + self-inclusion
+# + BigBird CLS globals (n=4) + pair update every 3 layers.
+#
+# Variants.md §12 (forthcoming). Five-axis bundle on top of §11
+# (K=64-curriculum-self): adds BigBird globals + pair-update.
+#
+# COLD START (no pretrain_ckpt_path). Decision documented in conversation
+# 2026-05-11: warm-start would have weaker attributability for the
+# "modules add value beyond strong base" claim AND introduce gradient
+# shocks when adding pair-update layers + global parameters to a
+# converged base. With ~20h to canonical-equivalent convergence, fresh
+# is the cleaner research story at acceptable compute cost.
+#
+# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4,
+# no scheduler). DO NOT touch wd/LR/scheduler — confounds five
+# architectural axes with the v2/paramgroups failure mode. See CLAUDE.md
+# "Canonical baseline run" and variants.md §1 for rationale.
+run_name_: ca_only_sparse_K64_curriculum_self_bigbird_pairupdate
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:  # null → cold start
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  # Curriculum on — matches §11. Reads in proteina.py:128 → plumbed as
+  # kwarg to LocalLatentsTransformer.
+  curriculum_neighbors: True
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block. Constant LR=2e-4
+# via omitting `scheduler:` (proteina.py:228 returns optimizer alone).
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  # torch.compile the trunk. fullgraph=False so per-bucket Python loop in
+  # the curriculum path graph-breaks gracefully. If compile fails or
+  # <5% speedup, flip to False without touching anything else.
+  compile_nn: True
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

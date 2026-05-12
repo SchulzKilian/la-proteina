@@ -1,0 +1,42 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400
+config_name: inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400
+
+# First designability probe for the cold-start retrain of the FIVE-AXIS bundle
+# (K=64 SALAD-canonical + curriculum + self-inclusion + BigBird globals n=4
+# + pair-update every 3 layers) with the softened low-t bucket
+# (`curriculum_low_t_split: [16, 8, 24]`) baked into training, and the
+# off-by-one cap fix live in code.
+#
+# Training run: SLURM job 29210711, wandb `vru8hr9y`. Latest ckpt at the
+# time this config was written: step 1133, val 4.6158. Symlink at repo root
+# `sparse_K64_bigbird_lowtsoft_step1133.ckpt` → the actual ckpt file. To
+# probe a later step, re-point the symlink:
+#   ln -sf /home/ks2218/la-proteina/store/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft/1778520282/checkpoints/best_val_<N>_<S>.ckpt sparse_K64_bigbird_lowtsoft_step1133.ckpt
+# and re-run the same probe driver.
+#
+# Inference loads the trained NN architecture (BigBird + pair-update) from the
+# ckpt's exp_config_*.json automatically. The curriculum schedule + low-t
+# bucket override are also baked in via the saved training config; no
+# inference-time overrides needed.
+#
+# Comparison baselines:
+#   - variants.md §11 step-1385 N=18 pooled = 44 % / 56 % / 11 % at L=50 / 100 / 200 (pre-fix, 3-axis variant — no BigBird/PU/lowtsoft)
+#   - Today's LOWTSOFT inference probe on the §11 step-1385 ckpt, N=18 pooled = 56 % / 61 % / 0 % (off-distribution, cap-fix live in code)
+#   - canonical dense E019 step-2646 N=30 = 63 % / 67 % / 10 %
+#
+# nsteps inherited from `inference_base.yaml` (=400) per CLAUDE.md hard rule.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_bigbird_lowtsoft_step1133.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

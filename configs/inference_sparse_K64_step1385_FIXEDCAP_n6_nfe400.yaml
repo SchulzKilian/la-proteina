@@ -1,0 +1,45 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_step1385_FIXEDCAP_n6_nfe400
+config_name: inference_sparse_K64_step1385_FIXEDCAP_n6_nfe400
+
+# Verification probe: same ckpt and same schedule as
+# `inference_sparse_K64_curriculum_self_step1385_n6_nfe400.yaml`, but the run
+# happens AFTER the off-by-one cap fix in `sparse_neighbors.py` (replaces
+# `min(2*n_seq, N-1)` with `min(2*n_seq, N)`; commit 2026-05-11 investigation).
+#
+# Pre-fix, every query at N ≤ 64 dropped one real residue, so at L=50 coverage
+# was 49/50 per query and sparse attention differed from dense by ~20 % per
+# attention layer. Post-fix: coverage 50/50, sparse-vs-dense diff at machine
+# epsilon (5.96e-8).
+#
+# This config exists only so that pre-fix N=18 results
+# (sparse_K64_curriculum_self_step1385_n6_nfe400 + ..._n12_nfe400) are
+# preserved on disk while the post-fix probe writes to a different output
+# prefix. Same ckpt, same schedule, same nsteps. Compare:
+#   - pre-fix L=50 designability: 8/18 = 44% (from variants.md §12, step 1385)
+#   - pre-fix L=100 designability: 10/18 = 56%
+#   - post-fix expectation: L=50 should move because the bug only fires at N ≤ 64;
+#     L=100 unchanged (bug doesn't apply: k_seq cap saturates at 2*n_seq = 64 < N-1 = 99).
+#
+# Cautious framing: post-fix runs an ENSEMBLE the trained ckpt never saw
+# (training was conducted with the buggy 49-of-50 K-set at L=50). If the
+# model has internalised the bug, the fix might wash out or even hurt.
+# If unchanged, the L=50 gap is fully explained by other factors (training
+# distribution mismatch + step undercount). If improved, the bug was
+# contributing.
+#
+# nsteps inherited from `inference_base.yaml` (=400) per CLAUDE.md hard rule.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_curriculum_self_step1385.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

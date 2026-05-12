@@ -149,7 +149,7 @@ DiT-style AdaLN-Zero gates (`*.scale_output.to_adaln_zero_gamma`) are zero-initi
 
 ### Sparse-attention variant (SALAD-style, K=40)
 
-Architectural variant of the CA-only baseline. Replaces dense `[B,N,N,d]` pair representation + dense attention with a per-residue neighbor list of **K=40 (16 sequential + 8 spatial + 16 random ∝ 1/d³)**. Note the per-side semantics of `n_seq_neighbors`: with `n_seq_neighbors=8`, `n_spatial_neighbors=8`, `n_random_neighbors=16` in the YAML, the resulting neighbor count is `2*n_seq + n_spatial + n_random = 16 + 8 + 16 = 40` (see `sparse_neighbors.py:14` docstring and `k_seq = min(2 * n_seq, N - 1)` at line 56).
+Architectural variant of the CA-only baseline. Replaces dense `[B,N,N,d]` pair representation + dense attention with a per-residue neighbor list of **K=40 (16 sequential + 8 spatial + 16 random ∝ 1/d³)**. Note the per-side semantics of `n_seq_neighbors`: with `n_seq_neighbors=8`, `n_spatial_neighbors=8`, `n_random_neighbors=16` in the YAML, the resulting neighbor count is `2*n_seq + n_spatial + n_random = 16 + 8 + 16 = 40` (see `sparse_neighbors.py:14` docstring and `k_seq = min(2 * n_seq, N)` at line 56).
 
 Implementation files (worth knowing if you touch any of them):
 - `proteinfoundation/nn/modules/sparse_neighbors.py` — neighbor list builder (`@torch.no_grad`, recomputed each forward from `x_t["bb_ca"]`).
@@ -164,7 +164,7 @@ Config files (created 2026-04-25):
 - `configs/training_ca_only_sparse.yaml` — locked to the canonical old recipe (wd=0.05, constant LR=2e-4, no scheduler). `run_name_: ca_only_sparse_K40`.
 
 Implementation gotchas to remember when reading the code:
-- **Self is excluded from each query's neighbor list** (`eye` is added to `base_invalid` in `sparse_neighbors.py:44`). Self-information propagates only via the residual connection around MHA. Diverges from standard transformer attention.
+- **Self is INCLUDED in each query's neighbor list as of commit `fbcc1ec` (2026-05-08)** — it lands in slot 0 of the sequential group via `seq_dist[i,i]=0`. Pair-bias bins for `|i-j|=0` and `d=0` receive gradients. The earlier behavior (self excluded via an `eye` term in `base_invalid`) is gone; ckpts trained before that commit see the eye-mask behavior at inference iff they're loaded with old code. The cap on `k_seq` is `min(2*n_seq, N)` (not `N-1`); the `N-1` form was a 2026-05-11 fix to the inadvertent off-by-one that came with self-inclusion — it dropped one real residue per query at N≤K.
 - **"Random" neighbors are 1/d³-weighted**, not uniform — NOT BigBird-style global tokens. Long-range information transport relies on multi-layer composition.
 - **The neighbor list is rebuilt every forward from `x_t`** (the noisy CA at the current diffusion timestep). At t≈0 spatial+random groups are essentially random subsets and only sequential neighbors carry useful info.
 - **Padding-slot guard**: short proteins (<K=40 residues) get padded with index 0; `slot_valid` mask in `sparse_neighbors.py:121-127` distinguishes "padded slot pointing at residue 0" from "real neighbor 0". Don't remove this — without it short proteins double-count residue 0 in attention.
