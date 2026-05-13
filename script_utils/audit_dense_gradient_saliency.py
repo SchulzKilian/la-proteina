@@ -1,49 +1,53 @@
-"""Gradient-saliency sibling of E059's audit.
+"""Gradient-saliency audit on the canonical dense baseline — PER-QUERY mode.
 
-Replaces softmax attention weight with ‖∂L/∂x_t[j]‖ as the per-residue
-importance metric, on the canonical dense baseline. Same scaffolding as
-`audit_dense_attention_concentration.py` (same model, same seed, same
-length bins, same t-grid), so outputs are paired with E059's JSON by
-(protein_label, t_label).
+This is the per-query version (replaces the earlier aggregate one): for each
+sampled query residue i, compute ‖∂‖v_pred[i]‖ / ∂x_t[j]‖₂ for every residue j.
+That gives one saliency vector PER query per protein per t, structurally
+identical to sparse's per-residue K-set (each query has its own neighbor list).
 
-Per-(protein, t) we record both metrics from the SAME forward pass so the
-cross-metric overlap is intrinsic, not RNG-fragile.
+Rationale for going per-query (user's observation 2026-05-13):
+  - The aggregate version (sum of per-residue losses, single backward) summed
+    across all queries' loss terms, so per-query specialization was averaged
+    out. Empirically that path showed *more diffuse* gradient than the
+    softmax attention top-K of E059 — the wrong question being asked.
+  - In sparse attention each residue i HAS its own attention list of K residues
+    it routes to. The gradient analog of "important set for query i" is the
+    top-K residues j by ‖∂scalar_i / ∂x_t[j]‖, where scalar_i is some scalar
+    summary of i's prediction. We use scalar_i = ‖v_pred[i]‖₂ (no ground
+    truth needed; pure functional dependency through the model).
+  - With per-query saliency, the comparison to dense's per-query attention
+    pattern is one-to-one: same query, same protein, same t, top-K from
+    gradient vs top-K from attention.
 
-What this measures:
-  - GRADIENT (the new metric):
-      ‖∂L_fm/∂x_t[j]‖_2 per residue j, where L_fm is the standard
-      flow-matching loss (sum of non-_justlog components) computed against
-      the protein's clean structure. One scalar per residue per (protein, t).
-      → mass_top_K_grad, top-K_grad indices, t-Jaccard of top-K_grad sets.
-  - ATTENTION (re-recorded for cross-metric comparison, single per-layer
-    aggregate rather than E059's per-(layer, head) top_idx tensor):
-      Attention-received per key j = Σ_i α[h, i, j], aggregated over heads
-      via mean. One scalar per (residue, layer) per (protein, t).
-      → top-K_attn indices per layer.
-  - CROSS-METRIC: Jaccard(top_K_grad, top_K_attn_per_layer). For each
-    (protein, t), 14 numbers (one per layer); report mean/max/min/per-layer.
+What this records, per (protein, t, sampled_query_i):
+  - saliency_grad[N_real]: ‖∂‖v_pred[i]‖ / ∂x_t[j]‖₂ for each residue j
+  - top_grad_idx[Kj]: indices of top-Kj most-influential residues for query i
+  - mass_top_K_grad[|K_grid|]: concentration at K ∈ {8, 16, 32, 48, 64}
 
-Decision rules (in addition to E059's):
-  - If mass_top_K_grad ≫ E059's mass_top_K_attn (e.g., top-16 captures ≥0.9
-    vs E059's 0.66): gradient saliency is a sharper importance metric than
-    attention; the E059 STOP conclusion needs revisiting.
-  - If t-Jaccard_grad ≥ 0.7: gradient-derived important set is stable along
-    the trajectory; per-protein-per-t routing computed once would suffice.
-  - If max-over-layers Jaccard(grad, attn) ≥ 0.5: dense attention DOES reflect
-    loss-importance at some layer(s); they're not orthogonal metrics.
-  - If overlap is uniformly low (≤ 0.2 across layers): gradient saliency
-    identifies a different set than dense's routing — neither metric alone
-    is the right routing prior, and the question of "what should a sparse
-    K-set contain" needs an inference-time test (Step 2 in the sequence).
+What the hook records, per (protein, t, layer, sampled_query_i):
+  - top_attn_idx_per_query[H, Kj]: dense's top-Kj attended residues for that
+    same query at that layer, per head. One-to-one comparable with top_grad_idx.
 
-Run from repo root, on a GPU node (needs CUDA for the backward pass):
+Cross-metric outputs (the headline numbers for the routing-prior question):
+  - Per (protein, t, sampled_query_i, layer, head): Jaccard(top_K_grad, top_K_attn)
+  - "Max over (layer, head)" per (protein, t, query): does dense's attention
+    agree with gradient AT SOME (layer, head)? If high, attention and gradient
+    converge somewhere in the trunk on the same routing prior for this query.
+  - "Mean over (layer, head)" per (protein, t, query): typical agreement.
+  - Query-pair Jaccard within protein-t (across pairs of sampled queries): do
+    different queries care about different residues? If LOW, user's intuition
+    holds; if HIGH, queries share a global important set.
+
+Run from repo root (needs GPU; backward pass is non-negotiable for gradient):
     /home/ks2218/conda_envs/laproteina_env/bin/python \\
         script_utils/audit_dense_gradient_saliency.py \\
-        --label canonical_2646_gradient
+        --label canonical_2646_grad_per_query \\
+        --queries_per_protein 8
 
-Compute: ~12-15 min on 1× A100. Forward + backward through dense; activation
-memory bounded by L_max × n_layers × d × B which at L=200, n=14, d=768, B=1
-fits comfortably (peak ~6 GB).
+Compute: 1× A100. With queries_per_protein=8: one forward per (protein, t)
+plus 8 backwards (using retain_graph) + 1 aggregate backward. ~15-20 min wall.
+Memory: forward activations + retained graph during 8 sequential backwards.
+~8-12 GB peak at L=200. Set --queries_per_protein lower if memory tight.
 """
 import argparse
 import glob
@@ -83,11 +87,11 @@ JACCARD_K = 16
 
 
 # ---------------------------------------------------------------------------- #
-# Light attention hook — records ONLY attention-received-per-key, aggregated
-# over heads. No per-query top_idx tensors here; this is for cross-metric
-# overlap, not E059's stability check.
+# Hook: records per-query top-K attended for the sampled queries listed in
+# self._sampled_queries (set externally before forward). One-to-one comparable
+# with the per-query gradient top-K computed via vector-Jacobian product.
 # ---------------------------------------------------------------------------- #
-def make_light_attn_hook(records: List[dict]):
+def make_attn_hook(records: List[dict]):
     from einops import rearrange
     from torch import einsum
 
@@ -98,24 +102,31 @@ def make_light_attn_hook(records: List[dict]):
         if mask is not None:
             mask_rs = rearrange(mask, "b i j -> b () i j")
             sim = sim.masked_fill(~mask_rs, max_neg_value(sim))
-        attn = torch.softmax(sim + b, dim=-1).nan_to_num(0.0)  # [B, H, N, N]
+        attn = torch.softmax(sim + b, dim=-1).nan_to_num(0.0)
         out = einsum("b h i j, b h j d -> b h i d", attn, v)
 
-        # Stat recording — DETACHED (does not affect backward graph).
-        B, H, N, _ = attn.shape
-        layer_idx = getattr(self, "_layer_idx", -1)
-        t_label = getattr(self, "_t_label", float("nan"))
-        protein_label = getattr(self, "_protein_label", "?")
-        N_real = getattr(self, "_N_real", N)
-
         with torch.no_grad():
-            # Attention received per key, summed over queries, mean over heads.
+            B, H, N, _ = attn.shape
+            layer_idx = getattr(self, "_layer_idx", -1)
+            t_label = getattr(self, "_t_label", float("nan"))
+            protein_label = getattr(self, "_protein_label", "?")
+            N_real = getattr(self, "_N_real", N)
+            sampled_queries = getattr(self, "_sampled_queries", None)
+
             attn_real = attn[0, :, :N_real, :N_real].float()  # [H, N_real, N_real]
+            Kj = min(JACCARD_K, N_real)
+
+            # Head-averaged attention-received per key (the global metric).
             attn_received_per_head = attn_real.sum(dim=1)  # [H, N_real]
             attn_received_mean_heads = attn_received_per_head.mean(dim=0)  # [N_real]
-            # top-K_attn (head-averaged) per layer
-            Kj = min(JACCARD_K, N_real)
-            top_attn_idx = attn_received_mean_heads.topk(k=Kj).indices  # [Kj]
+            top_attn_global_idx = attn_received_mean_heads.topk(k=Kj).indices.cpu().tolist()
+
+            # Per-query top-K for the sampled queries only.
+            top_attn_per_query = None  # [H, |sampled|, Kj] indices, or None
+            if sampled_queries is not None and len(sampled_queries) > 0:
+                sq = torch.tensor(sampled_queries, device=attn_real.device, dtype=torch.long)
+                sampled_attn = attn_real.index_select(dim=1, index=sq)  # [H, |sq|, N_real]
+                top_attn_per_query = sampled_attn.topk(k=Kj, dim=-1).indices.cpu().tolist()
 
             records.append(
                 {
@@ -123,9 +134,10 @@ def make_light_attn_hook(records: List[dict]):
                     "t_label": float(t_label),
                     "protein_label": str(protein_label),
                     "N_real": int(N_real),
-                    "attn_received_mean_heads": attn_received_mean_heads.cpu().tolist(),
-                    "top_attn_idx_head_avg": top_attn_idx.cpu().tolist(),
                     "Kj": Kj,
+                    "top_attn_global_idx": top_attn_global_idx,
+                    "sampled_queries": list(sampled_queries) if sampled_queries is not None else None,
+                    "top_attn_per_query": top_attn_per_query,
                 }
             )
         return out
@@ -134,8 +146,7 @@ def make_light_attn_hook(records: List[dict]):
 
 
 # ---------------------------------------------------------------------------- #
-# Protein loading — IDENTICAL to E059's audit_dense_attention_concentration.py
-# so the protein subset and per-t draws line up across both audits.
+# Protein loading — identical scaffolding to E059.
 # ---------------------------------------------------------------------------- #
 def list_processed_files(data_dir: str) -> List[str]:
     pattern = os.path.join(
@@ -217,10 +228,9 @@ def pad_and_collate(items: List[Data], max_pad: int) -> Dict[str, torch.Tensor]:
 
 
 # ---------------------------------------------------------------------------- #
-# Helpers — concentration mass_top_K and Jaccard over index sets.
+# Helpers.
 # ---------------------------------------------------------------------------- #
 def mass_top_K(saliency: torch.Tensor, K_grid: Tuple[int, ...]) -> List[float]:
-    """saliency: [N_real]. Returns [|K_grid|] = cumulative-mass fraction at top K."""
     s = saliency.float().abs()
     sorted_s, _ = s.sort(descending=True)
     total = sorted_s.sum().clamp(min=1e-12)
@@ -236,6 +246,13 @@ def jaccard_set(a: List[int], b: List[int]) -> float:
     return len(sa & sb) / len(union)
 
 
+def sample_queries(N_real: int, k: int, rng: random.Random) -> List[int]:
+    """Deterministic sample of `k` distinct query indices from [0, N_real)."""
+    if k >= N_real:
+        return list(range(N_real))
+    return sorted(rng.sample(range(N_real), k))
+
+
 # ---------------------------------------------------------------------------- #
 # Main
 # ---------------------------------------------------------------------------- #
@@ -247,11 +264,21 @@ def main():
     parser.add_argument("--proteins_per_bin", type=int, default=3)
     parser.add_argument("--length_tol", type=int, default=5)
     parser.add_argument(
-        "--t_values", type=str, default="0.10,0.30,0.50,0.70,0.90",
-        help="Match E059 default; controls cross-metric overlap pairing.",
+        "--queries_per_protein", type=int, default=8,
+        help="Number of query residues per protein to compute per-query gradient for. "
+             "Set to 0 to skip per-query (aggregate-only) — but the aggregate path "
+             "previously showed diffuse gradients, so 8 is the recommended default.",
     )
-    parser.add_argument("--seed", type=int, default=42,
-        help="Match E059 default seed=42 to share protein subset.")
+    parser.add_argument(
+        "--also_aggregate", action="store_true",
+        help="Additionally backprop the FM loss (sum over all queries) for an aggregate "
+             "gradient — costs one extra backward per (protein, t). Default off since "
+             "the aggregate is known to be diffuse.",
+    )
+    parser.add_argument(
+        "--t_values", type=str, default="0.10,0.30,0.50,0.70,0.90",
+    )
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max_pad", type=int, default=256)
     parser.add_argument("--out_dir", default="results/dense_attn_audit")
     parser.add_argument(
@@ -259,9 +286,9 @@ def main():
         default=os.environ.get("DATA_PATH", "/home/ks2218/la-proteina/data"),
     )
     parser.add_argument(
-        "--force_precision_f32", action="store_true",
-        help="Run forward+backward in fp32. Gradient saliency is less noisy in "
-             "fp32 but ~2x memory/time. Default: bf16 (matches training and E059).",
+        "--save_raw_saliency", action="store_true",
+        help="Dump every per-query saliency vector to the JSON. Without this flag, "
+             "only the top-K indices and mass_top_K curves are saved (much smaller).",
     )
     args = parser.parse_args()
 
@@ -273,11 +300,12 @@ def main():
     t_values = tuple(float(x) for x in args.t_values.split(","))
 
     logger.info("=" * 80)
-    logger.info(f"Dense-gradient-saliency audit | ckpt={args.ckpt_file}")
+    logger.info(f"Dense per-query gradient-saliency audit | ckpt={args.ckpt_file}")
     logger.info(f"  length_targets={length_targets} (±{args.length_tol}), "
                 f"proteins_per_bin={args.proteins_per_bin}")
     logger.info(f"  t_values={t_values}")
-    logger.info(f"  precision={'fp32' if args.force_precision_f32 else 'bf16'}")
+    logger.info(f"  queries_per_protein={args.queries_per_protein}, "
+                f"also_aggregate={args.also_aggregate}")
     logger.info("=" * 80)
 
     # ------------------- Load model -------------------
@@ -287,26 +315,22 @@ def main():
         args.ckpt_file, strict=False, autoencoder_ckpt_path=None
     )
     cfg_exp = model.cfg_exp
-    run_name = cfg_exp.get("run_name_")
-    logger.info(f"  run_name_   = {run_name}")
     nn_cfg = cfg_exp.get("nn", {})
     sparse_flag = nn_cfg.get("sparse_attention", False)
-    logger.info(f"  sparse_attention flag in ckpt: {sparse_flag}")
     assert not sparse_flag, (
         f"This audit targets the DENSE path; ckpt has sparse_attention={sparse_flag}"
     )
+    logger.info(f"  run_name_   = {cfg_exp.get('run_name_')}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     assert device.type == "cuda", "Gradient saliency requires CUDA (backward pass)."
     model.to(device).eval()
-    # Freeze all model parameters — we only want gradient w.r.t. the input x_t.
-    # Saves backward memory by not accumulating gradients on the ~160M params.
     for p in model.parameters():
         p.requires_grad_(False)
 
-    # ------------------- Install attention hook (light variant) -------------------
+    # ------------------- Install attention hook -------------------
     attn_records: List[dict] = []
-    PairBiasAttention._attn = make_light_attn_hook(attn_records)
+    PairBiasAttention._attn = make_attn_hook(attn_records)
     for i, layer in enumerate(model.nn.transformer_layers):
         layer.mhba.mha._layer_idx = i
 
@@ -324,24 +348,13 @@ def main():
     for L_target, items in bins.items():
         actual = [int(it.coords_nm.shape[0]) for it in items]
         logger.info(f"  L~{L_target}: got {len(items)} proteins, lengths={actual}")
-        if len(items) < args.proteins_per_bin:
-            logger.warning(
-                f"  L~{L_target}: only {len(items)}; consider raising --max_scan"
-            )
 
     n_layers = len(model.nn.transformer_layers)
-    expected_attn_records = sum(
-        len(items) * len(t_values) * n_layers for items in bins.values()
-    )
-    logger.info(
-        f"Expected attn-layer call count: {expected_attn_records} "
-        f"({sum(len(v) for v in bins.values())} proteins × "
-        f"{len(t_values)} t × {n_layers} layers)"
-    )
 
-    # ------------------- Forward+backward per (protein, t) -------------------
+    # ------------------- Per-(protein, t) loop -------------------
     grad_records: List[dict] = []
     forward_count = 0
+    backward_count = 0
     for L_target, items in bins.items():
         items_t = apply_transforms(items, args.seed)
         for prot_idx, it in enumerate(items_t):
@@ -352,12 +365,20 @@ def main():
                 real_len = batch_cpu.pop("_real_lens")[0]
                 batch = {k: v.to(device) for k, v in batch_cpu.items()}
 
+                # Sample queries deterministically per (protein, t).
+                rng_q = random.Random(args.seed * 1000 + int(t_val * 100) + prot_idx)
+                sampled_queries = sample_queries(
+                    real_len, args.queries_per_protein, rng_q
+                )
+
+                # Push hook context onto every attention layer.
                 for layer in model.nn.transformer_layers:
                     layer.mhba.mha._t_label = float(t_val)
                     layer.mhba.mha._protein_label = protein_label
                     layer.mhba.mha._N_real = int(real_len)
+                    layer.mhba.mha._sampled_queries = list(sampled_queries)
 
-                # Build x_t at the requested t value (matches E059's draw).
+                # Build x_t (same RNG order as E059 → matched noise sample).
                 batch = model.add_clean_samples(batch)
                 x_1_dict, mask_proc, batch_shape, n_pad, dtype, dev = (
                     model.fm.process_batch(batch)
@@ -371,8 +392,7 @@ def main():
                 x_t = model.fm.interpolate(
                     x_0=x_0, x_1=x_1_dict, t=t, mask=mask_proc
                 )
-                # Enable grad on x_t[bb_ca]. Must clone-and-set requires_grad
-                # because the original interpolate output may not be a leaf.
+                # Make x_t a leaf with grad.
                 x_t_bb = x_t["bb_ca"].detach().clone().requires_grad_(True)
                 x_t_grad = {"bb_ca": x_t_bb}
 
@@ -382,196 +402,259 @@ def main():
                 batch["t"] = t
                 batch["mask"] = mask_proc
 
-                # Forward through the network — graph is built since x_t_bb.requires_grad.
-                # We deliberately do NOT wrap in autocast — gradient saliency is sensitive
-                # to bf16 underflow, so use fp32 here unless --force_precision_f32 is off.
-                if args.force_precision_f32:
-                    nn_out = model.call_nn(batch, n_recycle=0)
-                else:
-                    nn_out = model.call_nn(batch, n_recycle=0)
-                losses = model.fm.compute_loss(batch=batch, nn_out=nn_out)
-                per_proto = sum(
-                    losses[k] for k in losses if "_justlog" not in k
-                )  # [B]
-                loss = per_proto.sum()  # scalar
+                # Forward — grad enabled because x_t_bb.requires_grad=True.
+                nn_out = model.call_nn(batch, n_recycle=0)
+                forward_count += 1
+                v_pred = nn_out["bb_ca"]["v"]  # [B, n_pad, 3]
+                v_pred_real = v_pred[0, :real_len]  # [N_real, 3]
 
-                # Backward: gradient w.r.t. x_t_bb only (model params are frozen).
-                loss.backward()
-                grad = x_t_bb.grad  # [B, n_pad, 3]
-                assert grad is not None, "x_t.grad is None — graph broken?"
-                # Saliency per residue = L2 norm of the 3-D gradient at each residue.
-                saliency = grad[0, :real_len].norm(dim=-1).detach().float().cpu()  # [N_real]
+                # ----- Per-query gradient (vector-Jacobian product) -----
+                per_query_entries = []
+                for qi_pos, query_i in enumerate(sampled_queries):
+                    x_t_bb.grad = None
+                    scalar_i = v_pred_real[query_i].norm()
+                    # Retain graph for all but the last per-query backward
+                    # (or until aggregate backward if --also_aggregate).
+                    is_last_per_query = (qi_pos == len(sampled_queries) - 1)
+                    retain = (not is_last_per_query) or args.also_aggregate
+                    scalar_i.backward(retain_graph=retain)
+                    backward_count += 1
+                    sal = (
+                        x_t_bb.grad[0, :real_len]
+                        .norm(dim=-1)
+                        .detach()
+                        .float()
+                        .cpu()
+                    )  # [N_real]
+                    mtk = mass_top_K(sal, K_GRID)
+                    Kj = min(JACCARD_K, int(sal.numel()))
+                    top_idx = sal.topk(k=Kj).indices.tolist()
+                    entry = {
+                        "query_i": int(query_i),
+                        "K_grid": list(K_GRID),
+                        "mass_top_K_grad": mtk,
+                        "top_grad_idx": top_idx,
+                        "Kj": Kj,
+                        "scalar_i_val": float(scalar_i.item()),
+                    }
+                    if args.save_raw_saliency:
+                        entry["saliency"] = sal.tolist()
+                    per_query_entries.append(entry)
 
-                mtk = mass_top_K(saliency, K_GRID)
-                Kj = min(JACCARD_K, int(saliency.numel()))
-                top_grad_idx = saliency.topk(k=Kj).indices.tolist()
+                # ----- Optional aggregate backward (final, no retain) -----
+                aggregate_record = None
+                if args.also_aggregate:
+                    x_t_bb.grad = None
+                    losses = model.fm.compute_loss(batch=batch, nn_out=nn_out)
+                    per_proto = sum(losses[k] for k in losses if "_justlog" not in k)
+                    loss = per_proto.sum()
+                    loss.backward()  # graph released
+                    backward_count += 1
+                    sal_agg = (
+                        x_t_bb.grad[0, :real_len].norm(dim=-1).detach().float().cpu()
+                    )
+                    aggregate_record = {
+                        "mass_top_K_grad_agg": mass_top_K(sal_agg, K_GRID),
+                        "top_grad_idx_agg": sal_agg.topk(
+                            k=min(JACCARD_K, int(sal_agg.numel()))
+                        ).indices.tolist(),
+                        "loss": float(loss.item()),
+                    }
 
                 grad_records.append(
                     {
                         "protein_label": protein_label,
                         "t_label": float(t_val),
                         "N_real": int(real_len),
-                        "saliency": saliency.tolist(),
-                        "K_grid": list(K_GRID),
-                        "mass_top_K": mtk,
-                        "top_grad_idx": top_grad_idx,
-                        "Kj": Kj,
-                        "loss": float(loss.item()),
+                        "sampled_queries": list(sampled_queries),
+                        "per_query": per_query_entries,
+                        "aggregate": aggregate_record,
                     }
                 )
 
-                forward_count += 1
                 if forward_count % 5 == 0:
                     logger.info(
-                        f"  fwd+bwd={forward_count} (latest: {protein_label}, "
-                        f"t={t_val}, loss={loss.item():.4f}, "
-                        f"mass_top_16={mtk[1]:.3f})"
+                        f"  fwd={forward_count}, bwd={backward_count} "
+                        f"(latest: {protein_label}, t={t_val}, "
+                        f"per-query mass_top_16 [first 3]: "
+                        f"{[f'{e[\"mass_top_K_grad\"][1]:.3f}' for e in per_query_entries[:3]]})"
                     )
 
-                # Free graph memory.
-                del nn_out, losses, per_proto, loss, x_t_bb, grad
+                del nn_out, v_pred, v_pred_real, x_t_bb
                 torch.cuda.empty_cache()
 
     logger.info(
-        f"Forwards complete: {forward_count}. "
+        f"Done. forwards={forward_count}, backwards={backward_count}, "
         f"grad_records={len(grad_records)}, attn_records={len(attn_records)}"
     )
 
-    # ------------------- Aggregate Check 1' (gradient concentration) -------------------
-    logger.info("Aggregating Check 1' (gradient saliency concentration)...")
-    mtk_all = torch.tensor([r["mass_top_K"] for r in grad_records])  # [n, |K|]
-    grand_mean = mtk_all.mean(dim=0).tolist()
-    grand_med = mtk_all.median(dim=0).values.tolist()
+    # ------------------- Check 1' (per-query concentration) -------------------
+    logger.info("=" * 80)
+    logger.info("Check 1' — per-query gradient concentration")
+    logger.info("=" * 80)
+    all_per_query_mtk = []
+    for r in grad_records:
+        for e in r["per_query"]:
+            all_per_query_mtk.append(e["mass_top_K_grad"])
+    mtk_arr = torch.tensor(all_per_query_mtk)  # [n_queries_total, |K|]
+    grand_mean = mtk_arr.mean(dim=0).tolist()
+    grand_med = mtk_arr.median(dim=0).values.tolist()
     headline_check1 = {
         "K_grid": list(K_GRID),
-        "grand_mean_mass_top_K_grad": grand_mean,
-        "grand_median_mass_top_K_grad": grand_med,
-        "n_records": int(mtk_all.shape[0]),
+        "grand_mean_mass_top_K_per_query": grand_mean,
+        "grand_median_mass_top_K_per_query": grand_med,
+        "n_queries_total": int(mtk_arr.shape[0]),
     }
-    logger.info("  HEADLINE Check 1' (gradient saliency):")
-    logger.info(f"    K_grid       = {list(K_GRID)}")
-    logger.info(f"    mass_top_K   = {[f'{x:.3f}' for x in grand_mean]}  (mean over {len(grad_records)} records)")
-    logger.info(f"    median       = {[f'{x:.3f}' for x in grand_med]}")
-    logger.info("  E059 attention reference (recall):")
-    logger.info("    mass_top_K_attn ≈ [0.510, 0.656, 0.794, 0.866, 0.907] at K=[8,16,32,48,64]")
+    logger.info(f"  K_grid       = {list(K_GRID)}")
+    logger.info(f"  mass_top_K   = {[f'{x:.3f}' for x in grand_mean]}  "
+                f"(mean over {mtk_arr.shape[0]} per-query records)")
+    logger.info(f"  median       = {[f'{x:.3f}' for x in grand_med]}")
+    logger.info(f"  E059 attention reference (per-query top-K of softmax weights):")
+    logger.info(f"    mass_top_K_attn ≈ [0.510, 0.656, 0.794, 0.866, 0.907]")
 
-    # ------------------- Aggregate Check 2' (t-Jaccard of top-K_grad) -------------------
-    logger.info("Aggregating Check 2' (t-Jaccard of gradient top-K)...")
-    by_pt: Dict[str, Dict[float, List[int]]] = defaultdict(dict)
+    # ------------------- Check 2' (per-query t-Jaccard) -------------------
+    logger.info("=" * 80)
+    logger.info("Check 2' — per-query gradient t-Jaccard (does the important set "
+                "for query i stay stable across t?)")
+    logger.info("=" * 80)
+    by_pq: Dict[Tuple[str, int], Dict[float, List[int]]] = defaultdict(dict)
     for r in grad_records:
-        by_pt[r["protein_label"]][r["t_label"]] = r["top_grad_idx"]
-    t_jaccards_grad: List[float] = []
-    for prot, t_to_idx in by_pt.items():
+        for e in r["per_query"]:
+            by_pq[(r["protein_label"], e["query_i"])][r["t_label"]] = e["top_grad_idx"]
+    t_jaccards: List[float] = []
+    for (_, _), t_to_idx in by_pq.items():
         ts = sorted(t_to_idx.keys())
         for t1, t2 in zip(ts[:-1], ts[1:]):
-            t_jaccards_grad.append(jaccard_set(t_to_idx[t1], t_to_idx[t2]))
-    t_jacc_grad_summary = (
+            t_jaccards.append(jaccard_set(t_to_idx[t1], t_to_idx[t2]))
+    t_jacc_summary = (
         {
-            "mean": sum(t_jaccards_grad) / len(t_jaccards_grad),
-            "min": min(t_jaccards_grad),
-            "max": max(t_jaccards_grad),
-            "n": len(t_jaccards_grad),
+            "mean": sum(t_jaccards) / len(t_jaccards),
+            "min": min(t_jaccards),
+            "max": max(t_jaccards),
+            "n": len(t_jaccards),
         }
-        if t_jaccards_grad
-        else {"mean": float("nan"), "min": float("nan"), "max": float("nan"), "n": 0}
+        if t_jaccards
+        else {"mean": float("nan"), "n": 0}
     )
-    logger.info(f"  t-Jaccard_grad: {t_jacc_grad_summary}")
-    logger.info("  E059 attention reference: t-Jaccard_attn = 0.475 mean (n=126)")
+    logger.info(f"  per-query t-Jaccard: {t_jacc_summary}")
+    logger.info(f"  E059 attention reference: t-Jaccard_attn = 0.475 mean (n=126)")
 
-    # ------------------- Cross-metric: Jaccard(top_K_grad, top_K_attn_per_layer) -------------------
-    logger.info("Aggregating cross-metric overlap (grad ∩ attn-head-avg)...")
-    # Index attn records by (protein, t, layer)
-    attn_by_key: Dict[Tuple[str, float, int], List[int]] = {}
-    for r in attn_records:
-        attn_by_key[(r["protein_label"], r["t_label"], r["layer_idx"])] = r[
-            "top_attn_idx_head_avg"
-        ]
-
-    cross_per_record: Dict[str, dict] = {}
-    layer_means: Dict[int, List[float]] = defaultdict(list)
-    layer_max_record: Dict[str, dict] = {}
+    # ------------------- New check: query-pair Jaccard (within protein, t) -------------------
+    logger.info("=" * 80)
+    logger.info("New check — query-pair Jaccard: do different queries care about "
+                "different residues?")
+    logger.info("  (LOW ≈ user's intuition holds: routing must be per-query)")
+    logger.info("  (HIGH ≈ shared 'important set' exists per protein-t)")
+    logger.info("=" * 80)
+    pair_jaccards: List[float] = []
     for r in grad_records:
-        key_prefix = (r["protein_label"], r["t_label"])
-        per_layer = {}
-        for layer_idx in range(n_layers):
-            top_a = attn_by_key.get((*key_prefix, layer_idx))
-            if top_a is None:
-                continue
-            j = jaccard_set(r["top_grad_idx"], top_a)
-            per_layer[layer_idx] = j
-            layer_means[layer_idx].append(j)
-        if per_layer:
-            vals = list(per_layer.values())
-            cross_per_record[f"{r['protein_label']}_t{r['t_label']:.2f}"] = {
-                "per_layer": per_layer,
-                "mean": sum(vals) / len(vals),
-                "max": max(vals),
-                "min": min(vals),
-                "max_at_layer": max(per_layer, key=per_layer.get),
-            }
-            layer_max_record[
-                f"{r['protein_label']}_t{r['t_label']:.2f}"
-            ] = {
-                "max_jaccard": max(vals),
-                "max_at_layer": max(per_layer, key=per_layer.get),
-            }
-
-    # Per-layer aggregates
-    per_layer_summary = {
-        layer_idx: {
-            "mean": sum(v) / len(v) if v else float("nan"),
-            "min": min(v) if v else float("nan"),
-            "max": max(v) if v else float("nan"),
-            "n": len(v),
+        per_q = r["per_query"]
+        for i1 in range(len(per_q)):
+            for i2 in range(i1 + 1, len(per_q)):
+                pair_jaccards.append(
+                    jaccard_set(per_q[i1]["top_grad_idx"], per_q[i2]["top_grad_idx"])
+                )
+    pair_jacc_summary = (
+        {
+            "mean": sum(pair_jaccards) / len(pair_jaccards),
+            "min": min(pair_jaccards),
+            "max": max(pair_jaccards),
+            "n": len(pair_jaccards),
         }
-        for layer_idx, v in layer_means.items()
-    }
-    # Headline: overall mean and max across all (protein, t, layer) triples
-    all_cross = []
+        if pair_jaccards
+        else {"mean": float("nan"), "n": 0}
+    )
+    logger.info(f"  query-pair Jaccard: {pair_jacc_summary}")
+
+    # ------------------- Cross-metric (per-query): grad vs attn -------------------
+    logger.info("=" * 80)
+    logger.info("Cross-metric (per-query) — Jaccard(top_K_grad[i], top_K_attn[l, h, i])")
+    logger.info("=" * 80)
+    # Build attn lookup by (protein, t, layer)
+    attn_by_key: Dict[Tuple[str, float, int], dict] = {}
+    for ar in attn_records:
+        attn_by_key[(ar["protein_label"], ar["t_label"], ar["layer_idx"])] = ar
+
+    # For each (protein, t, query, layer, head): one Jaccard number.
+    cross_records = []
     for r in grad_records:
-        for layer_idx in range(n_layers):
-            top_a = attn_by_key.get((r["protein_label"], r["t_label"], layer_idx))
-            if top_a is not None:
-                all_cross.append(jaccard_set(r["top_grad_idx"], top_a))
-    cross_overall = (
-        {
-            "mean": sum(all_cross) / len(all_cross),
-            "min": min(all_cross),
-            "max": max(all_cross),
-            "n": len(all_cross),
-        }
-        if all_cross
-        else {"mean": float("nan"), "min": float("nan"), "max": float("nan"), "n": 0}
-    )
-    # Per-(protein, t) MAX (best agreement at any layer): the headline for
-    # "do attention and gradient EVER agree somewhere?"
-    per_pt_max = [v["max_jaccard"] for v in layer_max_record.values()]
-    cross_max_summary = (
-        {
-            "mean_of_per_pt_max": sum(per_pt_max) / len(per_pt_max),
-            "min_of_per_pt_max": min(per_pt_max),
-            "max_of_per_pt_max": max(per_pt_max),
-            "n": len(per_pt_max),
-        }
-        if per_pt_max
-        else {"mean_of_per_pt_max": float("nan")}
-    )
-    logger.info(f"  cross-metric Jaccard(grad, attn-head-avg):")
-    logger.info(f"    overall (all layer × protein × t): {cross_overall}")
-    logger.info(f"    per-(protein,t) MAX over layers : {cross_max_summary}")
-    logger.info(f"    per-layer means: {{layer_idx: mean}}")
-    for layer_idx in sorted(per_layer_summary):
-        s = per_layer_summary[layer_idx]
-        logger.info(
-            f"      layer {layer_idx:>2d}: mean={s['mean']:.3f}, "
-            f"min={s['min']:.3f}, max={s['max']:.3f}, n={s['n']}"
-        )
+        for qi_pos, e in enumerate(r["per_query"]):
+            qi = e["query_i"]
+            for layer_idx in range(n_layers):
+                ar = attn_by_key.get((r["protein_label"], r["t_label"], layer_idx))
+                if ar is None or ar["top_attn_per_query"] is None:
+                    continue
+                # ar["top_attn_per_query"] is [H, |sampled|, Kj] — find qi's position
+                # in ar["sampled_queries"].
+                try:
+                    qi_in_attn = ar["sampled_queries"].index(qi)
+                except ValueError:
+                    continue
+                # For each head, Jaccard of grad-top-K vs head's top-K-attended for qi
+                per_head_jacc = []
+                for h in range(len(ar["top_attn_per_query"])):
+                    top_a_h = ar["top_attn_per_query"][h][qi_in_attn]
+                    per_head_jacc.append(
+                        jaccard_set(e["top_grad_idx"], top_a_h)
+                    )
+                cross_records.append(
+                    {
+                        "protein_label": r["protein_label"],
+                        "t": r["t_label"],
+                        "query_i": qi,
+                        "layer_idx": layer_idx,
+                        "per_head_jaccard": per_head_jacc,
+                        "max_head_jaccard": max(per_head_jacc),
+                        "mean_head_jaccard": sum(per_head_jacc) / len(per_head_jacc),
+                    }
+                )
 
+    # Summaries
+    all_max_lh = []  # max over (layer, head) per (protein, t, query)
+    by_ptq: Dict[Tuple[str, float, int], List[float]] = defaultdict(list)
+    for c in cross_records:
+        by_ptq[(c["protein_label"], c["t"], c["query_i"])].extend(c["per_head_jaccard"])
+    for key, vals in by_ptq.items():
+        all_max_lh.append(max(vals))
+    max_summary = (
+        {
+            "mean_of_max_per_ptq": sum(all_max_lh) / len(all_max_lh),
+            "min_of_max_per_ptq": min(all_max_lh),
+            "max_of_max_per_ptq": max(all_max_lh),
+            "n": len(all_max_lh),
+        }
+        if all_max_lh
+        else {"mean_of_max_per_ptq": float("nan")}
+    )
+
+    all_jaccards = []
+    for c in cross_records:
+        all_jaccards.extend(c["per_head_jaccard"])
+    overall_summary = (
+        {
+            "mean": sum(all_jaccards) / len(all_jaccards),
+            "min": min(all_jaccards),
+            "max": max(all_jaccards),
+            "n": len(all_jaccards),
+        }
+        if all_jaccards
+        else {"mean": float("nan"), "n": 0}
+    )
+    logger.info(f"  overall mean Jaccard(grad,attn) per (q, l, h): {overall_summary}")
+    logger.info(f"  per (protein, t, query) MAX over (l, h)      : {max_summary}")
+
+    logger.info("=" * 80)
     logger.info("Decision rules:")
-    logger.info("  - mass_top_K_grad ≫ mass_top_K_attn (E059 ref) → gradient is sharper.")
-    logger.info("  - t-Jaccard_grad ≥ 0.7 → gradient important set stable over trajectory.")
-    logger.info("  - max-over-layers Jaccard ≥ 0.5 → attention DOES reflect loss-importance somewhere.")
-    logger.info("  - mean Jaccard ≤ 0.2 across layers → metrics orthogonal; routing-prior question open.")
+    logger.info("  - per-query mass_top_K ≫ aggregate's previous numbers → splitting "
+                "by query recovered concentration that was washed out by aggregation.")
+    logger.info("  - per-query mass_top_K ≈ or ≪ aggregate → diffuseness is intrinsic, "
+                "not an artifact of aggregation.")
+    logger.info("  - query-pair Jaccard low → different queries genuinely care about "
+                "different residues; routing must be per-query (user's intuition).")
+    logger.info("  - query-pair Jaccard high → shared important set per protein-t.")
+    logger.info("  - cross-metric MAX-over-(l,h) ≥ 0.5 → dense attention DOES agree "
+                "with gradient at some (l, h) for typical queries.")
+    logger.info("=" * 80)
 
     # ------------------- Write JSON -------------------
     os.makedirs(args.out_dir, exist_ok=True)
@@ -581,20 +664,21 @@ def main():
         "length_targets": list(length_targets),
         "t_values": list(t_values),
         "n_proteins_per_bin": args.proteins_per_bin,
+        "queries_per_protein": args.queries_per_protein,
+        "also_aggregate": args.also_aggregate,
         "K_grid": list(K_GRID),
         "JACCARD_K": JACCARD_K,
-        "force_precision_f32": bool(args.force_precision_f32),
         "n_grad_records": len(grad_records),
         "n_attn_records": len(attn_records),
-        "check1_grad_headline": headline_check1,
-        "check2_grad_t_jaccard_summary": t_jacc_grad_summary,
-        "cross_metric_overall": cross_overall,
-        "cross_metric_per_pt_max_summary": cross_max_summary,
-        "cross_metric_per_layer": per_layer_summary,
-        "cross_metric_per_record": cross_per_record,
-        # Per-record dumps for any post-hoc analysis you want to redo.
+        "n_cross_records": len(cross_records),
+        "check1_per_query_headline": headline_check1,
+        "check2_per_query_t_jaccard": t_jacc_summary,
+        "query_pair_jaccard_summary": pair_jacc_summary,
+        "cross_metric_overall": overall_summary,
+        "cross_metric_max_per_ptq": max_summary,
         "grad_records": grad_records,
         "attn_records": attn_records,
+        "cross_records": cross_records,
     }
     out_path = os.path.join(args.out_dir, f"{args.label}.json")
     with open(out_path, "w") as f:
