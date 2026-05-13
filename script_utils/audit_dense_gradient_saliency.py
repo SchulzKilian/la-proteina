@@ -473,11 +473,11 @@ def main():
                 )
 
                 if forward_count % 5 == 0:
+                    mass16_first3 = [f"{e['mass_top_K_grad'][1]:.3f}" for e in per_query_entries[:3]]
                     logger.info(
                         f"  fwd={forward_count}, bwd={backward_count} "
                         f"(latest: {protein_label}, t={t_val}, "
-                        f"per-query mass_top_16 [first 3]: "
-                        f"{[f'{e[\"mass_top_K_grad\"][1]:.3f}' for e in per_query_entries[:3]]})"
+                        f"per-query mass_top_16 [first 3]: {mass16_first3})"
                     )
 
                 del nn_out, v_pred, v_pred_real, x_t_bb
