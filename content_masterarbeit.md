@@ -1021,6 +1021,14 @@ For the steering-route bar of the masterarbeit thesis intent — *generated long
 - **The predictor still has a residual Δratio of 2.9× at w=16.** The mean gap of +3.8 is small, but the Δ predictor / Δ real ratio is 2.9× — predictor's *change* still moves about 3× faster than reality. This is the residual signature of the per-length sign-disagreement: at L=400 specifically, the predictor over-shoots reality. The reduction from 8.5× to 2.9× is a 3× improvement and dominates the gap-closure narrative, but a Δratio of 1× would be the strict goalpost.
 - **Calibration drift at low w.** At w=1 (minimal steering) the predictor over-claims real TANGO by +118 on average. This is calibration drift, not gradient hacking — the predictor is biased high on near-baseline proteins. Steering brings the predicted value down faster than the real value follows, which is what produces the gap-closure-by-crossover at w=16. If we pushed past w=16 the predictor might cross over to underclaiming real (the classical hacking direction). Within the tested range w∈[1, 16] this is not an issue.
 
+**Audit addendum (2026-05-10, lab notebook [E050](experiments.md#e050--steering-audit-matrix--predictor--ensemble--fold--smoothing-2026-05-10)).** The Finding's matrix was filled in for three open audit questions: is fold 2 specially smart? does smoothing in the E028 baseline contribute meaningfully on top of ensembling? and does NA-v1 single fold at n=48 behave like the n=4 pilot? Twelve new cells (7 n=4 smokes + 5 n=48 sweep cells, all at nsteps=400, smoothing off, tango_min direction). Three results land back into this Finding:
+
+1. **Smoothing in E028 does ~nothing** on top of ensembling. Clean ens5 + σ=0.1 K=4 smoothing (E028) gives gap = -203.5 at w=16 / n=4; clean ens5 *without* smoothing gives -203.9 — Δ within the 49-65 gap std. The "ensemble + smoothing" baseline framing in this Finding's E028 anchor was misleading: smoothing was not contributing. The two fixes in F10's mechanism story are now unambiguously **(noise-aware fine-tune) + (5-fold ensemble)**, with no third-knob reading.
+2. **Fold 2 is NOT specially smart.** All five NA-v1 single folds give n=4 gap in [-47, -97] (f2 = -47.5, f0 = -61.3, f1 = -62.2, f3 = -59.4, f4 = -97.0; mean -65.5, std 17.7). Every NA fold beats every clean fold. The E029 / E031 fold-2-only pilots were representative readings, not cherry-picks. F10's "use fold 2 because it had the highest val r²_noisy" decision was inconsequential for the gap-closure picture — any fold would have shown the same shape.
+3. **Ensembling still moves the gap meaningfully *after* the noise-aware fix is in place, but the mechanism reading is softened.** NA-v1 single fold at n=48 / w=16 = -87.5 (Δratio 7.0×); NA-v1 5-fold ensemble at n=48 / w=16 = +3.8 (Δratio 2.9×). The 91-unit gap reduction from ensembling is real on the same n=48 grid, *not* an n=4 small-sample artefact. But because all five single folds have similar gap magnitudes (std 17.7 around mean -65.5), **the ensemble is doing variance-averaging across an honest residual underclaim**, not cancelling fold-specific adversarial shortcuts. The original framing of "fold-specific shortcuts that gradient hacking exploits as adversarial directions ... are uncorrelated across folds; the honest signal is shared" overstated the mechanism — folds are similarly hacked, not differently hacked. The compositional-necessity claim ((noise-aware) + (ensemble) both needed) is unchanged; the per-mechanism reading should now describe the ensemble as **bias averaging** rather than **shortcut cancellation**.
+
+These edits *strengthen* F10's headline (the two-fixes claim is now cleaner with no smoothing ambiguity) and *constrain* the underlying mechanism story (variance averaging rather than adversarial cancellation). The negative-results table and gap-closure numbers in the body of this Finding are unchanged. The audit also leaves one open question that does not affect F10's narrative scope: a sweep of folds 0/1/3/4 to n=48 would tighten the "all NA folds behave similarly" claim from "consistent with n=4 pilots" to "robust at n=48"; this is a ~5h L4 follow-up that has not yet been run.
+
 ---
 
 ## Finding 11 — Per-t validation loss does not distinguish CA-only architectural variants at the resolution that matters for hybrid sampling (2026-05-07; methodological calibration)
@@ -1126,6 +1134,151 @@ The wandb training-time flip is therefore not a property of the trained weights.
 The **1/(1-t)² loss weight** in `rdn_flow_matcher.py:215` is real (it makes high-t individual proteins score 5-15 nat at heavy-tail draws), but the heavy-tail story is not by itself the cause of the wandb flip — `std_of_means = 0.022` shows the seed-mean estimator is stable at n=600. The flip needs a different-population explanation, not a higher-variance explanation.
 
 **Sanity check.** Integrating canonical_2646's per-t bucket means under `mix_unif_beta(1.9, 1.0, 0.02)`-derived bucket weights gives predicted aggregate ≈ 1.43 (measured 1.40); sparse_vanilla_1259 predicts ≈ 1.57 (measured 1.54). Per-t buckets and the paired aggregate agree to within 0.04 nat, which strengthens the F11 measurement: the bucketed picture quantitatively *predicts* the aggregate on the same paired set, while the wandb panel doesn't. The wandb panel is measuring something else (different proteins).
+
+---
+
+## Finding 12 — Dense attention's routing prior is structurally per-query, not per-(layer, head)-shared, and gradient saliency is at least as sharp an importance signal as attention itself (2026-05-13)
+
+**Status:** finished. Methodological and architectural finding for the sparse-attention-vs-dense line of work. Lab-notebook detail: [E061](experiments.md#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13), with [E059](experiments.md#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) (attention concentration audit) and [E060](experiments.md#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13) (aggregate-loss gradient saliency audit, superseded) as the immediate predecessors.
+
+**Why this is a Finding rather than a tuning note.** Our sparse-attention CA-only variants (K=40, K=64, K=64 + curriculum, K=64 + curriculum + BigBird, K=64 + curriculum + pair-update + lowtsoft — [E021](experiments.md#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30), [E046](experiments.md#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11), [E049](experiments.md#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08), [E051](experiments.md#e051--n3-quick-designability-probe-of-ca_only_sparse_k64_curriculum_self-at-step-1800-2026-05-10), [E055](experiments.md#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12), [E056](experiments.md#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13)) all share two architectural simplifications: (a) **a single K-set per query is shared across all 14 layers** of the trunk (the neighbor-list is built once per forward and reused at every attention layer); and (b) **the K-set per query is determined by content-free features** (sequence position offset, 1/d³-weighted spatial neighbors of a noisy `x_t`, random redraws) rather than by any learned routing prior. Every one of these variants underperforms canonical dense at converged steps. The mechanism that has been hypothesised in [E043](experiments.md#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07)'s caveat block and in [E059](experiments.md#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13)'s "168-K-sets-required" framing is that **dense's per-(layer, head) attention specialization is the binding architectural advantage**, and sparse forfeits it by sharing the K-set across layers/heads. F12 is the first audit that quantifies which axis of dense's specialization is the load-bearing one and produces a constructive proposal — per-query routing rather than per-(layer, head) shared K-set — that is mechanistically supported by the data.
+
+**Experiment.**
+
+Three matched-protocol audits on the canonical dense baseline (`test_ca_only_diffusion/1776805213` step 2646, the documented best-val ckpt, 76 % pooled designability per [E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)):
+
+1. **[E059](experiments.md#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) — Attention concentration and stability.** For every (protein, t, layer, head, query) cell, record (a) fraction of attention mass captured by the top-K residues at K ∈ {8, 16, 32, 48, 64}; (b) the top-16 attended set per cell; then compute Jaccard overlap between (i) adjacent layers, (ii) adjacent t-steps, (iii) heads within a (layer, t). 3 proteins per length bin × L ∈ {50, 100, 200} × t ∈ {0.1, 0.3, 0.5, 0.7, 0.9} = **630 attention-layer records** (3×3×5×14).
+2. **[E060](experiments.md#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13) — Aggregate-loss gradient saliency (superseded).** Same proteins / t-grid / seed=42. Forward+backward of `Σ_i ‖v_pred[i]‖₂` (a single aggregate scalar) → one per-residue saliency vector per (protein, t). Returned mass_top_K diffuser than attention and Jaccard(grad, attn) essentially orthogonal → led to a STOP call that was later traced to the aggregate-loss design averaging out per-query specialization.
+3. **[E061](experiments.md#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13) — Per-query VJP gradient saliency.** Same proteins / t-grid / seed=42. For each (protein, t) sample 8 query residues; for each sampled query *i*, backward `‖v_pred[i]‖₂` *individually* with `retain_graph=True`. This gives **one saliency vector PER query**, structurally one-to-one with sparse's per-residue K-set (each query has its own neighbor list). Total: **360 per-query saliency records (8 × 9 × 5)**, **5040 cross-metric records** (360 queries × 14 layers; each carrying 12 per-head Jaccard values = 60480 (query, layer, head) cells), **1260 query-pair Jaccard records** within (protein, t).
+
+All three on `best_val_00000026_000000002646.ckpt`, bf16 forward (fp32 for E061's backward — `--force_precision_f32` not used; bf16 grad-saliency confirmed not noise-limited). Each audit ~15-30 s wall on 1× L4 — minimal compute. JACCARD_K = 16 throughout; the cheap-K-distillation idea's natural unit is "top-16 most-important residues per query at each layer".
+
+**Numbers — per-query gradient concentration (E061 Check 1', 360 sampled queries):**
+
+| K | mean mass_top_K | median | (E059 attn mean) | (E060 aggregate grad mean) |
+|---|---|---|---|---|
+| 8  | 0.567 | 0.564 | 0.510 | 0.176 |
+| 16 | **0.709** | **0.728** | 0.656 | 0.312 |
+| 32 | **0.830** | **0.871** | 0.794 | 0.528 |
+| 48 | 0.891 | 0.921 | 0.866 | 0.683 |
+| 64 | 0.922 | 0.953 | 0.907 | 0.766 |
+
+Per-query gradient is sharper than per-(layer, head, query) attention at every K, and dramatically sharper than the aggregate-loss gradient. The crossover threshold for cheap-K viability (mass_top_16 ≥ 0.70) is cleared by per-query gradient (0.709) but missed by attention (0.656) and by aggregate gradient (0.312).
+
+**Per-length breakdown** (mean mass_top_K, n=120 queries per L):
+
+| K  | L=50  | L=100 | L=200 |
+|---|---|---|---|
+| 16 | 0.810 | 0.708 | 0.610 |
+| 32 | 0.939 | 0.828 | 0.722 |
+| 48 | 0.997 | 0.892 | 0.783 |
+| 64 | 1.000 | 0.937 | 0.828 |
+
+Concentration drops sharply with L; K must scale with N for a fixed importance-mass capture rate.
+
+**Per-query t-stability (E061 Check 2', 63 (protein, query) t-adjacent pairs):**
+
+| t-pair | pooled mean | L=50 | L=100 | L=200 |
+|---|---|---|---|---|
+| 0.1 → 0.3 | **0.850** | 0.886 | 0.778 | 0.778 |
+| 0.3 → 0.5 | 0.640 | 0.598 | 0.762 | 0.684 |
+| 0.5 → 0.7 | 0.600 | 0.648 | 0.531 | 0.562 |
+| 0.7 → 0.9 | 0.653 | 0.622 | 0.778 | 0.684 |
+| overall | **0.663** | 0.669 | 0.668 | 0.654 |
+
+Same query's important set is largely stable across adjacent t-values (overall Jaccard 0.66 vs 0.7 GO bar). The low-t pair (0.1→0.3) is the most stable (0.85). E060's aggregate t-Jaccard of 0.20 was an averaging artifact.
+
+**Cross-metric Jaccard(grad top-16 per query, attn top-16 per (layer, head, query)) — the load-bearing measurement:**
+
+| summary | E061 per-query | E060 (head-avg, aggregate grad) |
+|---|---|---|
+| overall mean across all (query, layer, head) cells | **0.337** | 0.114 |
+| mean of max-over-(layer, head) per (protein, t, query) | **0.833** | 0.274 |
+| min of that max | 0.524 | 0.067 |
+| max of that max | 1.000 | 0.600 |
+| fraction of 60480 cells with Jaccard ≥ 0.5 | **31.2 %** | — |
+| fraction with Jaccard ≥ 0.7 | **8.2 %** | — |
+
+**Headline: for every one of the 360 sampled queries there exists some (layer, head) in the 14-layer × 12-head dense trunk where attention's top-16 attended residues agree with gradient's top-16 important residues on at least 0.524 (8/16) of them, and on average on 0.833 (13/16).** The worst query in our sample has at least one (layer, head) sharing half its top-16 important residues with gradient saliency.
+
+**Best-(layer, head) winners across all 360 queries (which cell hosts the max Jaccard most often):**
+
+| rank | (layer, head) | wins | % |
+|---|---|---|---|
+| 1 | **L1 H7** | 66 | 18.3 % |
+| 2 | L2 H4 | 49 | 13.6 % |
+| 3 | L0 H4 | 38 | 10.6 % |
+| 4 | L0 H9 | 19 | 5.3 % |
+| 5 | L4 H0 | 14 | 3.9 % |
+
+**Top-3 cells take 42.5 % of wins; top-10 take 71 %; 103 of 168 cells never win.** Early layers (0–2) take 54 % of all wins. The loss-aligned routing signal lives in a small subset of the trunk.
+
+**Query-pair Jaccard within (protein, t) — different queries need different K-sets, and the effect strengthens with L:**
+
+| L | mean | median | n pairs |
+|---|---|---|---|
+| L=50  | 0.258 | 0.143 | 420 |
+| L=100 | 0.119 | 0.032 | 420 |
+| **L=200** | **0.062** | **0.000** | 420 |
+
+At L=200 the typical pair of queries within the same (protein, t) shares **zero** top-16 important residues (median 0.0, mean 0.062). The per-query-routing requirement scales with N exactly in the regime where the sparse-vs-dense designability gap is largest ([E043](experiments.md#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07): canonical 53 % vs sparse 0-11 % at L=200 in [E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29)).
+
+**E059 stability for reference (the original STOP signal):**
+
+| axis | mean Jaccard | n |
+|---|---|---|
+| layer-adjacent | 0.217 | 45 |
+| t-adjacent (attention) | 0.475 | 126 |
+| head-within (layer, t) | 0.224 | 630 |
+
+E059 measured attention's *self-consistency* across layers/heads/t. F12 reinterprets E059: layers and heads disagreeing on what to attend to (Jaccard ~0.22) is not a problem to be fixed by a shared K-set, it is the **specialization itself** — different (layer, head) cells specialize to different per-query routings, and only a small subset of them is loss-aligned for any given query.
+
+**Narrow claim.**
+
+In the canonical CA-only dense baseline (step 2646), the routing prior that dense attention encodes is **structurally per-query, not shared across queries, and is most concentrated in a small subset (~10 of 168) of (layer, head) cells**. The three audits jointly establish:
+
+1. **Per-query gradient saliency is a sharper importance signal than per-(layer, head, query) attention** (mass_top_16 = 0.709 vs 0.656; mass_top_32 = 0.830 vs 0.794). The "use grad as the teacher" alternative is not just viable, it is empirically superior to attention as a teacher signal.
+2. **Different queries within the same (protein, t) require materially different K-sets**, and the divergence scales with N: median query-pair Jaccard is 0.143 at L=50, 0.032 at L=100, **0.000 at L=200**. A sparse student that shares any K-set across queries discards information that dense uses heavily, and the information lost scales with N.
+3. **For every query, there exists at least one (layer, head) in the dense trunk where attention's top-16 attended set overlaps gradient's top-16 important set on ≥ 0.524**, and on average on 0.833. Attention is not orthogonal to loss-importance per-query — it is *aligned per-query at a specific (layer, head)* that varies by query.
+4. **The loss-aligned (layer, head) cells are concentrated**: top-3 host 42.5 % of all argmax-wins across 360 queries; top-10 host 71 %; 103 of 168 cells host none.
+
+**Implikation.**
+
+**(a) The cheap-shared-K student distillation idea is ruled out in this codebase**, but for a different reason than [E059](experiments.md#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) originally framed (concentration-too-low). The binding constraint is the **per-query divergence of K-sets** at long L (query-pair Jaccard = 0.06 at L=200), not the attention concentration per cell. Any sparse architecture that shares a K-set across queries at long L is structurally unable to recover dense behaviour by adding more shared-content channels (BigBird globals, pair-update, etc. — [E056](experiments.md#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13)/[E057](experiments.md#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge)/[E058](experiments.md#e058--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12-renumbered-from-upstream-e049-on-2026-05-13-merge)). This is a structural prediction the BigBird-only retrain (E056 dead arm, 0/18 designable) is consistent with: position-unaware shared globals cannot supply the per-query divergence that the loss requires.
+
+**(b) Per-query routing distillation is mechanistically supported and constitutes a concrete next architectural lever.** Per-query gradient saliency is sharp (mass_top_16 = 0.71), t-stable (Jaccard 0.66), and aligned per-query with dense attention at some (layer, head) (max-Jaccard mean 0.83). A natural construction: at training time, derive a target per-query K-set from per-query gradient saliency on the canonical dense teacher; train a small router that consumes ~10–15 selected (layer, head) outputs and emits a per-query K-set; the sparse attention then runs at K ≪ N per query. This is **not "cheap" in the original E059 sense** (one K-set per protein), but it IS cheap in the architecturally relevant sense — per-query attention at K ≪ N with a learned routing head, vs full N×N dense.
+
+**(c) K must scale with N to capture a fixed fraction of importance mass.** mass_top_16 drops from 0.81 at L=50 to 0.61 at L=200; mass_top_32 drops from 0.94 to 0.72. A flat K-budget like K=40 captures ~80 % of saliency at L=50 but only 60–65 % at L=200. The architectural decision in current sparse variants to use a fixed K is empirically the wrong calibration at long L.
+
+**(d) The result is independent of which importance signal you trust.** [E059](experiments.md#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) (attention) and [E061](experiments.md#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13) (gradient saliency) are two *independent* metrics of importance. F12's claims hold under both: under attention, dense's per-(layer, head) specialization is what sparse forfeits; under gradient saliency, per-query divergence is what shared K-sets discard. The two metrics agree on the architectural conclusion (per-query routing) at the per-query × per-(layer, head) level (cross-metric mean-of-max Jaccard 0.833), even though they disagree on the per-(query, layer, head) level (overall Jaccard 0.337, p25 = 0.103). The methodological lesson: **per-query is the right unit of analysis for routing questions in this codebase**; aggregating before differentiating ([E060](experiments.md#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13)) or head-averaging across queries collapses exactly the structure that matters.
+
+**(e) The cross-metric alignment is strongest in the regime where sparse-vs-dense designability is worst.** Best max-(layer, head) cross-metric Jaccard cells are at L=200, t=0.3 (0.910); the canonical dense's L=200 designability lead over sparse variants is also largest in the same regime. The loss-aligned routing prior is most readable from dense attention precisely where sparse needs it most — a structural alignment that supports per-query routing distillation being a tractable construction.
+
+**Methodische Einschränkungen.**
+
+- **Sample sizes.** 9 proteins (3 per L bin), 5 t-values, 8 queries per (protein, t) = 360 sampled queries; 60480 (query, layer, head) cells. Within-cell SEM is not the binding uncertainty — the per-(layer, head) winners table aggregates ≥ 360 queries — but the per-protein bin (3 proteins per L) is the limiting factor for *length-stratified* claims. Replicate with 9 proteins per L bin before promoting the L=200 query-pair Jaccard = 0.062 finding (and the L-dependence of per-query divergence) beyond the "directional + mechanistically supported" tier.
+- **Query selection.** 8 queries per (protein, t) are sampled deterministically by `--queries_per_protein 8`; query positions may concentrate or repeat across t-draws within the same protein. The audit script handles this by resampling per (protein, t), so cross-t Jaccard counts are restricted to (protein, query_i) keys that survive the resampling. Full per-residue coverage would multiply compute by `mean_L / 8 ≈ 12.5×` but is not necessary for the headline directional claims.
+- **scalar choice for VJP.** Per-query saliency is taken w.r.t. `‖v_pred[i]‖₂` (the L2 norm of the model's predicted velocity at query i), not w.r.t. a full training-time loss. The choice is correct for the inference-time decision target ("how much does residue j affect query i's output velocity?") and matches the script's design, but a per-coord or per-direction saliency could shift the ranking. Sensitivity check is the natural follow-up; the headline directional results are not expected to invert under reasonable alternatives.
+- **bf16 grad.** All audits ran in bf16; gradient saliency at this precision has more numerical noise than fp32, particularly in the long tail of per-residue components near zero. Direction of bias inflates diffuseness slightly, so the per-query concentration numbers (mass_top_16 = 0.71) are if anything *understated* under bf16. Re-run with `--force_precision_f32` to tighten the post-decimal point of the headline numbers if needed for the writeup; the structural conclusions do not depend on the floor.
+- **Aggregate vs per-query distinction is the key methodological move.** [E060](experiments.md#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13)'s STOP call was based on the aggregate-loss path; F12 supersedes [E060](experiments.md#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13) by switching to per-query VJPs. Any future audit that purports to measure importance should default to per-query — aggregate loss measurements answer a different question and have already misled this project once.
+- **F12 is a decision-gate, not a build.** All claims about distillation viability are about whether the audit data supports building such a student — not that we have one. The actual experiment (train a per-query routing student that matches canonical at L=200) is the load-bearing follow-up to F12 and is not done here.
+- **Single canonical baseline.** All three audits are on `test_ca_only_diffusion/1776805213` step 2646. Whether the per-query routing prior in dense attention is a property of this specific ckpt's training trajectory (recipe: wd=0.05, constant LR=2e-4, no scheduler) or a general property of CA-only DiT-style trunks is untested. The L=200 query-pair Jaccard = 0.06 finding being most informative would replicate on any well-trained canonical CA-only ckpt; the per-(layer, head) winners ranking (L1 H7 at 18.3 %) might be specific to this initialization seed.
+- **Sparse-vs-dense designability comparison numbers come from separate experiments at different steps.** The 76 % canonical vs 11 % sparse-K64 (LOWTSOFT inference at step 1385) is the canonical reference for sparse-vs-dense gap; F12 does not re-measure this. The structural finding (per-query divergence at long L) is what F12 contributes; the designability magnitude attribution to that structural finding is a hypothesis that requires the per-query routing student to be built.
+
+**Cross-references.**
+
+- Direct lab-notebook: [E061](experiments.md#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13) (per-query VJP; the load-bearing audit) and its predecessors [E059](experiments.md#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) (attention concentration) + [E060](experiments.md#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13) (aggregate gradient, superseded).
+- Designability baselines used in the implikation: [E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) (canonical 76 % N=30), [E046](experiments.md#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) (K=64-curriculum +LOWTSOFT 39 % N=18 at L=200 = 0 %), [E021](experiments.md#e021--sparse-k40--pair-update-quick-n6-designability-probe-2026-04-30)/[E049](experiments.md#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08)/[E051](experiments.md#e051--n3-quick-designability-probe-of-ca_only_sparse_k64_curriculum_self-at-step-1800-2026-05-10) (sparse-K64 trunk), [E055](experiments.md#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12)/[E056](experiments.md#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13)/[E057](experiments.md#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge)/[E058](experiments.md#e058--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12-renumbered-from-upstream-e049-on-2026-05-13-merge) (BigBird bundles; E056 dead-arm at 0/18 — the data here explains why position-unaware globals are the wrong lever).
+- Architectural framing: [E043](experiments.md#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07) (per-t val loss equivalence across CA-only variants; per-t val loss does NOT separate variants, but per-query routing audit DOES — F12 says the variant-distinguishing measurement is at the (query, layer, head) level, not the per-t level).
+- Methodological connection: Findings 5 / 7 / 11 collectively established that val-loss-based selection criteria are unreliable in this codebase. F12 adds a positive complement — when val-loss decoupling makes a metric unreliable, the per-query routing audit gives a direct architectural read of what the trained dense model has internalised, independent of the val-loss surface.
+- Audit scripts: `script_utils/audit_dense_attention_concentration.py`, `script_utils/audit_dense_gradient_saliency.py` (per-query VJP path, commit `9ed7a93` + a 1-line f-string-syntax fix on 2026-05-13).
+- Output JSONs (not committed; full data on disk): `results/dense_attn_audit/{canonical_2646_dense_attn, canonical_2646_gradient, canonical_2646_grad_per_query}.json`.
+
+**Constructive follow-ups (paper-relevant).**
+
+- **Per-query routing distillation training run.** Train a small router (CNN or linear-on-context) that consumes a chosen subset of dense (layer, head) attention outputs (start with the top 10 wins from F12: L1 H7, L2 H4, L0 H4, L0 H9, L4 H0, L2 H6, L10 H0, L2 H10, L5 H8, L7 H8) and emits a per-query top-32 K-set. Sparse attention at K=32 per query is roughly 6× cheaper than dense at L=200, which is the regime where the architectural payoff is largest. The router is trained on canonical-dense's per-query gradient saliency as the supervisory signal (since per-query grad is the sharpest target; mass_top_16 = 0.71). Measure: designability at L=200 vs canonical's 53 %.
+- **K-as-a-function-of-N calibration.** Re-train one canonical-recipe sparse variant with `K = ⌈0.32 × N⌉` (capturing the same fraction of saliency mass at every L per F12's per-L breakdown) instead of K=40 or K=64. Tests whether the "K must scale with N" implication translates to a measurable designability improvement at L=200 without changing any other axis. Cheap (~16h SL2 slot, single new training config) and the cleanest test of implikation (c).
+- **Per-query routing audit on a sparse-K64-curriculum-trained ckpt.** F12 is on the dense baseline; we don't know whether the sparse-K64-curriculum variant's *trained* attention has the same per-query specialization or whether sharing the K-set across layers has collapsed it. Re-run the [E061](experiments.md#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13) audit on `sparse_K64_curriculum_self_step1800.ckpt` ([E051](experiments.md#e051--n3-quick-designability-probe-of-ca_only_sparse_k64_curriculum_self-at-step-1800-2026-05-10)) to characterise. Predicts: per-query divergence preserved (because each query has its own K-set in sparse), but max-(layer, head) Jaccard with gradient lower (because the K-set is content-free, not loss-aligned).
 
 ---
 

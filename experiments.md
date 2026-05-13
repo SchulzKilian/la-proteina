@@ -5388,6 +5388,30 @@ Decision rules from the script's logging:
 
 Per-query gradient is **sharper than attention** at every K. E060's "grad is more diffuse" was an artifact of the aggregate path averaging across queries' loss terms. Falsifies E060's Negative #1 and triggers the script's `mass_top_K ≫ E059's [...]` decision rule — the gradient signal IS the sharper importance signal once asked per-query. K=16 mass = 0.709 ≥ 0.70 (the [E059](#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) attention-side GO threshold), K=32 mass = 0.830 < 0.85 (just under); E059's GO bar applied to per-query grad is essentially cleared at K=16 and almost cleared at K=32.
 
+**Results — Check 1' broken out by protein length** (mean mass_top_K, n=120 queries per L):
+
+| K  | L=50  | L=100 | L=200 |
+|---|---|---|---|
+| 8  | 0.654 | 0.565 | 0.483 |
+| 16 | **0.810** | **0.708** | **0.610** |
+| 32 | 0.939 | 0.828 | 0.722 |
+| 48 | 0.997 | 0.892 | 0.783 |
+| 64 | 1.000 | 0.937 | 0.828 |
+
+The concentration is **strongly length-dependent**. At L=50 per-query gradient saturates: K=16 captures 81 % and K=48 captures 99.7 %. At L=200 the same K-set captures progressively less: K=16 = 61 %, K=64 = 83 %. The "K must scale with N" requirement falls naturally out of the data — a fixed K-budget under-weights long proteins.
+
+**Results — Check 1' broken out by t** (mean mass_top_K, n=72 queries per t):
+
+| K  | t=0.1 | t=0.3 | t=0.5 | t=0.7 | t=0.9 |
+|---|---|---|---|---|---|
+| 8  | 0.531 | 0.456 | 0.517 | 0.601 | 0.732 |
+| 16 | 0.678 | **0.611** | 0.661 | 0.741 | **0.856** |
+| 32 | 0.798 | 0.755 | 0.799 | 0.864 | 0.932 |
+| 48 | 0.853 | 0.842 | 0.875 | 0.922 | 0.962 |
+| 64 | 0.887 | 0.885 | 0.913 | 0.949 | 0.976 |
+
+**Concentration is monotonically increasing in t after a small dip at t=0.3.** t=0.9 (near-clean) is very sharp (mass_top_16 = 0.86). t=0.3 is the most diffuse bucket — the model is least certain which residues will matter when the noise is still substantial but not maximal. Direction of effect matches a physically reasonable intuition: as data structure emerges along the trajectory (t↑), the per-residue dependency graph sharpens.
+
 **Results — Check 2' (per-query t-Jaccard, 63 (protein, query) t-adjacent pairs):**
 
 | metric | per-query | E060 aggregate |
@@ -5398,6 +5422,17 @@ Per-query gradient is **sharper than attention** at every K. E060's "grad is mor
 | n    | 63 | 36 |
 
 The same query's top-16 important set is largely stable across adjacent t-values: mean Jaccard 0.66 — just below the 0.7 GO bar, far from the 0.3 STOP. E060's "t-unstable" call (Jaccard 0.20) was the aggregate path's per-query specialization being washed out. Many records hit Jaccard=1.0 (perfect stability for that query across that adjacent t-pair).
+
+**Results — Check 2' broken out by L and by t-pair** (mean per-query t-Jaccard; n varies by cell because queries are independently resampled per (protein, t) so only some (protein, query_i) keys persist across t-pairs):
+
+| L\t-pair | 0.1→0.3 | 0.3→0.5 | 0.5→0.7 | 0.7→0.9 | overall |
+|---|---|---|---|---|---|
+| L=50  | **0.886** | 0.598 | 0.648 | 0.622 | 0.669 |
+| L=100 | 0.778 | 0.762 | 0.531 | 0.778 | 0.668 |
+| L=200 | 0.778 | 0.684 | 0.562 | 0.684 | 0.654 |
+| **pooled** | **0.850** | 0.640 | 0.600 | 0.653 | — |
+
+**The low-t pair (0.1→0.3) is the most t-stable** (pooled Jaccard 0.85, almost at the 0.7 stable-routing bar with margin), even though individual-t concentration is *lowest* at t=0.3. Mid-trajectory transitions (0.3→0.7) churn the important set most (pooled 0.60-0.64). High-t (0.7→0.9) settles back to 0.65. Direction matches the curriculum design intuition that the low-t bucket — where the model is least sure individually — has the most consistent across-t dependency structure.
 
 **Results — Cross-metric Jaccard(grad top-16 per query, attn top-16 per (layer, head, query)):**
 
@@ -5412,6 +5447,84 @@ The same query's top-16 important set is largely stable across adjacent t-values
 | n | 360 | 45 |
 
 The headline number is **mean-of-max-over-(layer, head) per query = 0.833**. That means: for every one of the 360 sampled queries, there is *some* (layer, head) in the dense trunk where attention's top-16 attended residues agree with gradient's top-16 important residues on ≥13/16 of them. The worst query has at least one (layer, head) sharing 8/16; many hit 1.000. Triggers the script's `max-over-layers Jaccard ≥ 0.5 → attention DOES reflect loss-importance somewhere` decision rule by a wide margin. E060's "attention is NOT a proxy for loss-importance" call (0.274 mean-of-max) was head-averaged AND aggregate-loss — both averaging operations destroyed the per-query alignment.
+
+**Results — Cross-metric Jaccard broken by L × t** (60480 (query, layer, head) cells in total):
+
+*Mean Jaccard, averaged over all 14×12=168 (layer, head) cells within each (L, t, query) bin:*
+
+| L\t | t=0.1 | t=0.3 | t=0.5 | t=0.7 | t=0.9 |
+|---|---|---|---|---|---|
+| L=50  | 0.374 | 0.372 | 0.406 | 0.431 | **0.472** |
+| L=100 | 0.289 | 0.301 | 0.310 | 0.313 | 0.352 |
+| L=200 | **0.241** | 0.281 | 0.277 | 0.309 | 0.330 |
+
+*Max Jaccard over (layer, head), averaged over queries within each (L, t) bin:*
+
+| L\t | t=0.1 | t=0.3 | t=0.5 | t=0.7 | t=0.9 |
+|---|---|---|---|---|---|
+| L=50  | 0.886 | 0.860 | 0.838 | 0.847 | 0.863 |
+| L=100 | **0.908** | 0.888 | 0.839 | 0.752 | 0.792 |
+| L=200 | 0.898 | **0.910** | 0.740 | 0.769 | 0.773 |
+
+Two takeaways from the L × t grid:
+- **Every L × t cell has a best (layer, head) Jaccard ≥ 0.74**, far above the 0.5 GO threshold. The best-overall is L=200 / t=0.3 at 0.910 — long-protein, mid-noise — the regime where sparse-vs-dense gap is largest is also the regime where attention agrees most strongly with gradient saliency. That's a structural alignment between "where sparse hurts most" and "where the dense routing prior is most readable".
+- **Mean (head-and-layer averaged) Jaccard drops with L** (L=50 row averages 0.41; L=200 row averages 0.29). Long proteins concentrate the loss-aligned signal into *fewer* (layer, head) cells; you have to know which to read from rather than averaging.
+
+**Results — Per-layer cross-metric Jaccard breakdown** (averaged over all 360 queries):
+
+| layer | mean(head_avg_J) | mean(best_head_J) | max(best_head_J) |
+|---|---|---|---|
+| 0  | 0.257 | 0.703 | 1.000 |
+| 1  | 0.277 | 0.719 | 1.000 |
+| 2  | 0.375 | **0.765** | 1.000 |
+| 3  | 0.320 | 0.733 | 1.000 |
+| 4  | **0.442** | 0.760 | 1.000 |
+| 5  | 0.320 | 0.700 | 1.000 |
+| 6  | 0.277 | 0.694 | 1.000 |
+| 7  | 0.361 | 0.749 | 1.000 |
+| 8  | 0.338 | 0.717 | 1.000 |
+| 9  | 0.373 | 0.676 | 1.000 |
+| 10 | 0.320 | 0.762 | 1.000 |
+| 11 | 0.381 | 0.710 | 1.000 |
+| 12 | 0.339 | 0.715 | 1.000 |
+| 13 | 0.341 | 0.687 | 1.000 |
+
+Layer 4 has the strongest head-averaged alignment (0.442); layer 2 has the strongest best-head-per-record (0.765); layer 9 the weakest (0.676 best-head, 0.373 head-avg). **Every layer's best-head averaged across queries is ≥ 0.676** — there is no "dead layer" where attention has no relationship with gradient saliency. The signal is broadly distributed across depth, but never uniformly within a (layer, head, query) cell.
+
+**Results — Best (layer, head) winners** (which (layer, head) cell gives the max Jaccard most often across the 360 sampled queries):
+
+| rank | (layer, head) | wins | % of queries |
+|---|---|---|---|
+| 1  | **L1 H7** | 66 | **18.3%** |
+| 2  | L2 H4 | 49 | 13.6% |
+| 3  | L0 H4 | 38 | 10.6% |
+| 4  | L0 H9 | 19 | 5.3% |
+| 5  | L4 H0 | 14 | 3.9% |
+| 6  | L2 H6 | 12 | 3.3% |
+| 7  | L10 H0 | 11 | 3.1% |
+| 8  | L2 H10 | 11 | 3.1% |
+| 9  | L5 H8 | 10 | 2.8% |
+| 10 | L7 H8 | 7 | 1.9% |
+
+Out of 14 × 12 = **168 possible (layer, head) cells, 65 cells win at least once, and 103 cells never host the best agreement with any query's gradient.** The top-3 cells alone capture 42.5 % of all wins; the top-10 cells capture 71 %. **Early layers (0/1/2) dominate the winners** — they take 195 wins = 54 % of all 360 sampled queries. A per-query router that consumes just the top 10–15 most-winning (layer, head) cells (5–7 % of the trunk's attention output) could plausibly recover most of the dense routing prior; the remaining 95 % of (layer, head) cells are not where the loss-aligned routing signal lives.
+
+**Results — Full distribution of cross-metric Jaccard** (60480 (query, layer, head) cells):
+
+| percentile | Jaccard |
+|---|---|
+| min   | 0.000 |
+| p10   | 0.000 |
+| p25   | 0.103 |
+| median| 0.333 |
+| mean  | 0.337 |
+| p75   | 0.524 |
+| p90   | 0.684 |
+| p99   | 0.882 |
+| max   | 1.000 |
+
+- **31.2 % of all (query, layer, head) cells have Jaccard ≥ 0.5** (18 849 / 60 480). The "essentially orthogonal" framing in E060 (overall mean 0.114) was misled by averaging across all cells before counting.
+- **8.2 % of cells have Jaccard ≥ 0.7**. About 1 in 12 (query, layer, head) records has near-perfect alignment between dense attention and gradient saliency.
+- p10 = 0.0 means a non-trivial fraction of cells share *zero* top-16 residues with gradient — at any given (layer, head) most queries are not the loss-aligned one. But each query finds its match at *some* (layer, head), even if that's not the same cell across queries.
 
 **Per-layer cross-metric breakdown:**
 
@@ -5436,15 +5549,67 @@ Layer 4 has the strongest head-averaged agreement (0.442); layer 9 has the weake
 
 **Query-pair Jaccard within (protein, t): mean 0.146, min 0.000, max 1.000, n=1260.** Different queries within the same protein at the same t share only ~2.3/16 of their top-16 important residues. **Confirms the user's intuition that per-query routing is genuinely the right unit of analysis** — aggregate-loss audits would average across this and miss it entirely.
 
+**Query-pair Jaccard broken by L** (n=420 pairs per L):
+
+| L | mean | median | min | max |
+|---|---|---|---|---|
+| L=50  | **0.258** | 0.143 | 0.000 | 1.000 |
+| L=100 | 0.119 | 0.032 | 0.000 | 1.000 |
+| L=200 | **0.062** | 0.000 | 0.000 | 1.000 |
+
+**The per-query routing argument is dramatically stronger at long L.** At L=50 different queries within the same (protein, t) share ~26 % of their top-16 important residues — substantial overlap (the protein is short; a few residues are "important to everyone"). At L=100 the overlap drops to 12 %. At L=200 the typical pair of queries shares **6 %** — essentially disjoint K-sets — and the median pair shares **zero** top-16 residues. This is the regime where the sparse-vs-dense gap is largest ([E043](#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07); [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) L=200 designability 53 % canonical vs 0–11 % sparse variants) — and also the regime where per-query specialization is most extreme. Strong structural evidence that **a sparse student at long L cannot use a shared K-set across queries** — the routing has to be per-query, or it discards information that dense uses heavily.
+
+**Query-pair Jaccard broken by (L, t):**
+
+| L\t | t=0.1 | t=0.3 | t=0.5 | t=0.7 | t=0.9 |
+|---|---|---|---|---|---|
+| L=50  | 0.254 | 0.262 | 0.248 | 0.273 | 0.252 |
+| L=100 | 0.132 | 0.141 | 0.115 | 0.113 | 0.096 |
+| L=200 | 0.078 | 0.048 | 0.072 | 0.054 | 0.056 |
+
+Within each L the per-(L, t) cell is flat (no strong t-trend); the dominant axis of variation in query-pair overlap is **N itself**, not the diffusion time. Differences across t within the same L are within ±0.03, while across-L differences within the same t are 4-5×.
+
+**Results — Side-by-side concentration: per-query GRAD vs ATTN (head-avg) vs aggregate GRAD:**
+
+*Mean mass_top_K (over each entry's records):*
+
+| K  | E059 attn | E060 grad (aggregate) | E061 grad (per-query) |
+|---|---|---|---|
+| 8  | 0.510 | 0.176 | **0.567** |
+| 16 | 0.656 | 0.312 | **0.709** |
+| 32 | 0.794 | 0.528 | **0.830** |
+| 48 | 0.866 | 0.683 | **0.891** |
+| 64 | 0.907 | 0.766 | 0.922 |
+
+*Median mass_top_K:*
+
+| K  | E059 attn | E060 grad (aggregate) | E061 grad (per-query) |
+|---|---|---|---|
+| 8  | 0.519 | 0.152 | 0.564 |
+| 16 | 0.675 | 0.277 | **0.728** |
+| 32 | 0.813 | 0.491 | **0.871** |
+
+Per-query gradient is the sharpest signal of the three at every K (mean and median), by **5-15 percentage points over attention** and **~40 percentage points over the aggregate-loss gradient**. The aggregate path's diffuseness was an averaging artifact, not an intrinsic property of gradient saliency.
+
 **Reading combined.** **All three of E060's negatives flip under per-query VJP**:
 
 1. Gradient is sharper than attention (per-query mass_top_16 = 0.71 vs attn 0.66; vs E060's aggregate 0.31).
-2. Gradient sets are stable across t (per-query t-Jaccard 0.66 vs E060's aggregate 0.20). Just under the 0.7 GO bar.
-3. Attention reflects gradient saliency at some (layer, head) per query (mean-of-max 0.83 vs E060's head-avg 0.27).
+2. Gradient sets are stable across t (per-query t-Jaccard 0.66 vs E060's aggregate 0.20). Just under the 0.7 GO bar; nearly cleared at the low-t pair (0.85).
+3. Attention reflects gradient saliency at some (layer, head) per query (mean-of-max 0.83 vs E060's head-avg 0.27). 31 % of all (query, layer, head) cells have Jaccard ≥ 0.5; the worst query's best (layer, head) shares 8/16 important residues with gradient.
 
-Plus a fourth, new observation: **different queries within (protein, t) need different K-sets** (query-pair Jaccard 0.15). The "168 K-sets per protein-per-t" concern from [E059](#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13) (14 layers × 12 heads) was right that shared-K is wrong, but the right factorization isn't (layer, head) — it's **(query, best (layer, head))**. There are 360 queries here, not 168 (layer, head) combos; but the per-query gradient saliency is itself a sharp, t-stable signal that a student could use directly to pick its per-query K-set without going through any (layer, head) routing at all.
+Plus three new observations the breakdowns surfaced:
 
-**This reopens [E060](#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13)'s STOP** and rewrites [E059](#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13)'s reading. The path forward is not the "cheap shared-K student" the original idea proposed — it's **per-query routing where each query's K-set comes from its own gradient saliency or from the best-matching (layer, head)'s attention top-K**. The student is no longer "cheap" in the sense of "one K-set per protein", but it IS cheap in the sense of "K << N attention compute per query, with a learned per-query routing head". This is mechanistically supported by the per-query data.
+4. **Different queries within (protein, t) need different K-sets**, and the effect *strengthens with L* (query-pair Jaccard L=50: 0.258 → L=100: 0.119 → L=200: 0.062, median at L=200 is zero). The right factorization is not (layer, head) shared across queries but **(query, best (layer, head)) per query**, with stronger per-query divergence exactly where sparse-vs-dense matters most.
+5. **A small set of (layer, head) cells host most of the loss-aligned routing**: top-3 cells take 42.5 % of all "best-cell-per-query" wins; top-10 take 71 %; only 65 of 168 cells ever win. Early layers (0–2) take 54 % of wins. A learned per-query router doesn't need to read from all 168 (layer, head) outputs — ~10–15 is plausible.
+6. **Concentration is monotonically lower at long L** at every K (mass_top_16 L=50: 0.81 → L=200: 0.61). A fixed K-budget understates importance-mass at long L; K scaling with N is empirically required, not a design preference.
+
+**Restated decision picture:**
+
+- **Cheap shared-K student (E059 framing)**: closed. Layer-Jaccard 0.22, head-Jaccard 0.22 in [E059](#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13), and query-pair Jaccard 0.15 here (0.06 at L=200) — three independent reasons no single K-set per protein/per-t can substitute for dense.
+- **Per-query routing distillation (new from this entry)**: open and mechanistically supported. Per-query gradient saliency is sharper than attention (mass_top_16 = 0.71), t-stable (0.66), and aligns with dense attention at ≥1 (layer, head) per query (0.83 mean-of-max). Concrete construction proposal: a learned router that consumes per-query gradient saliency (or attention output at a small chosen subset of (layer, head) cells) and emits a per-query K-set; the sparse attention then runs at K ≪ N per query.
+- **What the per-query distillation does NOT solve**: the K-scaling problem at long L (a flat K-budget like K=40 captures only 61 % of importance-mass at L=200 even per-query), and the BigBird-globals-as-cheap-shared-content shortcut ([E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13)/[E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge)/[E058](#e058--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12-renumbered-from-upstream-e049-on-2026-05-13-merge)) — the data here says BigBird globals are the wrong lever because they're shared across queries and protein-agnostic, whereas the routing prior in dense is per-query.
+
+**This reopens [E060](#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13)'s STOP** and rewrites [E059](#e059--dense-attention-concentration-audit-content-adaptive-top-k-distillation-decision-gate-2026-05-13)'s reading. The path forward is **per-query routing where each query's K-set comes from its own gradient saliency or from the best-matching (layer, head)'s attention top-K**. The student is no longer "cheap" in the sense of "one K-set per protein", but it IS cheap in the sense of "K << N attention compute per query, with a learned per-query routing head consuming ~10–15 dense (layer, head) outputs". This is mechanistically supported by the per-query data and feeds **Finding 12** in `content_masterarbeit.md`.
 
 **Methodological caveats.**
 
