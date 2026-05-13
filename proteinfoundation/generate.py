@@ -40,6 +40,7 @@ def parse_args_and_cfg() -> Tuple[Dict, Dict, str]:
     parser = argparse.ArgumentParser(description="Job info")
     parser.add_argument(
         "--config_name",
+        "--config-name",
         type=str,
         default="inference_base",
         help="Name of the config yaml file.",

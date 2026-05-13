@@ -69,8 +69,17 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Same ckpt + protocol as E044 but with K-reallocation instead of masking: keep total K=40 fixed across the whole trajectory, just reallocate (n_seq, n_spatial, n_random) by t. 3 buckets — t<0.33 → (20,0,0); t<0.66 → (12,8,8); t≥0.66 → canonical (8,8,16). Softmax always sees 40 real slots; only composition shifts. | non-narrative — **same pooled count as mask (3/18) but a completely different per-length distribution**. **L=50 spectacular** (3/6 designable, **min 0.63 Å** = best ever on this ckpt; every sample within 3.10 Å); paired Δ=−10.77 Å rescue at L=50 id=0 (11.40 → 0.63). **L=100 disaster**: 3/6 → 0/6, **two new collapsed samples appear** (id=0 1.43 → 9.04, id=3 4.30 → 7.02). L=200 fails uniformly. **Mechanism is chain-length-dependent**: at short L the spatial/random/sequential groups overlap heavily so realloc is a benign content shift; at L≥100 the model uses long-range info encoded in the spatial+random slots even when noisy, and stripping it for sequential causes collapse. Mask (E044) and realloc (E045) are complementary: hypothetical realloc-at-L<60 + mask-at-L≥60 would yield 6/18 (33%) — but L-dependent schedule, not static, is the principled next step before retraining. |
 | [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) | 2026-05-11 | finished (code fix + numerical tests + inference probes at step-1385) | Investigation of the K=64-curriculum-self variant's (variants.md §11; NO BigBird, NO pair-update) L=50/L=100 gap vs canonical. Numerical tests of `sparse_neighbors.build_neighbor_idx` and `PairBiasAttention._attn_sparse`. Found+fixed an off-by-one cap (`min(2*n_seq, N-1)` → `min(2*n_seq, N)`). Falsified four candidate bug mechanisms. Then re-probed step-1385 with three schedule variants (canonical, NOCURR, LOWTSOFT) and pushed LOWTSOFT to N=18 paired with the variants.md §11 baseline. | non-narrative — feeds the retrain decision ([E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)). **LOWTSOFT N=18 post-fix: 56 % / 61 % / 0 % at L=50/100/200** vs canonical N=18 pre-fix 44 % / 56 % / 11 % — **+12 pp at L=50 (paired with the cap fix) and +5 pp at L=100**, but **−11 pp at L=200 (one-or-two-protein swing on N=18)**. Same-day same-code paired probes give the cleanest A/B: at N=6 post-fix, canonical 4/3/0, NOCURR 4/1/0, LOWTSOFT 4/4/0 — i.e. removing the schedule entirely tanks L=100 (3→1), softening the low-t bucket improves it (3→4). Direction is consistent with the variant-design hypothesis. |
 | [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) | 2026-05-11 | in progress (running; SLURM 29210711, SL2 20h slot, started ~18:00 BST 2026-05-11) | Cold-start retrain of a FIVE-AXIS bundle: K=64 SALAD-canonical sparse + curriculum (`(16,8,24)` low-t / `(16,8,24)` mid / `(8,16,32)` high) + self-inclusion + **BigBird globals n=4 (FIRST TIME TRAINED)** + **pair-update every 3 layers (FIRST TIME TRAINED in K=64 sparse path)**, with the off-by-one cap fix from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) live in code. **Architecture differs from step-1385:** step-1385 is variants.md §11 (only K=64 + curriculum + self-inclusion, three axes — no BigBird, no pair-update); this retrain is the planned §12-LowTSoft bundle (five axes). OLD recipe wd=0.05 / constant LR=2e-4 / no scheduler / dataset / seed=42 / 160M trunk are unchanged from §11. | non-narrative — first cold-start training of BigBird + pair-update + lowtsoft simultaneously. **Predicted milestones:** val MSE convergence trajectory tracks below the §11 step-1385 curve once the new (BigBird + pair-update) parameters reach their working points (initial divergence is the cost of training 3 new architectural axes from zero-init); designability at step ~1800–2200 of the bundle vs §11's step-1385 reading (8/10/2 N=18); designability at step ~2400 vs canonical's E019 step-2646 N=30 baseline (19/20/3 = 63 % / 67 % / 10 %). Decision: if the bundle clears canonical at L=100 with the L=200 dropout not deeper than the LOWTSOFT-N=18 inference probe (−11 pp), the five-axis bundle is the new K=64 baseline; ablations (drop pair-update, drop BigBird, isolate cap-fix) follow. |
-| [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12) | 2026-05-12 | finished | Read-only audit of the BigBird + pair-update wiring inside [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s in-progress checkpoint (`last.ckpt`, global_step=1200). Triggered by the observation that the bundle's val curve matches §11 at high t and is strictly worse at low t with the same shape, raising the question "was BigBird actually applied?". Loads the trained ckpt, runs forward at t∈{0.1, 0.5, 0.9}, hooks `PairBiasAttention._attn_sparse` to record per-layer attention mass on the 4 global slots and the std of global K vectors; logs cosine similarity between the 4 trained `global_token_emb` rows; then runs one fwd+bwd on a fresh-init clone to compare per-param gradient norms (globals vs trunk), with and without `global_cond_emb` overridden to the time-embedding broadcast. | non-narrative — **BigBird is correctly wired AND heavily used by the trained model, contradicting the "globals are inert" hypothesis.** Late-layer attention mass on globals at t=0.1 hits 22–34 % (vs 5.88 % uniform baseline), with several residue queries placing ~100 % of their attention on globals in layers 7–13. The 4 globals are NOT collapsed (off-diagonal cos sim ≤ 0.071) and carry distinct keys (std across globals ≥ 0.32 every layer). Fresh-init grad norms on globals are 0.04–3.3× the trunk's to_qkv grad — not structurally tiny. The time-emb-cond override (B2) gives no speedup (1.00×), so `global_cond_emb` being learnable-zero-init is not the bottleneck. **Reframes the low-t pathology:** globals are time-agnostic by design (`global_cond_emb` doesn't see time-emb), the curriculum strips real spatial/random capacity at low t (`(16,8,24)`), and the model has learned to compensate by routing 20–30 % of low-t late-layer attention into 4 protein-agnostic globals — which cannot encode protein-specific structure. That's a *learned-policy* pathology, not a wiring bug. Audit script: `script_utils/audit_bigbird_wiring.py`. |
-| [E049](#e049--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12) | 2026-05-12 | in progress (queued; SLURM 29277806, SL2 15h slot, submitted ~mid-day BST 2026-05-12) | Cold-start retrain of a **four-axis** bundle: K=64 SALAD-canonical sparse + curriculum + self-inclusion + **BigBird globals n=4 only** — **NO pair-update, NO LOWTSOFT** (curriculum_low_t_split absent → default `(32, 0, 0)` sequence-only at t<0.33). Cap fix from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) live in code. **Isolates the BigBird contribution against the §11 reference** ([E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s five-axis bundle stalled at low t per [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12); chat consensus 2026-05-12 was that LOWTSOFT + pair-update were the suspects, not BigBird itself). | non-narrative — first BigBird-only training. **Predicted milestones:** at matched horizon (~1200 opt steps), expect `val_loss_by_t.t_000_020` close to §11's 4.3-4.5 (vs E047's stuck-at-7.2) since the low-t bucket is back to `(32, 0, 0)`; expect total `val/loss_epoch` to track §11 to within +0.1 (the parameter overhead of 4 globals + their pair-bias entries). Decision: if low-t recovers AND BigBird globals attract non-trivial attention mass as in [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12), the four-axis form is the new K=64 baseline and the next ablation is pair-update on top of THIS variant; if low-t still degrades vs §11, BigBird is the regression and `n_global_tokens: 0` should be the K=64 baseline going forward. |
+| [E048](#e048--inference-only-k-bump-sweep-k40--k64--k128-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Inference-only K-bump on the same sparse_K40 step 1259 ckpt: K=40 (control, reused E044 baseline) vs K=64 (12/12/28) vs K=128 (24/24/56). Composition ratio 40/20/40 preserved across K. Curriculum OFF. Tests whether the trained K=40 weights have headroom that more neighbors at inference can unlock. Wall-clock per gen: K=40 ~63s, K=64 ~80s (+27%), K=128 ~140s (+122%). _(Renumbered from local E046 on merge.)_ | non-narrative — **strict monotonic degradation: K-bump is a dead end on this checkpoint**. Pooled designability: K=40 5/18 (28%) → K=64 2/18 (11%) → K=128 **0/18 (0%)**. K=128 is catastrophic at L=100 (clean cluster wiped: 3 → 0; collapsed cluster 1 → 5). Failure mode is calibration-shift: trained q/k/v projections + AdaLN-Zero gates were tuned for 40 slots, adding more dilutes attention across un-weightable candidates. **The L=100 K=64 result is the most informative**: 4 clean samples (vs 3 baseline) but two clean samples drift just over the 2 Å line — distribution shifts up by ~0.7 Å, consistent with "wants to produce same structure, but trained weights miscalibrated for new K". E045's L=50 std-collapse does NOT reproduce at K=64/K=128 — that was specifically a composition-axis effect, not K-driven. **Conclusion**: inference-only cannot test architectural ceiling on a K=40-trained model; a K=64 retraining run is the only way to settle the K-axis. |
+| [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) | 2026-05-08 | finished | First inference probe of the K=64 + curriculum-trained ckpt (`ca_only_sparse_K64_curriculum_self`, ep=9 step=944). New architecture: K=64 (8/16/32 canonical) + 3-bucket t-curriculum baked into training + self-inclusion. Same N=6 × L∈{50,100,200} × seed=5 protocol; paired-by-noise vs E044/E045 K=40 ckpt. Compile auto-on from saved hyperparams. _(Renumbered from local E047 on merge.)_ | non-narrative — **mixed signal at this training step. L=50 retraining-validates E045**: 3/6 designable, min 0.91 Å (matches E045 inference-only's 3/6 at min 0.63 Å); the curriculum direction for short proteins is real and survives the move from inference-only forcing to baked-in training. **L=100 got WORSE under retraining**: 1/6 designable (vs K=40 baseline's 3/6), 3 fully-collapsed samples (>7 Å), mean scRMSD 6.94 (vs K=40 baseline 3.25). L=200 unchanged. **L=50 std-collapse from E045 does NOT survive retraining** (std 4.04 vs E045's 0.92) — that was specifically an inference-only forcing artifact. Three confounds vs K=40 baseline: step 944 vs 1259 (under-training), K=40 vs K=64 axis, and self-inclusion. Cleanest next probe: re-evaluate same run at a later step (matched 1259 or canonical 1800-2200 window) before deciding whether the curriculum-retrain hypothesis at L=100 is dead or just under-cooked. |
+| [E050](#e050--steering-audit-matrix--predictor--ensemble--fold--smoothing-2026-05-10) | 2026-05-10 | finished | Audit-style fill of the predictor × ensemble × fold × smoothing matrix supporting Finding 10. 7 n=4 smokes (clean f0/f2, clean ens5 no-smooth, NA-v1 f0/f1/f3/f4) + 5 n=48 sweep cells (NA-v1 fold2 across w∈{1,2,4,8,16}, L∈{300,400,500}). Same `inference_ucond_notri_long`, nsteps=400, w=16 anchor as E028/E029/E032; tango_min direction; real TANGO via local binary. _(Renumbered from local E048 on merge.)_ | **Finding 10 audit support — three-pronged.** (1) **Smoothing in E028 contributes ~zero** — clean ens5 + smoothing (-203.5) ≈ clean ens5 no-smoothing (-203.9); the gap reduction in E028 is 100% from ensembling. (2) **Fold 2 is NOT specially smart** — all 5 NA-v1 single folds cluster in [-47, -97] gap range (f2 -47, f0 -61, f1 -62, f3 -59, f4 -97); the original fold-2-only single-fold reading is representative. (3) **NA-v1 single fold at n=48 stays negative** (-87.5 at w=16, Δratio 7.0×) — no crossover-flip to positive like the ensemble does (E032 +3.8 at n=48, Δratio 2.9×). Ensembling moves the gap by ~91 TANGO units even after the noise-aware fix is in place. F10's "two fixes layered" claim survives, with one substantive edit: the "ensemble cancels fold-specific shortcuts" mechanism story is weaker than the original framing — folds are similar in single-fold gap magnitude, so ensembling acts more as variance averaging than as adversarial-direction cancellation. |
+| [E051](#e051--n3-quick-designability-probe-of-ca_only_sparse_k64_curriculum_self-at-step-1800-2026-05-10) | 2026-05-10 | finished | N=3/length quick designability probe of the K=64 SALAD-canonical sparse + low-t→SALAD curriculum + self-inclusion variant at the latest rsynced ckpt (epoch=17, global_step=1800). Convergence check vs [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08)'s step-944 picture. _(Renumbered from local E049 on merge.)_ | non-narrative — at step 1800 the variant looks the same as step 944 within N=3 noise: L=50 still produces sub-1-Å samples (2/3, min 0.89), L=100 still bimodal (1/3, min 1.23), L=200 still dead (0/3). The "L=100 closes with more training" hypothesis from [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) is **not yet supported** — ~91% more training did not move the L=100 picture. |
+| [E052](#e052--universal-guidance-k-axis-extension-clean-predictor-2026-05-10) | 2026-05-10 | finished | UG K-axis ablation on the clean-predictor regime to close E030's open question. Targeted K=20 (4× E030's K=5); L4 OOM at K≥10, settled at K=8 — the largest value that fits in 22 GB without gradient checkpointing. Same w=16, L=300, n=4 cell as E028/E030. Smoothing intentionally OFF (audit-justified by [E050](#e050--steering-audit-matrix--predictor--ensemble--fold--smoothing-2026-05-10)'s clean+ens vs clean+ens+smooth equivalence). _(Renumbered from local E050 on merge.)_ | **Negative result, K-axis closed.** K=8 gap = −308.6 (vs E028 K=1: −203.5; E030 K=5: −301.7). The K=5 → K=8 jump is essentially flat (−302 → −309) — extending K past 5 doesn't reverse E030's negative direction, but the gap doesn't accelerate either. Real TANGO at K=8 is 616.2 (vs K=1 581.9, K=5 607.1) — predictor delivers *less* real-property work as K increases. Confirms E030's "longer Jacobian = more adversarial leverage on a fragile clean predictor" mechanism story and rules out "K=5 was just an unlucky local point". K=20 attempt OOM'd both with smoothing on (~30 GB needed) and without (~25 GB needed); K=10 also OOM'd at ~24 GB. Engineering note: K-axis past 8 on L4 requires gradient checkpointing on the inner Euler loop; deferred as not worth the code change given the K=5 → K=8 plateau. |
+| [E053](#e053--ca-only-downsampled-variant-canonical-n6-designability-probe-at-step-3716-2026-05-11) | 2026-05-11 | finished | Canonical N=6 × L∈{50,100,200} × nsteps=400 designability probe on the most recent `ca_only_downsampled` checkpoint (epoch=36, opt step=3716). Tests whether ~755 additional opt steps past the previous canonical probe (step 2961, 3/18 designable) move the variant's converged ceiling. Same protocol as `inference_downsampled_step2961.yaml` / `inference_downsampled_step2331_n6_nfe400.yaml`. _(Renumbered from local E051 on merge.)_ | non-narrative — **arm regressed slightly with more training**. Pooled 1/18 (5.6%) vs step 2961's 3/18 (17%). L=50 still produces a designable sample (1/6, min **1.19 Å**) but lost the second sub-2 Å sample seen at step 2961. L=100 collapsed entirely: 0/6 designable, min 8.01 Å, every sample ≥8 Å (vs step 2961's mixed picture). L=200 unchanged dead: 0/6, min 9.94 Å. The downsampled arm has not crossed the "L=50 plus partial L=100" bar at any tested step (2331: 0/18, 2961: 3/18 mostly L=50, 3716: 1/18 only L=50) — the architectural-axis ceiling for 1D-conv-downsampling on this canonical recipe sits at "L=50 occasional, L≥100 dead". |
+| [E054](#e054--canonical-baseline-last-v2ckpt-n6--nsteps400-designability-probe-step-1952-2026-05-10) | 2026-05-10 | finished | Canonical N=6 × L∈{50,100,200} × nsteps=400 designability probe on `last-v2.ckpt` (Lightning auto-versioned `last.ckpt` slot-end snapshot, on the same `test_ca_only_diffusion/1776805213` canonical run). **Actual `global_step=1952`, `epoch=19`** (read from ckpt; earlier inference of "~step 1900" from file mtime was wrong). **Val_loss/loss_epoch at save: 4.7874 nat** vs `best_val_00000026_000000002646.ckpt`'s 5.9237 nat — i.e. lastv2 is Δ=−1.13 nat *better* by training-time val_loss than the on-disk "best_val_2646" anchor, and only Δ=+0.076 above the all-time canonical minimum (4.7115 at step 2204, overwritten under save_top_k=1 and gone from disk). Config `inference_canonical_lastv2_n6_nfe400.yaml`, seed=5. Paired with per-t val under same protocol as E043 (seed=42, 600-protein subset). _(Renumbered from local E052 on merge.)_ | non-narrative — **cleanest within-run val-loss-vs-sample-quality decoupling on record.** Pooled designability 7/18 (38.9%) vs step 2646's 68/90 (75.6%, E019 N=30). L=50 4/6 (best 0.78 Å); L=100 3/6 (best 1.07 Å); **L=200 0/6 (best 4.29 Å)** vs 2646's 16/30 at L=200. **Per-t val (paired)**: lastv2 tied with 2646 at t<0.4 (Δ within 0.01 nat, inside SEM), worse at every t≥0.4 — Δ = +0.036 / +0.049 / +0.059 nat at t∈[0.4,0.6) / [0.6,0.8) / [0.8,1.0) (3-5× SEM each). Direction of designability gap and per-t gap match exactly: lastv2 is degraded on the data side of the trajectory. **Headline**: a ckpt that is 1.13 nat *better* by wandb val_loss is dramatically *worse* by samples and by paired per-t late-bucket loss on the train-set subset. Re-confirms Finding 5/6 and `feedback_wandb_val_loss_not_comparable.md` — within-run val_loss monotonicity does not hold either. |
+| [E055](#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12) | 2026-05-12 | finished | First N=6 × L∈{50,100,200} × nsteps=400 designability probe of [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s five-axis bundle (K=64 SALAD-canonical sparse + curriculum + self + BigBird n=4 + pair-update every-3 + LOWTSOFT low-t bucket `[16,8,24]`) at the freshly-rsynced `best_val_00000009_000000000944.ckpt`. Same seed=5 protocol as [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08); paired-by-noise comparison at the same step number against the three-axis §11 variant. (Note: config/output names say "step1133"; actual ckpt is step 944 — the step1133 handle was a placeholder when the config was authored.) | non-narrative — **L=50 holds (3/6, 50%), L=100 regresses (1/6 → 0/6, every sample > 6 Å), L=200 unchanged dead.** Pooled 3/18 (17%). Below the three-axis §11 step-944 baseline at every length (matched on count at L=50 with worse min-Å 1.45 vs 0.91; strictly worse at L=100 with median 7.25 vs 4.50). Below the inference-only LOWTSOFT-on-§11-step-1385 probe (E046) at every length — consistent with E047's prediction that the bundle's 3 new architectural axes (BigBird globals + pair-update + lowtsoft from cold init) pay a training-cost handicap in the first ~1000 opt steps. **Not yet a dead-arm call** (canonical bar is ≥ step 1800-2200); decision deferred to the slot-end ckpt at step ~2400. |
+| [E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13) | 2026-05-13 | finished — **DEAD ARM CALL** | First and last N=6 × L∈{50,100,200} × nsteps=400 canonical designability probe of the **four-axis bundle** `ca_only_sparse_K64_curriculum_self_bigbird` (K=64 SALAD-canonical sparse + curriculum + self-inclusion + BigBird globals n=4; **NO pair-update, NO lowtsoft** — sibling ablation of E055's five-axis bundle). Probe done at `best_val_00000008_000000000819.ckpt` (epoch 8, opt step 819, from the cold-start training run described in [E058](#e058--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12-renumbered-from-upstream-e049-on-2026-05-13-merge)). Same seed=5 protocol as [E055](#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12). | **0/18 (0 %); arm called dead by user 2026-05-13.** Three converging lines: (1) L=50 best-Å gap +3.85 Å vs §11 step-944 cannot be absorbed by 125 opt steps of timing (largest matched-step L=50 swing on record ≈ 0.5 Å); (2) **mechanistic prior — BigBird globals here are position-unaware** (no per-token sequence position; same `global_pair_bias` row to every residue) and therefore cannot sharpen the position-sensitive score field L=50 requires; (3) wandb val_loss tracks worse than three-axis and five-axis cousins on the same dashboard. Sample evidence + mechanism + val_loss all point the same direction. Decision saved to memory as [[bigbird-globals-position-unaware]]; do not re-propose position-unaware globals as a lever for position-sensitive failure modes. No further probes / rsyncs queued for this run. |
+| [E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge) | 2026-05-12 | finished | Read-only audit of the BigBird + pair-update wiring inside [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s in-progress checkpoint (`last.ckpt`, global_step=1200). Triggered by the observation that the bundle's val curve matches §11 at high t and is strictly worse at low t with the same shape, raising the question "was BigBird actually applied?". Loads the trained ckpt, runs forward at t∈{0.1, 0.5, 0.9}, hooks `PairBiasAttention._attn_sparse` to record per-layer attention mass on the 4 global slots and the std of global K vectors; logs cosine similarity between the 4 trained `global_token_emb` rows; then runs one fwd+bwd on a fresh-init clone to compare per-param gradient norms (globals vs trunk), with and without `global_cond_emb` overridden to the time-embedding broadcast. _(Renumbered from upstream E048 on 2026-05-13 merge.)_ | non-narrative — **BigBird is correctly wired AND heavily used by the trained model, contradicting the "globals are inert" hypothesis.** Late-layer attention mass on globals at t=0.1 hits 22–34 % (vs 5.88 % uniform baseline), with several residue queries placing ~100 % of their attention on globals in layers 7–13. The 4 globals are NOT collapsed (off-diagonal cos sim ≤ 0.071) and carry distinct keys (std across globals ≥ 0.32 every layer). Fresh-init grad norms on globals are 0.04–3.3× the trunk's to_qkv grad — not structurally tiny. The time-emb-cond override (B2) gives no speedup (1.00×), so `global_cond_emb` being learnable-zero-init is not the bottleneck. **Reframes the low-t pathology:** globals are time-agnostic by design (`global_cond_emb` doesn't see time-emb), the curriculum strips real spatial/random capacity at low t (`(16,8,24)`), and the model has learned to compensate by routing 20–30 % of low-t late-layer attention into 4 protein-agnostic globals — which cannot encode protein-specific structure. That's a *learned-policy* pathology, not a wiring bug. Audit script: `script_utils/audit_bigbird_wiring.py`. |
+| [E058](#e058--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12-renumbered-from-upstream-e049-on-2026-05-13-merge) | 2026-05-12 | in progress (queued; SLURM 29277806) — first probed at [E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13) (dead arm at step 819) | Cold-start retrain of a **four-axis** bundle: K=64 SALAD-canonical sparse + curriculum + self-inclusion + **BigBird globals n=4 only** — **NO pair-update, NO LOWTSOFT**. Isolates the BigBird contribution against the §11 reference. _(Renumbered from upstream E049 on 2026-05-13 merge. This training run produced the ckpt `best_val_00000008_000000000819.ckpt` that [E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13) probed; outcome at step 819 was 0/18 designable and the user called the arm dead — see [E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13) for the post-hoc verdict against the predicted milestones below.)_ | non-narrative — first BigBird-only training. **Predicted milestones:** at matched horizon (~1200 opt steps), expect `val_loss_by_t.t_000_020` close to §11's 4.3-4.5 (vs E047's stuck-at-7.2) since the low-t bucket is back to `(32, 0, 0)`; expect total `val/loss_epoch` to track §11 to within +0.1 (the parameter overhead of 4 globals + their pair-bias entries). Decision: if low-t recovers AND BigBird globals attract non-trivial attention mass as in [E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge), the four-axis form is the new K=64 baseline and the next ablation is pair-update on top of THIS variant; if low-t still degrades vs §11, BigBird is the regression and `n_global_tokens: 0` should be the K=64 baseline going forward. **Actual outcome at step 819 (per [E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13)):** 0/18 designable, dead-arm call. Predicted-milestone verification on the val-loss-by-t side requires reading the wandb run; user reported val_loss tracks worse than §11 and the five-axis bundle. |
 
 ---
 
@@ -4288,10 +4297,741 @@ Plausible explanation: the §12 bundle introduces 3 new architectural axes (BigB
 - Architecture: variants.md §11 trunk (K=64-curriculum-self) plus §12-forthcoming additions (BigBird + pair-update). The §12 entry will be added to variants.md once a checkpoint has been probed.
 - Sibling untrained config: `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate.yaml` (the §12 forthcoming reference — never trained; this run replaces it with lowtsoft baked in).
 - Deferred ablation candidates: `configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml` (drops BigBird + pair-update, keeps lowtsoft); `configs/training_ca_only_sparse_K64_nocurr.yaml` (drops curriculum entirely); not-yet-written cap-fix-isolation config (= `..._bigbird_pairupdate.yaml` re-run with cap fix in code but `(32, 0, 0)` low-t).
+## E048 — Inference-only K-bump sweep (K=40 → K=64 → K=128) on plain sparse_K40 step 1259 (2026-05-07)
+
+> Renumbered from local E046 on 2026-05-12 merge with upstream E046/E047. Cross-refs to "E046" in this section refer to the K-bump experiment described below (now E048), unless the link target is an upstream-E046 anchor. To avoid ambiguity, the body text uses "this entry" or the explicit new ID where appropriate.
+
+**Why ran:** Direct follow-up to E044/E045. The two curriculum probes told us the model uses information from the noisy spatial+random groups in non-trivial ways at low t (E044 mask hurt) and that low-t composition matters more for L≥100 than for L=50 (E045 realloc split). What neither tested is the *architectural ceiling* — does this checkpoint's trained capacity exceed K=40, or is K=40 the actual bottleneck?
+
+The cheap test: **bump K at inference and see if more neighbor signal helps**. K is just an int attribute consumed at the call site (verified: `bin_pairwise_distances_sparse` and `_gather_sparse_pairs` and `pair_rep_initial.py:50` and `_attn_sparse` all derive K from `neighbor_idx.shape[-1]`; nothing pre-allocates a K-sized buffer). Setting `model.nn.n_seq_neighbors`, `n_spatial_neighbors`, `n_random_neighbors` post-load is the entire intervention. Limitation: q/k/v projections, AdaLN-Zero gates, and softmax temperatures were calibrated for K=40, so this is a distribution-shift test on top of the architectural test — a positive K-bump result would unambiguously trigger retraining; a negative result is ambiguous (could be ceiling, could be distribution shift).
+
+**Three K configurations, canonical 40/20/40 sequential/spatial/random ratio preserved:**
+
+| Variant | n_seq (per side) | n_spatial | n_random | K_total |
+|---|---|---|---|---|
+| K=40 (control) | 8 | 8 | 16 | 40 |
+| K=64 | 12 | 12 | 28 | 64 |
+| K=128 | 24 | 24 | 56 | 128 |
+
+K=40 control reuses the [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) baseline CSV (same checkpoint, same `seed=5`, same `nlens_cfg=[50,100,200]`, same `nsamples=6`, no override and no curriculum) — paired-by-noise with the K=64 and K=128 arms run in this entry. No K=40 re-run.
+
+**Configs:**
+- Code change: `proteinfoundation/generate.py` post-load block — reads `cfg.generation.args.n_*_neighbors_override` and sets the attrs on `model.nn`. Logs the override and the trained-K reminder. Default off; existing configs unchanged. Curriculum (E044/E045 path) untouched and disabled for this sweep so the K-axis is unconfounded with composition.
+- Inference configs: `configs/inference_sparse_K40_step1259_K64_n6_nfe400.yaml`, `configs/inference_sparse_K40_step1259_K128_n6_nfe400.yaml`. Inherit from `inference_base.yaml` (`seed: 5, nsteps: 400, sc_neighbors_bootstrap: True`). Identical except the three override fields under `generation.args`.
+- Checkpoint: `/home/ks2218/la-proteina/sparse_K40_step1259.ckpt` (= `best_val_00000012_000000001259.ckpt`, run `ca_only_sparse_K40`). `sparse_attention=True, n_seq=8, n_spatial=8, n_random=16, update_pair_repr=False, use_tri_mult=False, use_downsampling=False, sc_neighbors=False`. Same as E044/E045.
+- Hardware: 1× L4 (GPU 3), `nohup`, sequential. Wall (gen-only): K=40 (E044 baseline) 1:03, K=64 1:20 (+27%), K=128 2:20 (+122% vs K=40).
+- Driver: `/tmp/run_K_sweep.sh` with `PYTHON_EXEC` exported.
+
+**K-bump hook fire check** — gen log line for K=64: `[K-bump] override → n_seq=12 (×2 = 24 sequential), n_spatial=12, n_random=28 → K_total=64 (trained at K=40).` Same shape for K=128 (logged with K_total=128). No errors / OOM. K=128 fits in 22 GB L4 memory comfortably (sparse `_attn_sparse` materialises `[B*H, N, K, D]` gather tensors; at B=6, H=12, N=200, K=128, D=64 this is ~118 MB per tensor — well within limits).
+
+**Results — pooled designability (N=6 × {50, 100, 200}):**
+
+| arm | L=50 | L=100 | L=200 | pooled | min Å | median Å | mean Å | std Å |
+|---|---|---|---|---|---|---|---|---|
+| K=40 (control) | 2/6 (33%) | **3/6 (50%)** | 0/6 | **5/18 (28%)** | **1.08** | 5.13 | 6.31 | 4.39 |
+| K=64 | 0/6 | 2/6 (33%) | 0/6 | 2/18 (11%) | 1.12 | 8.07 | 7.85 | 4.49 |
+| K=128 | 0/6 | 0/6 | 0/6 | **0/18 (0%)** | 2.11 | 8.60 | 9.45 | 5.20 |
+
+**Monotonic K → worse at every length and every percentile.** K=128 is catastrophically bad (zero designable, every L=100 protein collapsed).
+
+**Per-length sorted scRMSD (Å):**
+
+- L=50: K=40 `[1.29, 1.31, 3.20, 4.90, 5.36, 11.40]`, K=64 `[4.01, 6.62, 6.76, 6.83, 10.72, 12.84]`, K=128 `[2.11, 2.75, 2.97, 4.54, 7.04, 7.63]`
+- L=100: K=40 `[1.08, 1.43, 1.58, 4.30, 4.79, 6.31]`, K=64 `[1.12, 1.41, 2.20, 2.83, 3.16, 9.30]`, K=128 `[3.28, 7.08, 8.18, 9.02, 9.16, 11.36]`
+- L=200: K=40 `[7.87, 9.96, 10.87, 11.63, 12.52, 13.74]`, K=64 `[10.34, 11.64, 12.42, 12.62, 12.74, 13.78]`, K=128 `[14.82, 15.24, 15.38, 15.41, 16.67, 16.71]`
+
+**Per-protein paired (same noise; K=40 / K=64 / K=128):**
+
+| L | id | K=40 | K=64 | K=128 | Δ64 | Δ128 |
+|---|---|---|---|---|---|---|
+| 50 | 0 | 11.40 | 10.72 | **2.11** | −0.68 | **−9.29** |
+| 50 | 1 | 1.31 ✓ | 6.62 | 7.63 | +5.31 | +6.32 |
+| 50 | 2 | 3.20 | 6.83 | 2.97 | +3.63 | −0.24 |
+| 50 | 3 | 1.29 ✓ | 4.01 | 4.54 | +2.72 | +3.25 |
+| 50 | 4 | 5.36 | 12.84 | 6.84 | +7.48 | +1.48 |
+| 50 | 5 | 4.90 | 6.76 | 3.37 | +1.86 | −1.53 |
+| 100 | 0 | 1.43 ✓ | 2.20 | 8.18 | +0.77 | **+6.75** |
+| 100 | 1 | 1.08 ✓ | 2.83 | 9.16 | +1.75 | **+8.08** |
+| 100 | 2 | 6.31 | 9.30 | 11.36 | +2.98 | +5.05 |
+| 100 | 3 | 4.30 | **1.12 ✓** | 7.08 | −3.18 | +2.78 |
+| 100 | 4 | 1.58 ✓ | 1.41 ✓ | 3.28 | −0.17 | +1.71 |
+| 100 | 5 | 4.79 | 3.16 | 9.02 | −1.63 | +4.22 |
+| 200 | 0-5 | (all collapsed in all arms; K=128 deeper still by +4-7 Å) | | | | |
+
+**Designability flips:**
+
+- K=40 → K=64: 4× DESIGN→FAIL, 1× FAIL→DESIGN — net −3.
+- K=40 → K=128: 5× DESIGN→FAIL, 0× FAIL→DESIGN — net −5.
+- K=64 → K=128: 2× DESIGN→FAIL, 0× FAIL→DESIGN — K=128 strictly worse than K=64.
+
+**L=100 cluster proportions (clean<3 / mid 3-5 / collapsed>5):**
+
+| arm | clean | mid | collapsed |
+|---|---|---|---|
+| K=40 | 3 [1.08, 1.43, 1.58] | 2 [4.30, 4.79] | 1 [6.31] |
+| K=64 | 4 [1.12, 1.41, 2.20, 2.83] | 1 [3.16] | 1 [9.30] |
+| K=128 | **0** | 1 [3.28] | **5** [7.08, 8.18, 9.02, 9.16, 11.36] |
+
+K=64 actually *tightens* the L=100 top of distribution (4 clean vs 3 baseline) but pushes two previously-designable samples (1.08, 1.43) just over the 2 Å line (to 2.83 and 2.20). K=128 obliterates the clean cluster entirely.
+
+**E045 L=50 std-collapse reproduction check (per task request):**
+
+| arm | L=50 std Å | L=50 min Å | L=50 max Å |
+|---|---|---|---|
+| K=40 baseline | 3.76 | 1.29 | 11.40 |
+| **E045 realloc** | **0.92** | **0.63** | **3.10** |
+| K=64 | 3.21 | 4.01 | 12.84 |
+| K=128 | 2.22 | 2.11 | 7.63 |
+
+**The L=50 std-collapse does NOT reproduce at K=64 or K=128.** It was a property of the E045 *realloc curriculum* (sequential-only at low t), not a general K-effect. K=128 has the smallest L=50 std after E045 (2.22), but the count is 0/6 and min is 2.11 — distinctly different from E045's 3/6 at min 0.63 with every sample <3.10 Å. This rules out "more K → tighter L=50" as the mechanism behind E045's win; the win was specifically about *replacing* spatial+random with extra sequential, not adding more slots overall.
+
+**Generation wall-clock per K (3 lengths × N=6 = 18 proteins per gen run, 1× L4):**
+
+| arm | gen wall | per-protein |
+|---|---|---|
+| K=40 (E044 baseline) | ~1:03 (63 s) | ~3.5 s |
+| K=64 | 1:20 (80 s) | ~4.4 s |
+| K=128 | 2:20 (140 s) | ~7.8 s |
+
+K=64 is +27% wall vs K=40, K=128 is +122% (~2.2× K=40). Sub-linear in K because the early `topk` for sequential neighbors is N-dependent and constant across K, and the gather pattern bandwidth dominates only for the larger K values. Eval cost is unchanged across K (ESMFold + ProteinMPNN don't depend on the diffusion architecture).
+
+**Verdict — inference-only K-bump strictly hurts; the trained K=40 distribution shift dominates any architectural gain:**
+
+1. **K=40 is the floor at inference time.** Both K=64 and K=128 strictly underperform K=40 at every length × every percentile. K=128 produces zero designable samples across 18 proteins.
+2. **Failure mode is consistent**: the trained model's per-slot attention biases (q/k/v projections + AdaLN-Zero gates + softmax temperature) were calibrated against 40-slot input. Adding more slots dilutes attention across additional candidates that the trained weights cannot weight correctly. The dilution scales with K — K=64 hurts modestly, K=128 catastrophically.
+3. **No architectural-ceiling signal.** This experiment cannot distinguish "K=40 is the model's true expressive ceiling" from "the K=40 trained weights cannot use a wider neighbor list at inference time but a K=64-trained model could". The decision-relevant test is **a retraining run at K=64**, not more inference-only sweeping.
+4. **The L=100 K=64 result is the most informative sub-finding**: 4 clean samples (vs 3 baseline) with two of the previously-clean samples drifting *just* over the designability threshold (1.43 → 2.20, 1.08 → 2.83). The L=100 distribution is *almost* the same as baseline, just shifted up by ~0.7 Å on the clean cluster. Reads as "the K=64 input wants to produce the same structure but the trained weights are now slightly miscalibrated" — which is the predicted distribution-shift story, not an architectural-ceiling story. **A retraining run at K=64 with the same recipe would test whether removing the calibration mismatch closes the L=100 gap.** Given the canonical baseline still beats sparse_K40 at L=100 (E019: canonical 67% vs sparse 3.3% at N=30), and the L=100 K=64 inference shows no obvious ceiling-related signal beyond the calibration shift, **a K=64 retrain is justified as the next architectural test of this variant**.
+
+**Recommendation surfaced explicitly:** the inference-only K-bump did **not** trigger a retrain on its own (the rule was "if K=64/K=128 *helps* L=100 at N=6, retrain"). It did, however, rule out the trivial path. Combined with E044's "spatial+random groups carry non-trivial info at low t" and E045's "the L=100 bottleneck is information-channel-limited, not composition-limited", the cumulative evidence is consistent with "trained K=40 is undercapacity at L=100 but retraining is the only way to get a clean test". A K=64 retraining run at the canonical recipe (same model size, same wd=0.05, same constant LR=2e-4, same chained slot structure) is justifiable as an architectural ablation; expected wall-clock is comparable to the K=40 baseline (the gather pattern is the bottleneck at training too, but the throughput penalty is bounded — see the 27% inference penalty here).
+
+**Methodological caveats:**
+
+- **N=6 per length, single seed=5.** Same caveat as E044/E045. The N=6 numbers should not be over-interpreted at the per-length granularity — except that the K=40 → K=128 monotonic degradation across all 18 paired proteins (with 5× DESIGN→FAIL flips and zero rescues) is strong enough that N=6 noise cannot explain the direction. K=128 is robustly worse than K=40 at this protocol; K=64 vs K=40 is less robust but directionally aligned.
+- **Inference-only test on a K=40-trained checkpoint.** The whole experiment's logic depends on the trained weights being calibrated for K=40; results say nothing about the architectural capacity of a K=64-trained model.
+- **Single composition ratio (canonical 40/20/40) preserved across K.** Could in principle test K=64 with a different ratio (e.g., 32/16/16 = 64-with-more-sequential) but that conflates K-axis with composition-axis (the E044/E045 axis). Single-axis test was the design goal.
+- **Wall-clock measured on a single L4 with no co-tenant load**, but the box is shared and the absolute numbers might shift on different hardware. The K=40-relative ratios should be more portable.
+- **scRMSD < 2 Å with ProteinMPNN `ca_only=True` (8 seqs/protein, default), ESMFold backbone reconstruction.** Standard CLAUDE.md eval protocol; matches E044/E045 protocol.
+- **K_total=128 was the upper bound tested.** K=256 is technically feasible (the L4 has enough memory) but the K=64→K=128 monotonic degradation makes K=256 unlikely to flip the verdict. Skipped.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. **What this entry decides:** (1) inference-only K-bump is a dead end on a K=40-trained checkpoint (rules out the cheapest path); (2) the L=100 K=64 calibration-shift signature is consistent with (but does not prove) "K=64 retraining could close the L=100 gap"; (3) K=40 is the inference *floor* for this checkpoint, so no future inference-time intervention should bump K — only retraining can.
+
+**Cross-references:**
+- Code change: `proteinfoundation/generate.py` post-load K-override block (no change to `local_latents_transformer.py`).
+- Configs: `configs/inference_sparse_K40_step1259_K64_n6_nfe400.yaml`, `configs/inference_sparse_K40_step1259_K128_n6_nfe400.yaml`.
+- Output CSVs: `inference/results_inference_sparse_K40_step1259_K64_n6_nfe400_0.csv`, `inference/results_inference_sparse_K40_step1259_K128_n6_nfe400_0.csv`.
+- Logs: `nohup_inference_sparse_K40_step1259_K{64,128}_n6_nfe400.gen.log`, `*.eval.log`.
+- K=40 baseline reused from: [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (`results_inference_sparse_K40_step1259_baseline_n6_nfe400_0.csv`).
+- Composition-axis companions: [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (mask), [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (realloc).
+- Dense baseline at the same N=30 protocol: [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) — canonical 67% vs sparse 3.3% at L=100, the gap this entry was probing.
 
 ---
 
-## E048 — BigBird wiring audit on E047 step 1200 (2026-05-12)
+## E049 — First inference probe of the K=64 + curriculum-trained ckpt (`ca_only_sparse_K64_curriculum_self`, ep=9 step=944, 2026-05-08)
+
+> Renumbered from local E047 on 2026-05-12 merge. References to "E046" inside this section's body now point to the K-bump experiment ([E048](#e048--inference-only-k-bump-sweep-k40--k64--k128-on-plain-sparse_k40-step-1259-2026-05-07)); the cap-fix [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) is a separate, later experiment.
+
+**Why ran:** Direct retraining test of the E044/E045 mechanism. E044 (mask) and E045 (realloc) were inference-only on a K=40-trained checkpoint; both hurt pooled designability but E045 produced a striking L=50 win (3/6 designable, every sample <3.10 Å, min 0.63 Å). The follow-up question was: does *retraining* with the schedule baked in turn that L=50 free lunch into a robust property AND close the L=100 gap that the inference-only test could not? The user trained `ca_only_sparse_K64_curriculum_self` from scratch with K=64 + a t-bucketed curriculum (also bundling self-inclusion as a third architectural change). This entry is the first designability probe of that ckpt at best_val ep=9 step=944.
+
+**What's new in this architecture (vs the K=40 sparse baseline):**
+
+1. **K=64** with canonical composition `8 / 16 / 32` (sequential per-side / spatial / random). Total 16 + 16 + 32 = 64 slots.
+2. **Curriculum baked into training**: at every training step, each protein's t draw maps to one of three buckets and the neighbor list is built with that bucket's `(n_seq, n_spatial, n_random)`. Per-protein t means proteins in different buckets within the same batch all get serviced by one `build_neighbor_idx` call per non-empty bucket. Schedule:
+    - `t < 0.33`         → `(32, 0, 0)`   = 64  (sequential-only, low-t)
+    - `0.33 ≤ t < 0.66`  → `(16, 8, 24)`  = 64  (interpolate)
+    - `t ≥ 0.66`         → `(8, 16, 32)`  = 64  (canonical SALAD, high-t)
+3. **Self-inclusion** in the neighbor list. HEAD's `sparse_neighbors.py` no longer applies the `eye` exclusion mask to `base_invalid` — residue i can be its own neighbor. This is the third architectural change between this ckpt and the K=40 sparse baselines (and is a documented confound in the cross-arm comparison).
+4. **`opt.compile_nn=True`** is in the saved hyperparameters → `torch.compile(mode="reduce-overhead", fullgraph=False)` is auto-applied at inference load. No Fix C2 (`sc_neighbors=False` in saved hyperparams).
+
+**Configs:**
+- Inference YAML: `configs/inference_sparse_K64_curriculum_step944_n6_nfe400.yaml`. Inherits `inference_base.yaml` (`seed=5, nsteps=400`); `nlens_cfg=[50, 100, 200]`, `nsamples=6`. `generation.args.curriculum_neighbors: True` is **redundantly explicit** — the curriculum auto-fires from the saved `cfg_exp.training.curriculum_neighbors=True` via `proteina.py:128 _sc_neighbors_kwargs`. The YAML flag exists for documentation/legibility in `resolved_config.yaml`; the post-load hook in `generate.py` re-sets the same attribute.
+- Code state at HEAD: `local_latents_transformer.py:174-264` `_build_neighbor_idx` now supports per-protein t buckets (groups proteins by bucket index, calls `build_neighbor_idx` once per non-empty bucket, scatters back). `sparse_neighbors.py` removes the self-exclusion `eye` mask. `proteina.py:139-146` triggers `torch.compile` on `self.nn` when `cfg_exp.opt.compile_nn=True`.
+- Checkpoint: `/home/ks2218/la-proteina/best_val_00000009_000000000944.ckpt` (rsynced from `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K64_curriculum_self/1778188245/checkpoints/`). Verified ckpt hyperparams: `run_name_=ca_only_sparse_K64_curriculum_self`, `global_step=944`, `cfg_exp.nn.n_seq=8 n_spatial=16 n_random=32`, `cfg_exp.training.curriculum_neighbors=True`, `cfg_exp.training.sc_neighbors=None`, `cfg_exp.opt.compile_nn=True`. Distinct from the earlier ep=8 step=881 ckpt (also rsynced); 944 is the more-recent best_val. Both are from the same run id 1778188245.
+- Hardware: 1× L4 (GPU 3), `nohup`, sequential. Wall: gen 4:50 (290 s for 18 proteins ≈ 16 s/protein, ~3-4× the K=40-no-compile baseline due to compile trace + curriculum's 3-bucket call overhead — though the per-length trace was much faster than the user's ~5 min/length estimate, only ~1.5 min/length). Eval ~9 min.
+- Driver: `/tmp/run_K64_curriculum.sh` with `PYTHON_EXEC=/home/ks2218/.conda/envs/laproteina_env/bin/python` exported.
+
+**Hook fire confirmation** — gen log: `opt.compile_nn=True — wrapping self.nn with torch.compile (mode=reduce-overhead, fullgraph=False)` at line 1; `[Curriculum neighbors] ON — 3-bucket K=64 reallocation: t<0.33 → (n_seq=32, n_sp=0, n_rd=0); 0.33≤t<0.66 → (16, 8, 24); t≥0.66 → (8, 16, 32)` at line 2. No assertion failures across 400 nsteps × 18 proteins.
+
+**Results — pooled designability (N=6 × {50, 100, 200}):**
+
+| arm | L=50 | L=100 | L=200 | pooled | min Å | std at L=50 | training step |
+|---|---|---|---|---|---|---|---|
+| K=40 sparse baseline (E044) | 2/6 | **3/6** | 0/6 | **5/18 (28%)** | 1.08 | 3.76 | 1259 |
+| K=40 + E045 inference realloc | **3/6** | 0/6 | 0/6 | 3/18 (17%) | **0.63** | **0.92** | 1259 (same ckpt) |
+| **K=64 curriculum-trained (E047)** | **3/6** | 1/6 | 0/6 | 4/18 (22%) | 0.91 | 4.04 | **944** |
+
+**Per-length sorted scRMSD (Å):**
+
+- L=50: K=40_baseline `[1.29, 1.31, 3.20, 4.90, 5.36, 11.40]`, E045 `[0.63, 1.47, 1.80, 2.35, 2.82, 3.10]`, **E047 `[0.91, 1.16, 1.96, 3.89, 4.48, 11.73]`**
+- L=100: K=40_baseline `[1.08, 1.43, 1.58, 4.30, 4.79, 6.31]`, E045 `[2.47, 2.78, 3.03, 4.49, 7.02, 9.04]`, **E047 `[1.22, 2.48, 3.61, 7.84, 11.23, 15.26]`**
+- L=200: K=40_baseline `[7.87, 9.96, 10.87, 11.63, 12.52, 13.74]`, E045 `[13.06, 14.23, 15.07, 15.41, 16.05, 16.26]`, **E047 `[9.64, 11.56, 13.70, 14.69, 16.10, 16.69]`**
+
+**Per-protein paired (same noise; K=40_base / E045 realloc / K=64 curriculum):**
+
+| L | id | K40 base | K40 realloc | K64 curriculum | Δ(curr − base) | Δ(curr − realloc) |
+|---|---|---|---|---|---|---|
+| 50 | 0 | 11.40 | 0.63 ✓ | **1.96 ✓** | **−9.44** | +1.33 |
+| 50 | 1 | 1.31 ✓ | 3.10 | 3.89 | +2.58 | +0.79 |
+| 50 | 2 | 3.20 | 1.47 ✓ | **0.91 ✓** | −2.29 | −0.56 |
+| 50 | 3 | 1.29 ✓ | 1.80 ✓ | 11.73 | +10.44 | +9.93 |
+| 50 | 4 | 5.36 | 2.35 | 4.48 | −0.89 | +2.13 |
+| 50 | 5 | 4.90 | 2.82 | **1.16 ✓** | −3.74 | −1.66 |
+| 100 | 0 | 1.43 ✓ | 9.04 | 7.84 | +6.41 | −1.20 |
+| 100 | 1 | 1.08 ✓ | 2.47 | 3.61 | +2.53 | +1.14 |
+| 100 | 2 | 6.31 | 4.49 | **15.26** | +8.94 | +10.77 |
+| 100 | 3 | 4.30 | 7.02 | 2.48 | −1.82 | −4.54 |
+| 100 | 4 | 1.58 ✓ | 3.03 | 1.22 ✓ | −0.35 | −1.81 |
+| 100 | 5 | 4.79 | 2.78 | 11.23 | +6.44 | +8.44 |
+| 200 | 0–5 | (all collapsed in all arms; K=64 mean 13.73 vs K=40 baseline 11.10) | | | | |
+
+**Designability flips, K=40_baseline → K=64_curriculum:**
+
+- 4× DESIGN→FAIL: L=50 id=1 (1.31→3.89), L=50 id=3 (**1.29→11.73** — the most extreme paired loss in the run), L=100 id=0 (1.43→7.84), L=100 id=1 (1.08→3.61).
+- 3× FAIL→DESIGN: L=50 id=0 (**11.40→1.96** — full collapse rescue), L=50 id=2 (3.20→0.91), L=50 id=5 (4.90→1.16). All three rescues at L=50.
+- Net: −1 designable. Pooled 5/18 → 4/18.
+
+**L=100 cluster proportions (clean<3 / mid 3-5 / collapsed>5):**
+
+| arm | clean | mid | collapsed |
+|---|---|---|---|
+| K=40 baseline | 3 [1.08, 1.43, 1.58] | 2 [4.30, 4.79] | 1 [6.31] |
+| K=40 + E045 realloc | 2 [2.47, 2.78] | 2 [3.03, 4.49] | 2 [7.02, 9.04] |
+| **K=64 curriculum (E047)** | 2 [1.22, 2.48] | 1 [3.61] | **3 [7.84, 11.23, 15.26]** |
+
+The L=100 collapsed-cluster GROWS under retraining (3 vs baseline's 1; one sample at 15.26 Å is essentially fully collapsed). Mean scRMSD at L=100: K=40 baseline 3.25 → E045 realloc 4.81 → **K=64 curriculum 6.94** (worse than realloc, much worse than baseline).
+
+**Verdict — the L=50 free lunch survives retraining; the L=100 gap does NOT close (yet):**
+
+1. **L=50 confirmed.** Both *inference-only* (E045 realloc on K=40 ckpt: 3/6, min 0.63) and *baked into training* (E047 K=64 + curriculum + self-incl: 3/6, min 0.91) produce 3/6 designable at L=50 with sub-1-Å minimum. **The curriculum direction is real for short proteins** — the mechanism survives the harder test of "model trained against this composition does no worse than inference-time forcing".
+2. **L=50 std-collapse does NOT survive retraining.** E045's tight cluster (std 0.92, max 3.10) was an inference-only artifact of forcing exactly one schedule mode. With training, the model can use multiple input modes and the L=50 std rebounds (4.04, max 11.73 — even one paired protein, id=3, fully collapses 1.29→11.73). The robust property is the count, not the dispersion.
+3. **L=100 retraining made things WORSE, not better.** 1/6 designable (vs K=40 baseline's 3/6). Three samples at L=100 are now fully collapsed (>7 Å). Mean scRMSD almost 2× the K=40 baseline. The retraining hypothesis (curriculum + retraining = closes L=100 gap) is **not** supported at this training step.
+4. **L=200 unchanged.** No length-dependent intervention has helped L=200; not specific to this entry.
+
+**Crucial caveat — three confounds vs the K=40 baseline:**
+
+1. **Step mismatch.** E047 ckpt is at step 944; K=40 baseline (E044/E045 reused) was at step 1259. That's −25% training steps. Per the canonical baseline's best_val window (1800-2200) and the sparse_K40 converged plateau at 1133-1259, E047 is *under-trained* for an apples-to-apples test. The L=100 picture might improve substantially with more training. The L=50 result already matches the inference-only ceiling at this step, so further training mostly tests whether L=100 catches up.
+2. **K-axis change.** K=40 vs K=64 is a parallel architectural axis (not just the curriculum). E046 showed inference-only K-bumps strictly hurt the K=40 ckpt; the K=64 retrained model might benefit from the larger K, or might not (this entry can't isolate that).
+3. **Self-inclusion.** HEAD's `sparse_neighbors.py` allows residue i to be its own neighbor; the K=40 sparse baseline excluded self via the `eye` mask. Mechanistically, self-inclusion gives the attention the option to keep/return-to its own residual signal even when external neighbors are noisy — likely helpful at low t. It's bundled in this run; isolating its contribution would need a `K=64 + curriculum + no-self-inclusion` retrain, which we don't have.
+
+**What this entry decides** (cautiously, given the confounds):
+
+- **The L=50 boost from the curriculum is robust enough to commit to** — it appears in both inference-only (E045) and baked-in-training (E047) tests with consistent direction and similar magnitude. Variant comparisons that include a short-protein arm should probably include a curriculum-trained K=64 model.
+- **The "retrain with curriculum to close L=100" hypothesis is not yet supported.** At step 944 the L=100 picture is worse than the K=40 baseline at step 1259. Two paths from here: (a) wait for more training and re-probe (cheapest); (b) accept that the curriculum-on-its-own may not help L=100 and design a different intervention specifically for L=100 (longer-range mixing module, denser at low t — the opposite of E045's direction, etc.). Decision blocked on (a).
+- **An undertraining cross-check is the immediate next probe**: re-probe this same run at a later step (e.g., step 1259 to match the K=40 baseline, or step 1800 to enter the canonical-recipe window). If L=100 designability rises above K=40 baseline at matched step, the retraining hypothesis is supported. If it stays at 1/6 or drops further, the curriculum is not the right L=100 lever.
+
+**Methodological caveats:**
+
+- **N=6 per length.** Same as E044/E045/E046. The L=100 collapse-cluster growth (3 samples, two at >10 Å) is the most directionally robust signal here; +1 net at L=50 is well within Wilson noise but consistent with the prior E045 result.
+- **Three architectural confounds bundled** as listed above.
+- **Inference-time t is uniform across the batch** (Euler integration), so the per-protein-bucket logic in `_build_neighbor_idx` collapses to "one bucket per integrator step" — the per-protein machinery is exercised only at training. The training-time per-protein bucketing is the harder mechanism to validate; this entry only validates the inference path through the trained weights.
+- **Compile cost is bundled in the wall-clock numbers**. K=40-no-compile baseline was 63 s for 18 proteins; this run was 290 s. Most of the gap is the trace (compile-on cold-cache costs), not the steady-state K-bump (which only added ~30% in E046). If timing matters, a `compile_nn=False` override on a follow-up probe would clean this up.
+- **scRMSD < 2 Å with ProteinMPNN `ca_only=True`, ESMFold backbone reconstruction.** Standard CLAUDE.md eval protocol.
+- **Paired-by-noise** vs E044 baseline / E045 realloc holds for the `bb_ca` channel only (CA-only, same shape across arms). Different model weights = different attention dynamics; the *initial noise* is paired, the *integrated trajectories* diverge.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. Updates the picture from E044/E045/E046:
+- **L=50 curriculum direction = real, retraining-validated.**
+- **L=100 retraining hypothesis = not yet supported at step 944. Re-probe at step 1259+ before drawing conclusions.**
+- The "K=40 inference-only floor" finding from E046 is moot for this run (different architecture); whether K=64 is a good architectural choice is a separate question gated on the L=100 catch-up.
+
+**Cross-references:**
+- Predecessors: [E044](#e044--inference-only-neighbor-list-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (mask), [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) (realloc — the L=50 result this entry validates), [E048](#e048--inference-only-k-bump-sweep-k40--k64--k128-on-plain-sparse_k40-step-1259-2026-05-07) (K-sweep — confirmed inference-only K-bump cannot test architectural ceiling, motivating this retraining).
+- Code: `proteinfoundation/nn/local_latents_transformer.py` (per-protein t bucket logic at lines 174-264); `proteinfoundation/nn/modules/sparse_neighbors.py` (self-inclusion); `proteinfoundation/proteina.py:139-146` (compile hook), `:122-128` (curriculum kwarg plumbing).
+- Configs: `configs/inference_sparse_K64_curriculum_step944_n6_nfe400.yaml`; `configs/training_ca_only_sparse_K64_curriculum.yaml` (training side); `configs/nn/ca_only_sparse_K64_curriculum_160M.yaml` (NN config).
+- Output CSV: `inference/results_inference_sparse_K64_curriculum_step944_n6_nfe400_0.csv`.
+- Logs: `nohup_inference_sparse_K64_curriculum_step944_n6_nfe400.gen.log`, `*.eval.log`.
+- HPC source: `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K64_curriculum_self/1778188245/checkpoints/best_val_00000009_000000000944.ckpt` (rsynced 2026-05-08).
+
+## E050 — Steering audit matrix — predictor × ensemble × fold × smoothing (2026-05-10)
+
+> Renumbered from local E048 on 2026-05-12 merge.
+
+**Status:** finished.
+
+**Why ran.** Five sanity-check questions and three matrix gaps surfaced when re-reading Finding 10's "two fixes layered" claim against what was actually measured:
+
+1. **Fold confounding** — every published "single noise-aware fold" cell uses fold 2 (E029, E031), picked because of its highest `val_r²_noisy`. Folds 0, 1, 3, 4 had never been individually probed → "is fold 2 specially smart?" was an open question that, if answered "yes", would weaken the F10 ensembling mechanism story.
+2. **Smoothing confounding** — the clean+ensemble baseline (E028) used Gaussian smoothing σ=0.1, K=4. Every other Finding-10 cell has smoothing off. So the "E028 vs E032" comparison conflated "ensemble alone" with "ensemble + smoothing". A clean+ensemble *without* smoothing cell was needed to separate the two contributions.
+3. **Reporting inconsistency** — n=4 smokes report `per-protein gap = pred − real`; n=48 sweeps report `Δratio = Δpred / Δreal`. No unified table across all four corners (clean / NA-v1) × (single / ensemble) of the matrix.
+
+Plus three structural gaps:
+
+- Clean + single fold at the smoke-gap format (E025 measured it differently).
+- NA-v1 single fold only ever measured at n=4 (E029 / E031); no n=48 head-to-head against E028 / E032's full sweeps.
+- Clean + ensemble + **no smoothing** never run.
+
+This entry's job is to defend Finding 10 against audit-style review without hand-waving.
+
+**Configs.** Driver: `script_utils/audit_steering_matrix.py` (4 stages: write-configs / generate / eval / report; idempotent). 12 cells total under `steering/config/audit_matrix/`:
+- 7 n=4 smokes (seeds {42-45}, L=300, w=16): `clean_fold0`, `clean_fold2`, `clean_ensemble_nosmoothing`, `na_v1_fold0`, `na_v1_fold1`, `na_v1_fold3`, `na_v1_fold4`.
+- 5 n=48 sweep (seeds 42-57 × L∈{300,400,500}): `na_v1_fold2_sweep_w{1,2,4,8,16}`.
+- All cells: `inference_ucond_notri_long`, **nsteps=400 hardwired in driver**, schedule `linear_ramp(t_start=0.3, t_end=0.8, t_stop=0.9)`, `gradient_norm=unit`, `gradient_clip=10.0`, `channel=local_latents`, smoothing OFF (the new clean ens5 cell deliberately drops the σ=0.1, K=4 used in E028 to isolate the smoothing contribution).
+- Predictor checkpoints: clean = `laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_{0..4}_best.pt`; NA-v1 = `laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt` (same as E029-E032; no re-training).
+- Hardware: 2× L4 (CUDA_VISIBLE_DEVICES split: arm A = my assigned GPU, arm B = idle GPU 1), nohup, ~108 min wall for 268 PDBs end-to-end (gen). TANGO eval ~3 min total. Real TANGO via local binary (`~/.local/bin/tango`).
+- Patch to driver: added `--cells <names>` filter to `stage_generate` (5 lines) so two parallel arms can split the work across 2 GPUs without modifying the cell registry.
+- Output: `results/audit_matrix/<cell>/{guided/, diagnostics/, properties_guided.csv}` per cell. Aggregated report: `audit_report.md`.
+
+**Results — Table 1 (n=4 smoke, L=300, w=16, tango_min):**
+
+| Cell | Predictor | Fold | Smoothing | n | pred mean | real mean | **gap mean** | gap std |
+|---|---|---|---|---|---|---|---|---|
+| E028 ref | clean | ens5 | σ=0.1, K=4 | 4 | 378.5 | 581.9 | **-203.5** | 49.3 |
+| E029 ref | NA-v1 | fold2 | off | 4 | 540.0 | 587.5 | **-47.5** | 47.9 |
+| Tier 1.1 — clean f0 | clean | fold0 | off | 4 | 381.0 | 601.9 | **-220.9** | 64.0 |
+| Tier 1.1 — clean f2 | clean | fold2 | off | 4 | 215.2 | 602.1 | **-386.9** | 113.0 |
+| Tier 1.1 — clean ens5 (no smooth) | clean | ens5 | off | 4 | 390.8 | 594.7 | **-203.9** | 65.0 |
+| Tier 1.2 — NA-v1 f0 | NA-v1 | fold0 | off | 4 | 540.5 | 601.8 | **-61.3** | 45.8 |
+| Tier 1.2 — NA-v1 f1 | NA-v1 | fold1 | off | 4 | 526.7 | 588.9 | **-62.2** | 26.6 |
+| Tier 1.2 — NA-v1 f3 | NA-v1 | fold3 | off | 4 | 537.5 | 596.9 | **-59.4** | 86.1 |
+| Tier 1.2 — NA-v1 f4 | NA-v1 | fold4 | off | 4 | 501.3 | 598.3 | **-97.0** | 46.5 |
+
+**Headline numbers from Table 1:**
+- **Smoothing in E028 contributes essentially nothing** to the gap reduction. E028 ref (clean ens5 + σ=0.1, K=4 smoothing) = -203.5; new clean ens5 *without* smoothing = -203.9 (Δ = +0.4, smaller than the gap std of 49-65). E028's whole gap-reduction-from-single-fold story is **100% the ensembling, 0% the smoothing**. The σ=0.1, K=4 smoothing block in `SteeringGuide` does add cost (~5× extra predictor calls) without measurable benefit at this w-level.
+- **Fold 2 is NOT specially smart for NA-v1.** All five NA-v1 single folds give gaps in the [-47, -97] range: f2 = -47.5 (E029 ref), f0 = -61.3, f1 = -62.2, f3 = -59.4, f4 = -97.0. Mean across the 5 NA folds = -65.5; std = 17.7. The original E029 fold-2 reading (-47) sits at the favorable end but is within 1 std of the cross-fold mean. f4 is the worst (-97) but still a 2× improvement over the worst clean fold. **The "fold 2 was cherry-picked by val r²" objection does not break Finding 10** — every NA fold beats every clean fold at gap-closure.
+- **Clean fold 2 is much worse than clean fold 0** in single-fold (-386.9 vs -220.9), and the clean ens5 (-203.9) outperforms either single clean fold by averaging out the f2 disaster. The NA fix specifically rescues clean f2's catastrophic adversarial sensitivity (clean f2: -386.9 → NA f2: -47.5; Δ = +339).
+
+**Results — Table 2 (n=48 full sweep, seeds 42-57 × L∈{300,400,500}, tango_min):**
+
+| Cell | Predictor | Fold | Smoothing | w | n | pred mean | real mean | gap mean | Δpred (vs w=1) | Δreal (vs w=1) | **Δratio** |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| E028 ref full sweep | clean | ens5 | σ=0.1, K=4 | 1 | 48 | 959.8 | 877.9 | +81.9 | +0.0 | +0.0 | n/a |
+| E028 ref full sweep | clean | ens5 | σ=0.1, K=4 | 2 | 48 | 938.6 | 874.4 | +64.2 | -21.2 | -3.5 | 6.01× |
+| E028 ref full sweep | clean | ens5 | σ=0.1, K=4 | 4 | 48 | 897.8 | 868.5 | +29.3 | -62.0 | -9.4 | 6.62× |
+| E028 ref full sweep | clean | ens5 | σ=0.1, K=4 | 8 | 48 | 819.8 | 861.5 | -41.7 | -140.0 | -16.4 | 8.54× |
+| E028 ref full sweep | clean | ens5 | σ=0.1, K=4 | **16** | 48 | 671.9 | 843.9 | **-172.0** | -288.0 | -34.0 | **8.47×** |
+| E032 ref full sweep | NA-v1 | ens5 | off | 1 | 48 | 1011.7 | 893.3 | +118.5 | +0.0 | +0.0 | n/a |
+| E032 ref full sweep | NA-v1 | ens5 | off | 2 | 48 | 999.3 | 889.5 | +109.8 | -12.4 | -3.8 | 3.31× |
+| E032 ref full sweep | NA-v1 | ens5 | off | 4 | 48 | 975.9 | 884.2 | +91.8 | -35.8 | -9.1 | 3.93× |
+| E032 ref full sweep | NA-v1 | ens5 | off | 8 | 48 | 931.2 | 872.3 | +58.8 | -80.6 | -20.9 | 3.85× |
+| E032 ref full sweep | NA-v1 | ens5 | off | **16** | 48 | 837.2 | 833.4 | **+3.8** | -174.5 | -59.9 | **2.91×** |
+| Tier 1.3 — NA-v1 f2 sweep | NA-v1 | fold2 | off | 1 | 48 | 1030.3 | 893.3 | +136.9 | +0.0 | +0.0 | n/a |
+| Tier 1.3 — NA-v1 f2 sweep | NA-v1 | fold2 | off | 2 | 48 | 1013.0 | 892.7 | +120.3 | -17.3 | -0.6 | 29.08× |
+| Tier 1.3 — NA-v1 f2 sweep | NA-v1 | fold2 | off | 4 | 48 | 976.3 | 883.8 | +92.5 | -54.0 | -9.5 | 5.67× |
+| Tier 1.3 — NA-v1 f2 sweep | NA-v1 | fold2 | off | 8 | 48 | 905.4 | 876.7 | +28.8 | -124.8 | -16.7 | 7.49× |
+| Tier 1.3 — NA-v1 f2 sweep | NA-v1 | fold2 | off | **16** | 48 | 768.4 | 855.9 | **-87.5** | -261.8 | -37.4 | **7.00×** |
+
+**Headline numbers from Table 2:**
+- **NA-v1 single fold (fold 2) at n=48 stays in the negative range** at w=16: gap = -87.5 (Δratio 7.0×). This is consistent in *sign* with E029's n=4 pilot (-47), and within the n=4 pilot's ±48 std band. **No crossover-flip** to positive like E032's ensemble did (n=4 pilot -1.6 → n=48 +3.8). The single-fold gap is *not* an artefact of the small n=4 reading; the noise-aware-only fix genuinely leaves a residual -50 to -90 underclaim that ensembling subsequently removes.
+- **Ensembling continues to do meaningful work even after the NA fix is in place.** Single fold at n=48 = -87.5; ensemble at n=48 = +3.8. The 91-unit gap-reduction from ensembling is a real effect on the same n=48 grid, not an n=4 small-sample artefact. The Δratio-on-the-Δ-vs-w=1 axis tightens from 7.0× (single fold) to 2.9× (ensemble) at w=16.
+- **Δratio is driven by the ratio's denominator and is noisy at low w** — Tier 1.3 at w=2 reports 29.08× because Δreal is only -0.6 (close to zero). Comparison should be at w=8 / w=16 where both Δpred and Δreal are well above noise.
+
+**Possible narrative.** Promoted to Finding 10 update (see `content_masterarbeit.md` Finding 10 audit addendum). Two F10-bearing edits land:
+
+1. **Smoothing is removed from F10's mechanism description.** The original F10 framing leaned on "ensemble + smoothing" as the strong-clean-baseline; now we know smoothing did nothing on top of ensembling. The strong-clean-baseline is just *ensembling*. This *strengthens* F10's "two fixes" claim — it is now (noise-aware + ensemble), full stop, with no third-knob ambiguity.
+2. **The "ensemble cancels fold-specific adversarial shortcuts" mechanism story is softened.** Single-fold NA-v1 cells across all 5 folds give similar gap magnitudes (std 17.7 around mean -65.5). Folds aren't differentially-hacked; they're similarly-hacked. Ensembling acts more as **variance averaging across an honest residual** than as adversarial-direction cancellation. The 91-unit gap-reduction-from-ensembling at n=48 is real, but its mechanism is "average out per-fold over-claim biases" not "cancel adversarial directions". F10's compositional-necessity claim survives unchanged; the per-mechanism reading is updated.
+
+**Methodological caveats.**
+- **TANGO-only, no CamSol.** Same as F10 — `compute_developability.py` returns NaN for `camsol_intrinsic` (no public CamSol binary). Audit only covers tango_min direction.
+- **No re-training.** Predictor checkpoints are the same v1 NA fold ckpts E029-E032 used. The audit measures *what the existing predictors do across the full matrix*, not whether different training would change the picture.
+- **Smokes are still n=4.** The clean f0/f2 and NA f0/f1/f3/f4 cells have wide per-cell CIs (gap std 27-113). The "no fold is dramatically different" claim is robust because all 5 NA folds land in [-47, -97], a band tighter than the worst single-cell std — but a single fold being an outlier at n=12 or n=48 is not ruled out by these smokes.
+- **Sweep is single-fold only.** Tier 1.3 measured fold 2 at n=48; folds 0, 1, 3, 4 are still only at n=4. The "all NA folds behave similarly at n=48" claim would require sweeping each fold to n=48 (~5h additional wall on 1 L4); the current data supports the weaker but defensible claim that "the n=4 cross-fold range is consistent with fold 2's n=48 result".
+- **No designability / scRMSD validation.** Audit only re-measures the gap, not the structural-integrity story (which F10's E033/E036/E042 already established at n=12).
+- **No UG K=5 + NA ensemble cell.** Open question from E030's negative result; flagged as the obvious follow-up if F10's gap closure looks tighter post-audit and the user wants to push further.
+
+**Cross-references.**
+- Driver: `script_utils/audit_steering_matrix.py` (`generate` stage gained `--cells` filter for parallel split; the `Cell` registry, eval, and report stages are unchanged from the as-pushed version).
+- Configs: `steering/config/audit_matrix/` (12 YAMLs, committed before this entry).
+- PDBs + diagnostics: `results/audit_matrix/<cell>/{guided/, diagnostics/, properties_guided.csv}`.
+- Aggregated report: `audit_report.md`.
+- Predecessors: [E028](#e028--predictor-vs-real-gap-on-the-may-04-ensemble-steered-run-2026-05-05) (clean ens+smooth baseline), [E029](#e029--noise-aware-predictor-fine-tune-and-single-fold-validation-smoke-2026-05-05) (NA fold 2 single pilot), [E031](#e031--noise-aware-predictor-v2-longer--cosine-decay-and-the-r-vs-hacking-disconnect-2026-05-05) (NA-v2 single-fold negative result), [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05) (NA + ensemble combined fix).
+- Driven by: [Finding 10](content_masterarbeit.md) audit pass.
+
+---
+
+## E051 — N=3 quick designability probe of `ca_only_sparse_K64_curriculum_self` at step 1800 (2026-05-10)
+
+> Renumbered from local E049 on 2026-05-12 merge. References to "E047" in this section's body now point to [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08).
+
+**Status:** finished.
+
+**Why ran:** Fast convergence check on the K=64 SALAD-canonical sparse + low-t→SALAD curriculum + self-inclusion variant after the latest rsync brought a newer `last.ckpt` (epoch=17, global_step=1800 — ~91% past E047's step 944, and well into the canonical baseline's 1800-2200 best-val window). E047 left two open questions: (a) does the L=50 curriculum direction hold at higher step? (b) does the L=100 retraining hypothesis show any sign of life with more training? N=3 per length is the cheapest read that answers "is the picture qualitatively the same / better / worse" before committing GPU to a full N=6 panel.
+
+**Configs:**
+- Inference YAML: `configs/inference_sparse_K64_curriculum_self_step1800_n3_nfe400.yaml`. Inherits `inference_base.yaml` (`seed=5, nsteps=400`); `nlens_cfg=[50, 100, 200]`, `nsamples=3`, `max_nsamples_per_batch=3`. Curriculum + self-inclusion auto-fire from saved `cfg_exp.training.curriculum_neighbors=True`.
+- Checkpoint: `/home/ks2218/la-proteina/sparse_K64_curriculum_self_step1800.ckpt` (stable copy of the rsynced `last.ckpt` so the next rsync doesn't clobber it). Verified: `run_name_=ca_only_sparse_K64_curriculum_self`, `epoch=17`, `global_step=1800`, `cfg_exp.training.curriculum_neighbors=True`, `cfg_exp.opt.compile_nn=True`. Same training run id 1778188245 as E047's step 944 ckpt.
+- Hardware: 1× L4 (GPU 2), `nohup`, sequential. Wall: gen 4:39 (279 s for 9 proteins ≈ 31 s/protein — ~2× E047's per-protein cost because compile cold-cache is amortised over fewer proteins per length); eval ~5 min after `PYTHON_EXEC` and `--config-name`/cwd issues were sorted on attempts 1-3.
+- Driver: ad-hoc inline `nohup bash -c '...'`. Logs: `nohup_inference_inference_sparse_K64_curriculum_self_step1800_n3_nfe400.{gen,eval}.log` (note doubled `inference_` prefix in driver log naming — does not affect content), `nohup_eval_inference_sparse_K64_curriculum_self_step1800_n3_nfe400.log`.
+- Code fixes applied while debugging eval (NOT part of the model — just removing recurring footguns): `proteinfoundation/generate.py:41` accepts both `--config_name` and `--config-name`; `proteinfoundation/metrics/designability.py:133` defaults `PYTHON_EXEC` to `sys.executable` instead of bare `"python"`. Both changes are HEAD as of 2026-05-10. The eval that produced the numbers below ran *after* both fixes, with the laproteina_env `python` invoking `evaluate.py` and the ProteinMPNN subprocess inheriting that env.
+
+**Results — N=3 designability (CA scRMSD vs ESMFold-of-MPNN-redesigned-sequence, ProteinMPNN `ca_only=True`):**
+
+| L | sorted scRMSD (Å) | min | designable (<2Å) |
+|---|---|---|---|
+| 50  | [0.89, 1.67, 3.47]   | 0.89  | 2/3 |
+| 100 | [1.23, 9.46, 10.91]  | 1.23  | 1/3 |
+| 200 | [10.21, 12.38, 17.67]| 10.21 | 0/3 |
+
+Pooled: **3/9 (33.3%)**, mean scRMSD 7.54 Å, no failed/crashed.
+
+**Comparison vs E047 (same model family, step 944, N=6):**
+
+| arm | L=50 | L=100 | L=200 | pooled | min L=50 | min L=100 | step |
+|---|---|---|---|---|---|---|---|
+| K=64 curriculum self (E047) | 3/6 | 1/6 | 0/6 | 4/18 (22%) | 0.91 | 1.22 | 944 |
+| K=64 curriculum self **(E049)** | **2/3** | **1/3** | 0/3 | **3/9 (33%)** | 0.89 | 1.23 | **1800** |
+
+The headline numbers move within sample-size noise on every length: the L=50 success rate is the same proportion (50% → 67% with N=3 is one Wilson-bin), the L=100 success rate is the same proportion (17% → 33% with N=3 is one Wilson-bin), L=200 stays at 0. Mins at L=50 and L=100 are essentially identical (0.89 vs 0.91; 1.23 vs 1.22).
+
+**Verdict — at step 1800 the K=64 curriculum self-inclusion model looks the same as it did at step 944, within N=3 sampling noise:**
+
+- L=50: still produces sub-1-Å samples, still has at least one collapse (3.47 here, 11.73 at step 944). Curriculum L=50 free lunch *survives* further training.
+- L=100: still bimodal — one sample under 1.5 Å, the rest fully collapsed (>9 Å). The "L=100 will close with more training" hypothesis from E047 is **not yet supported** at step 1800. The collapse cluster did not shrink, the clean cluster did not grow. ~91% more training did not move the L=100 picture.
+- L=200: still dead in every sample. No length-dependent intervention has helped L=200 in any K=40 or K=64 sparse arm; not specific to this entry.
+
+**Methodological caveats:**
+
+- **N=3 per length.** This is half of E047's N=6 and an even smaller absolute count. Single-bin Wilson intervals at this N are huge — every per-length number above sits inside the 95% interval of every other arm in the K=64 curriculum family. The right reading is "directionally similar to E047", not "step 1800 has rate X". A full N=6 (or N=12) panel is the correct next probe if a defensible step-1800 number is needed.
+- **Single seed (seed=5, inherited from `inference_base.yaml`).** Same seed as E047, so the L=50 / L=100 noise samples are paired across the two checkpoints — the comparison above is paired-by-noise within each length cell. The noise tensors at L=50 and L=100 should be identical (CA-only, same shape across both runs); the integrated trajectories diverge because the weights at step 1800 ≠ step 944.
+- **Three architectural confounds vs the K=40 sparse baseline are unchanged from E047** (K=40→64, mask-curriculum, self-inclusion); this entry doesn't touch them and inherits all of them.
+- **Eval driver had three failed launches before the fourth produced numbers** (wrong argparse flag, missing PYTHON_EXEC, stale cwd from an earlier `cd` in this session). The first failed launch left empty tmp_dirs that tripped the resume guard on the second; both were cleaned before the fourth attempt. Numbers are from the fourth run on a clean slate.
+- **`nsteps=400`** ✓ (HARD RULE).
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making. Decision it informs: do we keep training `ca_only_sparse_K64_curriculum_self` past step 1800, or call the L=100 gap unresponsive to the curriculum-direction lever and pivot? Recommendation: bank a full N=6 panel at step 1800 first (this entry is N=3, and Wilson-bin overlap with E047 is total). If N=6 still shows L=100 stuck at ≤2/6 designable, the curriculum direction is decided as "L=50 only" and the L=100 work needs a different lever.
+
+**Cross-references:**
+- Predecessor: [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_K64_curriculum_self-ep9-step944-2026-05-08) (same training run, step 944, N=6).
+- Configs: `configs/inference_sparse_K64_curriculum_self_step1800_n3_nfe400.yaml`; training-side `configs/training_ca_only_sparse_K64_curriculum.yaml`; NN side `configs/nn/ca_only_sparse_K64_curriculum_160M.yaml`.
+- Output CSV: `inference/results_inference_sparse_K64_curriculum_self_step1800_n3_nfe400_0.csv`.
+- HPC source: `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K64_curriculum_self/1778188245/checkpoints/last.ckpt` (rsynced 2026-05-09 17:38, copied to stable name 2026-05-10).
+- Code fixes applied during this entry's debug: `proteinfoundation/generate.py:41` (argparse alias), `proteinfoundation/metrics/designability.py:133` (`sys.executable` default for ProteinMPNN subprocess).
+
+## E052 — Universal-guidance K-axis extension, clean predictor (2026-05-10)
+
+> Renumbered from local E050 on 2026-05-12 merge. References to "[E048](...)" in this section's body point to [E050](#e050--steering-audit-matrix--predictor--ensemble--fold--smoothing-2026-05-10) (the audit matrix).
+
+**Status:** finished.
+
+**Why ran.** E030 left "is K=5 special, or is the negative direction monotone?" open, and the [E050](#e050--steering-audit-matrix--predictor--ensemble--fold--smoothing-2026-05-10) audit thread implied a follow-up: now that we know smoothing contributes ~zero on top of ensembling (clean+ens+smooth gap −203.5 ≈ clean+ens no-smooth −203.9, audit Tier 1.1), it's worth probing whether *more* denoising steps with a clean predictor reverse E030's negative direction or confirm the "longer-Jacobian-amplifies-hacking" mechanism story.
+
+Original target was K=20 to make a strong K-axis claim. Three OOM events on L4 (22 GB) walked it back:
+- K=20 + smoothing K_sm=4: ~30 GB needed (E030's K=5 + K_sm=4 fits at ~22 GB; scaling argument predicts 30 GB at K=20).
+- K=20, smoothing off: ~25 GB needed.
+- K=10, smoothing off: ~24 GB needed.
+
+The bottleneck is the K-step inner Euler loop with autograd-tracked flow forwards — each inner step keeps full 160M-param activations live for backward through the predictor. K=8 was the largest value that fit in the budget without committing to gradient checkpointing on the inner loop (which was scoped as a separate ~30 min code change and deferred — see "Methodological caveats" below).
+
+**Configs.**
+- Steering config: `steering/config/universal_guidance_smoke/tango_min_w16_clean_K8.yaml`. 5-fold clean ensemble (same fold ckpts as E028/E030, no NA fine-tune), tango_min, w_max=16, linear_ramp(t_start=0.3, t_end=0.8, t_stop=0.9), `denoising_steps: 8`, **smoothing OFF**.
+- Why smoothing off: audit Tier 1.1 (`clean_ensemble_nosmoothing`) showed clean+ens with σ=0.1, K_sm=4 smoothing gave gap −203.5 vs clean+ens no-smoothing gap −203.9 at the same w=16, L=300, n=4 cell — within the 49–65 gap std. So the smoothing-off K=8 cell is reasonable apples-to-apples with E028 (K=1) and E030 (K=5) for a K-axis comparison, plus K_sm=4 × K_d=8 = 32 inner predictor calls per outer step exceeded the L4 22 GB budget.
+- Run: 4 seeds {42, 43, 44, 45} × L=300 × w_max=16, nsteps=400. Same protein IDs as E029/E030 for direct comparison.
+- Output: `results/universal_guidance_smoke/tango_min_w16_clean_K8/`.
+- Hardware: 1× L4 (GPU 3, the only fully-clean GPU at launch — first attempt on GPU 1 was killed mid-run by a co-tenant grabbing 2.83 GB). PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True on. Wall: ~12 min total (~180 s/protein at L=300; vs E030's 115 s/protein at K=5 → linear scaling in K_d as expected).
+- Driver under nohup; logs at `logs/audit_matrix/k8.log`.
+
+**Results — predictor-vs-real (same 4 seeds, L=300, w=16):**
+
+| K | smoothing | predictor mean | real `tango_total` mean | mean gap | source |
+|---|---|---|---|---|---|
+| 1 | σ=0.1, K_sm=4 | 378.5 | 581.9 | **−203.5** | E028 / E048 ref |
+| 5 | σ=0.1, K_sm=4 | 305.4 | 607.1 | **−301.7** | E030 |
+| **8** | **off** | **307.6** | **616.2** | **−308.6** | E050 (this run) |
+
+Per-protein K=8 gaps: s42 −353.7, s43 −201.8, s44 −310.8, s45 −368.2 (gap std 75.3).
+
+**Headline numbers:**
+- **Monotone-worse but plateauing.** Gap goes K=1: −204, K=5: −302, K=8: −309. The K=1 → K=5 jump nearly doubled the hacking gap; K=5 → K=8 is essentially flat (Δgap = −7, smaller than the per-cell gap std of 75). Extending K past 5 does not reverse E030's negative direction, but it also does not accelerate it.
+- **Real TANGO drifts UP with K.** K=1: 581.9, K=5: 607.1, K=8: 616.2. The clean predictor pushes harder in a less-useful direction as K grows — the 4 PDBs at K=8 are *less* TANGO-minimized than at K=1.
+- **K=5 was not an unlucky local point.** The K=8 cell rules out the "K=5 happened to land in a bad bucket" alternative explanation for E030's negative result. The mechanism story (longer Jacobian = more adversarial leverage on a fragile predictor) is supported by an additional data point in the same direction.
+
+**Possible narrative.** Non-narrative — closes the K-axis open question that E030 / E048 flagged. Updates [Finding 10](content_masterarbeit.md)'s negative-results table to add the K=8 row alongside the existing K=5 entry; the implication line "ordering matters — fix the predictor input distribution before any sampling-time refinement" gets a second supporting data point. No edit to F10's headline claims.
+
+**Methodological caveats.**
+- **n=4, single L, single w, single direction.** Same caveat as E030 — small sample, but the negative direction is consistent across all 4 proteins (K=8 gaps all between −202 and −368, none flip positive).
+- **Smoothing OFF for K=8, ON for K=1 (E028) and K=5 (E030).** The audit-justified choice (audit Tier 1.1 showed smoothing made no measurable difference) means this is approximately apples-to-apples, but not strictly so. A K=1, smoothing-off cell at the same n=4 protocol would close this gap formally; the audit's `clean_ensemble_nosmoothing` cell is exactly that, and it landed at gap −203.9 — essentially identical to E028's −203.5. So the smoothing-off vs smoothing-on comparison at K=1 is settled; the assumption that the same equivalence holds at K=5 and K=8 is the unverified part.
+- **K=20 not measured.** The original target. K-axis past 8 on L4 (22 GB) requires gradient checkpointing on the inner Euler loop (~30 min code change to wrap `flow_step_fn` calls in `torch.utils.checkpoint.checkpoint_sequential`). Deferred — given the K=5 → K=8 plateau, the additional information from a true K=20 cell is unlikely to flip the K-axis story.
+- **Clean-predictor regime only.** The code's `feed_z_t_directly` toggle makes the K-step branch and the noise-aware path mutually exclusive (see `steering/guide.py:143-156`): NA predictors consume z_t directly with no Tweedie / K-step inner loop. So "K=8 + NA-ensemble" is not a defined combination under the current architecture without re-training NA on a different input distribution. F10's mechanism reading — that NA fixes the same problem UG K-step is trying to fix, just at the training layer instead of the inference layer — is consistent with this code-level exclusivity.
+
+**Cross-references.**
+- Predecessors: [E028](#e028--predictor-vs-real-gap-on-the-may-04-ensemble-steered-run-2026-05-05) (K=1 baseline), [E030](#e030--universal-guidance-k5-with-clean-predictor-probe-2026-05-05) (K=5 negative result this entry extends), [E050](#e050--steering-audit-matrix--predictor--ensemble--fold--smoothing-2026-05-10) (smoothing-off equivalence that justifies dropping smoothing here).
+- Driven by: [Finding 10](content_masterarbeit.md) audit thread; closes "no UG K-step + extended K data" open question called out in E048's "What the script will NOT do" section.
+- Configs: `steering/config/universal_guidance_smoke/tango_min_w16_clean_K{8,10,20}.yaml` (K=10 and K=20 configs kept as the failed-OOM record).
+- Output: `results/universal_guidance_smoke/tango_min_w16_clean_K8/{guided/, diagnostics/, properties_guided.csv}`.
+- Logs: `logs/audit_matrix/k8.log` (success), `logs/audit_matrix/k10.log` and `k20.log` (OOM logs preserved as engineering record).
+
+## E053 — CA-only `downsampled` variant canonical N=6 designability probe at step 3716 (2026-05-11)
+
+> Renumbered from local E051 on 2026-05-12 merge.
+
+**Status:** finished.
+
+**Why ran:** Most recent `ca_only_downsampled` ckpt (epoch=36, opt step=3716) was rsynced from HPC. Question: does ~755 additional opt steps past the previous canonical-N=6 read (step 2961, [E034 caveat](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) — 3/18 at nsteps=400) move the variant off its plateau, or is the downsampled arm converged at "L=50 occasional, L≥100 dead"? Decision this feeds: whether to keep training the downsampled chain or call the architectural ceiling reached.
+
+**Configs.**
+- Checkpoint: `/home/ks2218/la-proteina/best_val_00000036_000000003716.ckpt` (epoch 36, opt step 3716; 1.96 GB; rsynced from HPC 2026-05-11 14:17). Architecture loaded from ckpt's `hyper_parameters` (no local `configs/training_ca_only_downsampled.yaml` or `configs/nn/ca_only_downsampled_*.yaml` needed for inference — same as E034).
+- Inference config (new): `configs/inference_downsampled_step3716_n6_nfe400.yaml`. Identical protocol to `inference_downsampled_step2331_n6_nfe400.yaml` / `inference_downsampled_step2961.yaml`: `nsteps=400`, `nsamples=6`, `max_nsamples_per_batch=6`, `nres_lens=[50, 100, 200]`, `seed=5` (inherited from `inference_base.yaml`).
+- Driver: single GPU 0 (L4, 23 GB), serial gen→eval under `nohup`. PID 317001.
+- Output dir: `inference/inference_downsampled_step3716_n6_nfe400/` (18 PDBs across `job_0_n_{50,100,200}_id_{0..5}`). CSV: `inference/results_inference_downsampled_step3716_n6_nfe400_0.csv`.
+- Logs: `nohup_inference_downsampled_step3716_n6_nfe400.gen.log` (49.3s reported by `performance_utils`), `nohup_inference_downsampled_step3716_n6_nfe400.eval.log`, `nohup_inference_downsampled_step3716_n6_nfe400.queue.log`.
+- Wall-clock: gen 14:22:15 → 14:23:26 (71s incl. import/setup; 49.3s predict loop), eval 14:23:26 → 14:32:23 (~9 min ESMFold+MPNN); total ~10 min on 1× L4.
+
+**Results.**
+
+Per-length scRMSD (Å, sorted) and designability (scRMSD_ca_esmfold < 2 Å):
+
+| Length | scRMSD vals (sorted) | min | median | designable |
+|--------|----------------------|-----|--------|------------|
+| L=50   | 1.19, 2.19, 2.28, 2.51, 3.65, 4.23 | **1.19** | 2.51 | **1/6 (17%)** |
+| L=100  | 8.01, 8.51, 8.69, 11.73, 12.19, 15.80 | 8.01 | 11.73 | 0/6 (0%) |
+| L=200  | 9.94, 11.58, 12.06, 13.78, 16.60, 17.37 | 9.94 | 13.78 | 0/6 (0%) |
+| **all** | — | 1.19 | — | **1/18 (5.6%)** |
+
+Cross-step view (same arm, same canonical N=6 × L∈{50,100,200} × nsteps=400 protocol where available):
+
+| Step | L=50 | L=100 | L=200 | Pool | Best Å | Source |
+|------|------|-------|-------|------|--------|--------|
+| 2331 | 0/6 | 0/6 | 0/6 | 0/18 | 12.41 (at nsteps=200) | E034 |
+| 2331 | — | — | — | — | — | nsteps=400 redo queued 2026-05-07 in `run_nfe400_reprobes_queue.sh`; not back-filled in a dedicated E-entry |
+| 2961 | (≥2/6 by E034 caveat phrasing) | mixed | dead | 3/18 (17%) | 1.60 | E034 caveat at line 2814 (referenced inline, no dedicated entry) |
+| **3716 (this)** | **1/6** | **0/6** | **0/6** | **1/18 (5.6%)** | **1.19** | E051 |
+
+Direction: between step 2961 (3/18, best 1.60 Å) and step 3716 (1/18, best 1.19 Å), pooled designability dropped from 17% → 5.6%, but the best L=50 sample improved (1.60 → 1.19 Å). Both lengths L=100 and L=200 stayed dead.
+
+**Possible narrative.** Non-narrative — kept for tuning/decision-making. The downsampled arm has now been canonical-probed at 3 training steps (2331, 2961, 3716), and the pooled designability time-series is **0/18 → 3/18 → 1/18**. This is within N=18 binomial noise, but the picture is consistent with "L=50 occasional, L≥100 architecturally dead". The architectural lever (1D-conv downsampling, BlurPool1D stride configuration per CLAUDE.md notes) does not appear to clear the canonical bar at any of these steps. Could become a methodological aside in the paper if a step-matched debugging pass (canonical step ~2200 vs downsampled step ~2200, intermediate-activation diff at L=100) attributes the L≥100 collapse to a specific mechanism. Not eligible for `content_masterarbeit.md` Finding promotion as-is.
+
+**Decision implications.** The downsampled variant has had ~1400 opt steps past the canonical baseline's best-val window (1800-2200) and has not shown improvement at L≥100. Recommend not chaining more training without a mechanism-level debug — the L=50/L=100 gap is the most informative signal (it's not an "under-trained" failure if L=50 already produces sub-2-Å samples while L=100 simultaneously produces nothing below 8 Å). Compare to the K=64-curriculum arm (E047/E049), which shows the same L=50-good-L=100-mixed-L=200-dead pattern at much earlier steps; this may be a 160M-canonical-recipe ceiling rather than a downsampling-specific failure.
+
+**Methodological caveats.**
+- **N=6/length** is small. The Δ from 3/18 → 1/18 across steps 2961 → 3716 is within ~12 pp binomial 1σ (`sqrt(0.17*0.83/18) ≈ 9 pp`) — the regression is not statistically tight. Conclusion supported by the cross-step pattern (all three reads bunch at "L=50 occasional, L≥100 dead"), not by any one step in isolation.
+- **Seed=5 only.** Single-seed read; same-seed paired comparison to step-2961 not run on this entry (could be added by reusing step 2961's already-on-disk per-(L,id) PDB outputs and quoting scRMSD pair-wise; deferred — not load-bearing for the "ceiling at L=50" call).
+- **No training config / NN config locally.** Architectural details for the downsampled variant remain HPC-only; the verdict here is on the *observed sampling behaviour* of the ckpt's trained weights, not on whether the architecture is "right". A debug pass would need access to the HPC config.
+- **Wall-clock for gen (49 s for 18 samples at nsteps=400)** is suspicious-looking but consistent: prior downsampled probes ran in similar time on L4 (E034 noted "9 min total" for gen+eval at nsteps=200; doubling nsteps roughly doubles gen but eval cost is integrator-independent). Predict loop time printed by `performance_utils` is the authoritative number, not the queue-script wall delta which includes setup.
+- **Not back-filled:** the `inference_downsampled_step2331_n6_nfe400` redo queued in `run_nfe400_reprobes_queue.sh` (E034 caveat) does not have a dedicated E-entry; its CSV (`results_inference_downsampled_step2331_n6_nfe400_0.csv`) is on disk and could be promoted to an entry to complete the 3-step time series. Out of scope for E051.
+
+**Cross-references.**
+- Predecessors: [E034](#e034--ca-only-downsampled-variant-quick-n6-designability-probe-2026-05-06) (step 2331 at nsteps=200, plus the nsteps=400 step-2961 result referenced inline in E034's caveat block); see also `inference/results_inference_downsampled_step2961_0.csv` for the step-2961 canonical CSV (no dedicated entry).
+- Companion architectural-axis arms at canonical N=6 × nsteps=400: [E039](#e039--scnbr_t04--fix-c2-step-1133-designability-clears-the-variant-bar-2026-05-06) (scnbr+Fix C2 step 1133, 3/18), [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) (K=64 curriculum-trained step 944), [E051](#e051--n3-quick-designability-probe-of-ca_only_sparse_k64_curriculum_self-at-step-1800-2026-05-10) (K=64 curriculum-trained step 1800, N=3).
+- Configs: `configs/inference_downsampled_step3716_n6_nfe400.yaml`.
+- Output: `inference/inference_downsampled_step3716_n6_nfe400/`, `inference/results_inference_downsampled_step3716_n6_nfe400_0.csv`.
+- Logs: `nohup_inference_downsampled_step3716_n6_nfe400.{gen,eval,queue}.log`.
+
+---
+
+## E054 — Canonical baseline `last-v2.ckpt` N=6 × nsteps=400 designability probe (step 1952, 2026-05-10)
+
+> Renumbered from local E052 on 2026-05-12 merge.
+
+**Status:** finished (2026-05-10 18:35 BST designability; 2026-05-11 per-t paired add-on; logged 2026-05-11).
+
+**Why ran:** The canonical baseline's "best val ≈ 1800-2200" window sits well below the on-disk anchor ckpt step 2646 — i.e. step 2646 is past the val-loss minimum. User question: does a ckpt *closer to best val* (here `last-v2.ckpt`, Lightning's auto-versioned `last.ckpt` slot-end snapshot on the same `test_ca_only_diffusion/1776805213` canonical run) deliver better designability than the step-2646 ckpt that has been the everyday reference? Decision input for whether the "canonical best" used as the comparison anchor in variant probes (E021/E034/E039/E047/E049/E051) should be re-anchored to a different step.
+
+**Checkpoint provenance (corrected 2026-05-11).** `last-v2.ckpt` was originally inferred to be at "step ~1900" from file mtime; reading the ckpt's `global_step` field directly gives **step 1952, epoch 19**. It is **not** a `best_val_*` ckpt — the `-v2` suffix is Lightning's auto-version for a `last.ckpt` that would otherwise overwrite a prior `last.ckpt`. Each ckpt's `callbacks → ModelCheckpoint` state on disk records the canonical run's true val_loss history:
+
+| local ckpt | step | `current_score` (val_loss/loss_epoch at save) | what it actually is |
+|---|---|---|---|
+| `best_val_00000018_000000001889.ckpt` | 1889 | 4.7919 | best_val at the time |
+| `last-v2.ckpt` | **1952** | **4.7874** | slot-end snapshot, Δ=+0.076 nat above all-time min |
+| `best_val_00000024_000000002457.ckpt` | 2457 | 5.4134 | post-overfit save (mechanism unclear; under save_top_k=1 should not have saved this since the all-time best 4.7115 still held — possibly a chained-restore `best_model_score` reset) |
+| `best_val_00000026_000000002646.ckpt` | 2646 | **5.9237** | post-overfit save; Δ=+1.21 nat above all-time min |
+
+All four ckpts' callback state records `best_model_score = 4.7115` at `best_val_00000021_000000002204.ckpt` — the **all-time canonical val_loss minimum at step 2204**, overwritten under `save_top_k=1` and gone from disk. So `best_val_00000026_000000002646.ckpt` is misnamed as the "best ckpt on disk" only in the sample-quality sense; by val_loss it is 1.13 nat *worse* than `last-v2.ckpt`.
+
+**Configs (re-run-able from this entry):**
+- Inference config: `configs/inference_canonical_lastv2_n6_nfe400.yaml` (inherits `inference_base.yaml` → `nsteps: 400`; CA-only generation; `autoencoder_ckpt_path: ` left empty).
+- Checkpoint: `/home/ks2218/la-proteina/last-v2.ckpt` (1.9 GB, mtime 2026-04-22 22:49; `global_step=1952`, `epoch=19`, `run_name_=test_ca_only_diffusion`).
+- Protocol: N=6 × L ∈ {50, 100, 200}, seed=5, `inference_ucond_notri_ca_only` generation defaults.
+- Driver: `nohup_inference_canonical_lastv2_n6_nfe400.{driver,gen,eval}.log` (single-GPU L4 inference; runtime ~6 min total).
+- Per-t add-on (2026-05-11): `proteinfoundation/run_per_t_val.py --ckpt_name last-v2.ckpt --label canonical_lastv2 --num_proteins 600 --seed 42`; output `results/per_t_val/canonical_lastv2.json`; log `nohup_per_t_canonical_lastv2.log`. Paired with the existing `canonical_2646.json` (E043 protocol, same subset_seed=42 → identical 600-protein subset and per-protein rotations).
+
+**Results.**
+
+| L | designable (<2 Å) | best (Å) | median (Å) | mean (Å) |
+|---|---|---|---|---|
+| 50  | **4/6** (67%) | 0.78 | 1.98 | 2.64 |
+| 100 | **3/6** (50%) | 1.07 | 2.06 | 3.39 |
+| 200 | **0/6** (0%)  | 4.29 | 8.18 | 8.04 |
+| **pooled** | **7/18 = 38.9%** | 0.78 | — | — |
+
+**Per-sample scRMSD (best across recycles, `_res_scRMSD_ca_esmfold`):**
+- L=50: 2.01 / 1.98 / 1.95 / 1.33 / 7.78 / 0.78
+- L=100: 2.06 / 1.39 / 1.07 / 11.66 / 2.60 / 1.58
+- L=200: 6.75 / 8.18 / 7.35 / 11.36 / 4.29 / 10.33
+
+**Cross-step canonical baseline comparison (same `test_ca_only_diffusion/1776805213` run, post-MPNN-fix where applicable):**
+
+| ckpt | step | val_loss/loss_epoch | N/L | L=50 | L=100 | L=200 | pooled |
+|---|---|---|---|---|---|---|---|
+| **last-v2 (this entry)** | **1952** | **4.7874** | 6 | 4/6 (67%) | 3/6 (50%) | **0/6** | **7/18 = 38.9%** |
+| baseline_wd0.05_step2646 (E019) | 2646 | **5.9237** | 30 | 26/30 (87%) | 26/30 (87%) | 16/30 (53%) | 68/90 = **75.6%** |
+| baseline_wd0.05_step2646 (older `inference_2646`) | 2646 | 5.9237 | 3 | 3/3 | 3/3 | 3/3 | 9/9 = 100% |
+
+**Per-t validation loss (paired, seed=42, same 600-protein subset / per-protein rotations):**
+
+| t-bucket | canonical_2646 (E043) | canonical_lastv2 (this entry) | Δ (lastv2 − 2646) | Δ / SEM_lastv2 |
+|---|---|---|---|---|
+| [0.0, 0.2) | 3.0184 ± 0.0763 | 3.0089 ± 0.0735 | −0.0095 | −0.1 |
+| [0.2, 0.4) | 1.9321 ± 0.0249 | 1.9305 ± 0.0223 | −0.0016 | −0.1 |
+| [0.4, 0.6) | 1.2930 ± 0.0168 | **1.3291 ± 0.0149** | **+0.0361** | **+2.4σ** |
+| [0.6, 0.8) | 1.0855 ± 0.0101 | **1.1345 ± 0.0096** | **+0.0490** | **+5.1σ** |
+| [0.8, 1.0) | 1.3127 ± 0.0150 | **1.3712 ± 0.0145** | **+0.0585** | **+4.0σ** |
+
+Direction of paired per-t agrees with designability: ties at t<0.4, monotonically worsening lastv2 deficit for t≥0.4 (i.e. on the data side of the trajectory). Caveat: the 600-protein subset is from `pdb_train/processed_latents/` (E043 protocol — bypasses the broken `PDBLightningDataModule`), so absolute numbers are not directly comparable to wandb's `validation_loss/loss_epoch` on the 4058 held-out val proteins. The paired *deltas* and their sign/magnitude are robust.
+
+**Possible narrative.** Non-narrative — kept for tuning/decision-making. **Cleanest within-run val-loss-vs-sample-quality decoupling on record**: a ckpt with **Δ = −1.13 nat lower** wandb val_loss (last-v2 step 1952 at 4.79 vs step-2646 at 5.92) produces **materially worse** designability (7/18 vs 68/90 pooled, with L=200 completely collapsing at 0/6 vs 16/30) and **higher** paired per-t loss at every t ≥ 0.4 (Δ up to 5σ). Both signals point the same way. Decision: **do NOT re-anchor canonical comparisons to lastv2 / step-1952**; step-2646 remains the reference for variant probes. Feeds the broader `feedback_wandb_val_loss_not_comparable.md` memory: within-run val-loss monotonicity does not hold either. Mechanism almost certainly the same as Finding 5/6 (AdaLN-Zero gate growth between step 1952 → 2646), but per-layer gate inspection on step-1952 vs step-2646 has not been run on this entry.
+
+**Methodological caveats.**
+- **N=6/length** is small relative to the N=30 anchor; the L=200 zero is robust (best 4.29 Å, every sample ≥ 4.29 Å) but L=50/100 rates have ~20 pp binomial 1σ. Per-t paired test is much higher-resolution (n=600 per bucket, 3-5σ deltas) and removes the N-imbalance concern.
+- **Single seed (seed=5)** for designability — paired-by-noise comparison to step 2646 not run; would need a step-2646 N=6 re-probe at the same seed to remove seed confound. Step-2646 N=30 used multiple seeds. Per-t add-on (seed=42, paired protein subset and rotations) provides the apples-to-apples sample-side check.
+- The lastv2 ckpt is the raw weights (filename has no `-EMA` suffix), matching step 2646's RAW selection in Finding 7 and E019. No EMA-vs-RAW mixing in the comparison.
+- **E019 N=30 anchor is the right comparison** for designability (post-MPNN-fix eval). The N=9 `inference_2646` 100% number is *older* and not directly comparable (CSV has -1.0 sentinels in some fields → not the fixed eval path).
+- **Per-t protocol uses a train-set subset**, not the wandb-monitored val set, so absolute numbers don't match wandb's `validation_loss/loss_epoch` (which lastv2 records as 4.79 vs 2646's 5.92). Paired deltas in this protocol still validly answer "which ckpt's weights have lower FM loss on the same data and rotations".
+- **Mechanism not directly probed.** The step 1952 → step 2646 gate-growth picture is consistent with Finding 5/6 (AdaLN-Zero gates need to grow past zero-init; uniform-wd training continues to grow them after the val-loss-defined "best" point), but a per-layer gate-norm post-mortem comparing 1952 vs 2646 weights was not run.
+
+**Cross-references.**
+- Anchor for canonical step 2646: [E019](#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) (N=30 post-fix, body TBD; numbers pulled from `inference/results_inference_baseline_n30_0.csv`).
+- Per-t comparison protocol: [E043](#e043--per-t-validation-loss-across-four-ca-only-architectural-variants-d1-of-the-hybrid-sampling-diagnostic-plan-2026-05-06--2026-05-07). `canonical_2646.json` reused as-is.
+- Mechanism: Finding 5/6 (val_loss decouples from sample quality under uniform-wd AdamW with AdaLN-Zero gates) and `feedback_wandb_val_loss_not_comparable.md`. This entry strengthens the case to "even within a single training run, lower val_loss does not predict better samples — and the gap can be 1+ nat in val_loss while flipping the sample-quality verdict".
+- Configs: `configs/inference_canonical_lastv2_n6_nfe400.yaml`.
+- Output: `inference/inference_canonical_lastv2_n6_nfe400/`, `inference/results_inference_canonical_lastv2_n6_nfe400_0.csv`, `results/per_t_val/canonical_lastv2.json`.
+- Logs: `nohup_inference_canonical_lastv2_n6_nfe400.{driver,gen,eval}.log`, `nohup_per_t_canonical_lastv2.log`.
+
+---
+
+## E055 — First designability probe of the five-axis bundle (`ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft`, step 944, 2026-05-12)
+
+**Status:** finished.
+
+**Why ran.** First probe-worthy ckpt of the cold-start retrain queued in [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) — the five-axis bundle (K=64 SALAD-canonical sparse + curriculum + self-inclusion + **BigBird globals n=4** + **pair-update every 3 layers**) with the **softened low-t bucket** `curriculum_low_t_split=[16, 8, 24]` baked in and the off-by-one cap fix from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) live in code. Feeds the binary: did the bundle deliver early signal that catching up to (or beating) the §11 step-1385 baseline is on track, or is the 3-axis cold-start cost predicted in E047 a dead-weight handicap at this many opt steps? N=6 × L∈{50,100,200} × nsteps=400 is the cheapest read.
+
+**Configs.**
+- Inference YAML: `configs/inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400.yaml` (inherits `inference_base.yaml` → `nsteps=400`, `seed=5`). `nsamples=6`, `nres_lens=[50, 100, 200]`. **No inference-time overrides** — BigBird, pair-update, sparse K=64, curriculum, lowtsoft bucket all auto-replay from saved `cfg_exp` (run_name `ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft`).
+- **The config + driver names embed "step1133" — but the actual ckpt loaded is `best_val_00000009_000000000944.ckpt` (epoch 9, opt step 944).** The "step1133" handle was the planned probe-worthy step when the config was authored on 2026-05-11; the latest best_val available on HPC at the 2026-05-12 09:49 BST rsync was step 944. The script targets a stable symlink `sparse_K64_bigbird_lowtsoft_step1133.ckpt` → the underlying ckpt file; I symlinked it to the fresh step-944 ckpt today. Output dir + CSV + logs therefore carry the misnomer "step1133" while the underlying ckpt step is 944. **Use this entry's "step 944" wherever step is needed for comparison.**
+- Saved ckpt hyperparameters confirmed (via `OmegaConf.select`): `run_name_=ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft`, `nn.sparse_attention=True`, `nn.n_seq_neighbors=8, n_spatial_neighbors=16, n_random_neighbors=32` (canonical SALAD K=64 composition), `nn.n_global_tokens=4` (BigBird), `nn.update_pair_repr=True, update_pair_repr_every_n=3`, `training.curriculum_neighbors=True`, `training.curriculum_low_t_split=[16, 8, 24]` (LOWTSOFT), `opt.compile_nn=True`, `optimizer.weight_decay=0.05`. SHA-256 of state_dict (canonical key order, fp32 cast): `8cf2136906bd5547fc7234c6a969d7d9...`. Total params 161,552,128; 0 NaN-bearing tensors.
+- Checkpoint provenance: `/home/ks2218/la-proteina/best_val_00000009_000000000944.ckpt` (1.94 GB, mtime 2026-05-12 09:49 BST). Rsynced from `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft/1778520282/checkpoints/`. SLURM 29210711, wandb run id `vru8hr9y`. Distinct from the §11 K=64-curriculum-self ckpts (different `run_name_`; this ckpt's `state_dict` carries 5 BigBird tensors `global_token_emb [4,768]`, `global_cond_emb [4,256]`, `global_pair_bias_{res→glob, glob→res, glob→glob}` that the §11 ckpts don't have).
+- Hardware: 1× L4 (GPU 6 on `gxp-l4-0`), `nohup`, sequential gen → eval.
+- Driver: `script_utils/probe_sparse_K64_bigbird_lowtsoft.sh` (pulled from `origin/main` 2026-05-12; the upstream `PYTHON_EXEC` path was the HPC location and the script failed `exit=127`. Patched locally to `/home/ks2218/.conda/envs/laproteina_env/bin/python` per [feedback_fix_root_cause_in_code.md](../.claude/projects/-home-ks2218-la-proteina/memory/feedback_fix_root_cause_in_code.md). Patch not yet pushed.).
+- Wall: **gen 6:11 (371 s; 344.7 s pure predict_loop)** at 18 proteins ≈ 20.6 s/protein at nsteps=400. **Eval 8:56**. Peak GPU 2050 MB. Total 14:55 on L4 — substantially faster than the 30-min A100 estimate in the script header.
+
+**Results — pooled designability (N=6 × L ∈ {50, 100, 200}, scRMSD_ca_esmfold < 2 Å):**
+
+| L | n | designable | best (Å) | median (Å) |
+|---|---|---|---|---|
+| 50  | 6 | **3/6 (50%)** | **1.45** | 2.62  |
+| 100 | 6 | **0/6 (0%)**  | 6.33    | 7.25  |
+| 200 | 6 | **0/6 (0%)**  | 8.84    | 14.21 |
+| **pooled** | **18** | **3/18 = 16.7%** | **1.45** | — |
+
+**Per-sample scRMSD (`_res_scRMSD_ca_esmfold`, sorted):**
+- L=50:  `[1.45 ✓, 1.50 ✓, 1.74 ✓, 3.54, 3.65, 3.77]` — 3 sub-2 Å, no L=50 sample over 3.8 Å.
+- L=100: `[6.33, 6.57, 7.23, 7.44, 8.13, 9.06]` — *every* L=100 sample > 6 Å.
+- L=200: `[8.84, 12.24, 13.87, 14.65, 19.05, 20.92]` — min 8.84 Å; two samples > 19 Å.
+
+**Cross-arm comparison at canonical N=6/L (or pooled N=18 when both columns available):**
+
+| arm | step | L=50 | L=100 | L=200 | pool | best Å | notes |
+|---|---|---|---|---|---|---|---|
+| canonical dense E019 | 2646 | 26/30 (87%) | 26/30 (87%) | 16/30 (53%) | 68/90 (76%) | 0.79 | N=30 anchor |
+| §11 K=64-curric step-1385 pre-fix N=18 | 1385 | 8/18 (44%) | 10/18 (56%) | 2/18 (11%) | 20/54 (37%) | 0.94 | three-axis variant pre-cap-fix |
+| §11 K=64-curric step-1385 + LOWTSOFT inference (E046) | 1385 | 10/18 (56%) | 11/18 (61%) | 0/18 (0%) | 21/54 (39%) | 0.62 | inference-only forcing of (16,8,24) on §11 |
+| §11 K=64-curric step-944 ([E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08)) | 944 | 3/6 (50%) | 1/6 (17%) | 0/6 (0%) | 4/18 (22%) | 0.91 | three-axis variant N=6 at the same step number |
+| **five-axis bundle (E055, this)** | **944** | **3/6 (50%)** | **0/6 (0%)** | **0/6 (0%)** | **3/18 (17%)** | **1.45** | five-axis bundle at same step number |
+
+**Reading of the comparison:**
+1. **L=50 holds the same count** as §11 step-944 (3/6, 50%) — adding BigBird + pair-update + lowtsoft on top of K=64-curric does not break the short-protein curriculum signal at this step. **Min Å is up** from 0.91 (E049) to 1.45 (this entry); the bundle's L=50 cluster is shifted ~0.5 Å worse on min but still clears the 2 Å bar with the same count.
+2. **L=100 worsened** from 1/6 (E049) to 0/6 — every L=100 sample is over 6 Å here. The added training-axis cost predicted in E047 (BigBird globals + pair-update need to find their working points from cold init) shows up most clearly at L=100, the most discriminative length for sparse-variant probes.
+3. **L=200 unchanged dead** (0/6 in both; min 8.84 Å vs E049's 9.64 Å — within noise).
+4. **Bundle vs §11 step-1385 LOWTSOFT inference probe** ([E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11)): at L=50 the bundle (50%) is below the inference probe (56%); at L=100 the bundle (0%) is far below the inference probe (61%). The cold-started bundle at step 944 has not yet recovered the inference-only LOWTSOFT signal on the §11 ckpt at step 1385 — predicted by E047's note that the bundle has 3 new architectural axes to grow into from cold init.
+
+**Verdict at step 944.** **Bundle is below §11 step-944 at every length, with L=100 the cleanest regression** (1/6 → 0/6; median scRMSD up from 4.5 to 7.25 Å). This is consistent with — but does not prove — E047's prediction that the 3 new axes are paying their cold-start cost in the first ~1000 opt steps and will close the gap later in the slot. **Decision deferred to the slot-end ckpt** (predicted step ~2400 from the 20 h SL2 slot at the bundle's measured opt-steps/h; first canonical milestone in the E047 plan). At step 944 this is "training-cost handicap consistent with prediction"; it is NOT yet "five-axis bundle is dead". Per [feedback_dead_arm_calls.md](../.claude/projects/-home-ks2218-la-proteina/memory/feedback_dead_arm_calls.md), the call-it-dead bar is "loses to baseline at the *converged* step" — step 944 is well below the canonical 1800-2200 best-val window.
+
+**Methodological caveats.**
+- **N=6 per length.** Single-bin Wilson 95% intervals at this N are wide. 0/6 vs 1/6 at L=100 is well inside binomial noise on its own; the directional read is that *every* L=100 sample is > 6 Å in the bundle while only 4/6 were > 6 Å in §11 step-944 ([E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08)). User flagged "paired-pool with N=12 later" as the follow-up.
+- **Single seed (seed=5)**, paired-by-noise with [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) within each length cell. CA-only initial noise tensors are the same shape across both probes; integrated trajectories diverge because the trained weights differ (3-axis vs 5-axis).
+- **`nsteps=400`** ✓ (HARD RULE; inherited from `inference_base.yaml`).
+- **Step mismatch with E046's inference probe.** §11 step-1385 LOWTSOFT inference is at step 1385; the bundle here is at step 944 — −32% training steps. The bundle's L=100 picture might be much better at step 1385+. Cannot do that read until E047 produces a step-1385 ckpt.
+- **Config / output naming carries "step1133" as misnomer** — output dir `inference/inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400/` and CSV `results_inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400_0.csv` are named for "step1133" while the loaded ckpt is step 944. The script's symlink-handle pattern allows re-pointing at later steps without renaming files; downstream consumers must treat "step1133" as the **slot name**, not the actual training step.
+- **Saved hyperparameters were used as-is** — no inference-time override of curriculum, n_global_tokens, pair_update or any other architectural attr. All replay from `cfg_exp` via `proteina.py` plumbing.
+- **Three architectural axes confounded** vs the §11 K=64-curriculum-self trunk: BigBird globals + pair-update + lowtsoft are bundled. This entry cannot attribute contributions; the planned ablations (drop pair-update, drop BigBird, isolate cap-fix, isolate lowtsoft) listed in E047's "Methodological caveats" remain the next axis of work after the bundle's slot-end probe.
+
+**Possible narrative.** Non-narrative — kept for tuning/decision-making. Feeds the **E047 milestone schedule**: this is the predicted "step ~1000" early-training cost reading and lands on the pessimistic side of the prediction band (L=100 0/6 is the lower edge of what E047 anticipated for an under-trained five-axis bundle). The decision load is at the slot-end probe (~step 2400), not here. If the slot-end probe stays at 0/6 at L=100, the bundle is a documented failure and the cleaner next move is the lowtsoft-only variant on the simpler §11 architecture (`configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml`, already on disk per E046's plumbing).
+
+**Cross-references.**
+- Predecessor / driver: [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) (cold-start retrain; this is the first probe of that training run).
+- Architectural ancestor / same-step number comparison: [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) (§11 K=64-curric step-944, three-axis variant — direct paired-by-noise comparison).
+- Inference-only LOWTSOFT signal that motivated this training: [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) (LOWTSOFT N=18 on §11 step-1385 ckpt).
+- Code: BigBird-globals + pair-update plumbing pulled in from `origin/main` (commit 04f6bf2 family) on 2026-05-12. PYTHON_EXEC path patched in `script_utils/probe_sparse_K64_bigbird_lowtsoft.sh`.
+- Configs: `configs/inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400.yaml`; training-side `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft.yaml`; NN side `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M.yaml`.
+- Output CSV: `inference/results_inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400_0.csv` (15 971 bytes).
+- Output PDB dir: `inference/inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400/` (18 PDBs across `job_0_n_{50,100,200}_id_{0..5}`).
+- Logs: `nohup_inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400.{gen,eval}.log`, `nohup_probe_bigbird_lowtsoft_outer.out`.
+- Symlink under expected handle: `/home/ks2218/la-proteina/sparse_K64_bigbird_lowtsoft_step1133.ckpt → best_val_00000009_000000000944.ckpt`.
+
+---
+
+## E056 — First designability probe of the four-axis bundle (`ca_only_sparse_K64_curriculum_self_bigbird`, step 819, 2026-05-13)
+
+**Status:** finished.
+
+**Why ran.** A new `best_val_00000008_000000000819.ckpt` rsynced 2026-05-13 08:06 BST. Inspection of the ckpt's saved `cfg_exp` showed it is a **previously unprobed sibling** of E055's five-axis bundle: same K=64 SALAD-canonical sparse + curriculum + self-inclusion + BigBird globals n=4 trunk, but with `nn.update_pair_repr=False` and **no** `training.curriculum_low_t_split` override — i.e. the **four-axis ablation that drops pair-update and lowtsoft from E047's five-axis recipe**. Probe feeds the binary: at step 819 (≈125 opt steps before E055's five-axis step-944 snapshot, ≈125 below the §11 three-axis step-944 baseline) is BigBird-only on top of K=64-curric-self already producing structure signal, or is dropping pair-update + lowtsoft a strict regression vs the five-axis bundle and vs the simpler three-axis variant? Cheapest read: canonical N=6 × L∈{50,100,200} × nsteps=400.
+
+**Configs.**
+- Inference YAML: `configs/inference_sparse_K64_bigbird_step819_n6_nfe400.yaml` (NEW; inherits `inference_base.yaml` → `nsteps=400`, `seed=5`). `nsamples=6`, `nres_lens=[50, 100, 200]`. No inference-time overrides — sparse K=64, BigBird n=4, curriculum, self-inclusion all auto-replay from saved `cfg_exp` (run_name `ca_only_sparse_K64_curriculum_self_bigbird`).
+- Saved ckpt hyperparameters confirmed via `OmegaConf.select`: `run_name_=ca_only_sparse_K64_curriculum_self_bigbird`, `nn.sparse_attention=True`, `nn.n_seq_neighbors=8, n_spatial_neighbors=16, n_random_neighbors=32` (canonical SALAD K=64 composition; with self-inclusion the effective per-query neighbor list is K=64), **`nn.n_global_tokens=4`** (BigBird), **`nn.update_pair_repr=False`** (no pair-update — distinct from E055), `nn.token_dim=768`, `training.curriculum_neighbors=True`, `opt.compile_nn=True`. `training.curriculum_low_t_split` is **not present** in the saved config (no lowtsoft override; ckpt was trained with whatever the default low-t bucket is for the K=64-curriculum-self family). SHA-256 of state_dict (canonical key order, fp32 cast): `c207fac0a0a3710f8a93bb8813496ec1...`. Total params **158,261,128** (vs E055's 161,552,128 — Δ = 3,290,880 fewer params = the missing pair-update MLPs). 0 NaN-bearing tensors. 5 BigBird tensors present (`global_token_emb [4,768]`, `global_cond_emb [4,256]`, `global_pair_bias_{res→glob, glob→res, glob→glob}`), 0 `pair_update`/`pair_mlp` tensors.
+- Checkpoint provenance: `/home/ks2218/la-proteina/best_val_00000008_000000000819.ckpt` (1.90 GB, mtime 2026-05-13 08:06 BST). Rsynced from HPC; specific training-run store dir not noted in this session (run_name_ `ca_only_sparse_K64_curriculum_self_bigbird` should resolve under `/rds/.../store/<that_name>/<slurm_jobid>/checkpoints/` on the cluster — confirm before any further pulls). Distinct from §11 three-axis ckpts (these carry the 5 BigBird tensors) and from E055's five-axis ckpts (these are missing all pair-update tensors). No EMA companion file present in the rsync.
+- Hardware: 1× L4 (GPU 0 on `gxp-l4-0`), `nohup`, sequential gen → eval. Per `feedback_max_gpu_concurrency.md` the host budget was clear (8 idle L4s, nothing else running).
+- Driver: `script_utils/probe_sparse_K64_bigbird_step819.sh` (NEW; clone of `probe_sparse_K64_bigbird_lowtsoft.sh` with `CFG=inference_sparse_K64_bigbird_step819_n6_nfe400` and the local `PYTHON_EXEC=/home/ks2218/.conda/envs/laproteina_env/bin/python` pre-baked).
+- Symlink under canonical handle: `/home/ks2218/la-proteina/sparse_K64_bigbird_step819.ckpt → best_val_00000008_000000000819.ckpt` (matches the inference config's `ckpt_name`).
+- Wall: **gen 281 s (4m41s)** at 18 proteins ≈ 15.6 s/protein at nsteps=400. **Eval 535 s (8m55s)**. Total 13m37s on L4 — comparable to E055's 14m55s and faster than the script header's "30 min on A100" estimate.
+
+**Results — pooled designability (N=6 × L ∈ {50, 100, 200}, scRMSD_ca_esmfold < 2 Å):**
+
+| L | n | designable | best (Å) | median (Å) |
+|---|---|---|---|---|
+| 50  | 6 | **0/6 (0%)** | **4.76** | 6.72  |
+| 100 | 6 | **0/6 (0%)** | **2.52** | 8.59  |
+| 200 | 6 | **0/6 (0%)** | 12.46   | 14.05 |
+| **pooled** | **18** | **0/18 = 0.0%** | **2.52** | — |
+
+**Per-sample scRMSD (`_res_scRMSD_ca_esmfold`, sorted):**
+- L=50:  `[4.76, 5.17, 5.33, 5.57, 7.87, 9.47]` — min 4.76 Å; far from the 2-Å bar at every sample.
+- L=100: `[2.52, 3.97, 6.34, 8.13, 11.03, 12.75]` — one near-miss at 2.52 Å (sample id_2), one at 3.97 Å (id_4); remaining four > 6 Å.
+- L=200: `[12.46, 13.43, 13.57, 14.64, 15.42, 15.62]` — tight high-scRMSD cluster, off-manifold.
+
+**Cross-arm comparison at canonical N=6/L:**
+
+| arm | step | L=50 | L=100 | L=200 | pool | L=50 min Å | L=100 min Å | notes |
+|---|---|---|---|---|---|---|---|---|
+| canonical dense E019 | 2646 | 26/30 (87%) | 26/30 (87%) | 16/30 (53%) | 68/90 (76%) | 0.79 | 0.59 | N=30 anchor |
+| §11 K=64-curric step-944 ([E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08)) | 944 | 3/6 (50%) | 1/6 (17%) | 0/6 (0%) | 4/18 (22%) | 0.91 | 1.23 | three-axis (K64+curric+self) |
+| five-axis bundle ([E055](#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12)) | 944 | 3/6 (50%) | 0/6 (0%) | 0/6 (0%) | 3/18 (17%) | 1.45 | 6.33 | five-axis (+BigBird +PU +lowtsoft) |
+| **four-axis bundle (E056, this)** | **819** | **0/6 (0%)** | **0/6 (0%)** | **0/6 (0%)** | **0/18 (0%)** | **4.76** | **2.52** | **+BigBird only, NO PU, NO lowtsoft** |
+
+**Reading of the comparison:**
+1. **L=50 is the cleanest regression.** The three-axis variant and the five-axis bundle both produce 3/6 designable samples at L=50 with min Å in [0.91, 1.45]. The four-axis bundle at step 819 produces 0/6 with min 4.76 Å — every sample is more than 2.7 Å worse than the bar. This is the largest L=50 best-Å gap of any K=64 sibling at any step on record. **Caveat:** step 819 is 125 steps before the cousin measurements, so part of the gap is timing.
+2. **L=100 mechanism is alive.** Min 2.52 Å is the only sub-3-Å L=100 reading the four-axis arm has produced; closer to the bar than the five-axis bundle's L=100 min 6.33 Å at step 944. With only N=6 this is one sample's noise, but the directional read is that BigBird-on-top-of-K64-curric-self can produce a partially-converged L=100 structure even at step 819.
+3. **L=200 is dead, tight cluster.** Best 12.46 Å, all six samples 12-16 Å — no near-misses. Consistent with every sparse-K64 sibling's L=200 picture at step ≤ 944.
+4. **Bundle vs five-axis bundle (E055, step 944).** Four-axis is strictly worse on L=50 (0/6 vs 3/6) and strictly worse on pooled count (0 vs 3). But its L=100 min Å (2.52) is *better* than the five-axis bundle's L=100 min Å at step 944 (6.33). At face value this would say "BigBird-only beats BigBird+PU+lowtsoft at L=100", which is the *opposite* of E047's design hypothesis. **Step mismatch (819 vs 944) is the load-bearing confound** — single-sample L=100 best-Å moves around a lot in this regime; need step ≥ 944 of the four-axis arm to read this cleanly.
+
+**Verdict at step 819: DEAD ARM CALL (user, 2026-05-13).** Three converging lines of evidence; no single line is decisive on its own, but together they are.
+
+1. **Empirical: matched-step gap is too large for timing to absorb.** L=50 min Å here is **4.76**; the §11 three-axis variant at step 944 (125 opt steps later) is **0.91**. The largest matched-step L=50 best-Å swing recorded between adjacent K=64-family ckpts on disk is ≈ 0.5 Å. A +3.85-Å delta is not a step-mismatch story. Every L=50 sample is ≥ 4.76 Å — categorical regression, not a binomial-N=6 unlucky draw.
+
+2. **Mechanistic prior (user): BigBird globals on top of K=64-curric-self are position-unaware and just encode averaged-out properties of the protein.** They have no positional encoding into the sequence-residue axis — each global token attends to every residue with the same `global_pair_bias_res→glob` row, then writes back through `global_pair_bias_glob→res`. The four-axis bundle's only architectural difference vs the §11 three-axis trunk is these four position-unaware tokens; the lever therefore *cannot* sharpen the position-sensitive part of the score field that L=50 needs (every residue is close in sequence to every other residue at L=50, so positional discrimination is the bottleneck). The L=50 collapse is exactly the failure mode the mechanism predicts. This was a pre-registerable prediction — not a story made up after the fact.
+
+3. **Validation loss tracks worse (user).** Wandb training-time `validation_loss/loss_epoch` for the four-axis run sits above the three-axis and five-axis cousins on the same wandb dashboard. Cross-run wandb val_loss has been flagged as not strictly comparable ([feedback_wandb_val_loss_not_comparable.md](../.claude/projects/-home-ks2218-la-proteina/memory/feedback_wandb_val_loss_not_comparable.md)) when it disagrees with paired per-t loss / samples, but here it agrees in direction with the sample evidence — the four-axis arm is worse by both signals. Concordant signals reinforce, even when each signal alone would be inconclusive.
+
+**Decision.** Stop probing this arm. Do not queue further rsyncs or matched-step (step ≈ 944, 1133, 1800) probes. The "BigBird-only at step 819 with L=100 min 2.52 Å is mechanism evidence" line earlier in this entry was one sample's draw; per [feedback_dead_arm_calls.md](../.claude/projects/-home-ks2218-la-proteina/memory/feedback_dead_arm_calls.md) that is exactly the mechanism-story-rescuing-a-failure pattern I should not write. Decision saved to memory as [[bigbird-globals-position-unaware]] so future suggestions do not re-propose position-unaware globals as a lever for position-sensitive failure modes (L=50 in particular).
+
+**Methodological caveats.**
+- **N=6 per length.** Wilson 95% intervals at this N are wide; 0/6 vs 1/6 at L=100 is well inside binomial noise. Direction-of-best-Å is the stronger signal here.
+- **Single seed (seed=5)**, paired-by-noise with [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) and [E055](#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12) within each length cell — same noise seeds, different trained weights.
+- **`nsteps=400`** ✓ (HARD RULE; inherited from `inference_base.yaml`).
+- **Step mismatch (819 vs 944) vs the closest cousin probes.** Cousins are at step 944; this is at step 819. Cross-arm cells in the comparison table cannot be read as cleanly as the matched-step E049 ↔ E055 cells. A four-axis step-944 (or later) probe is the next decision input.
+- **Saved hyperparameters were used as-is** — no inference-time overrides of curriculum, n_global_tokens or any other architectural attr. All replay from `cfg_exp` via `proteina.py` plumbing.
+- **Two architectural axes confounded vs the three-axis trunk:** the four-axis arm differs from the §11 three-axis arm only by BigBird globals n=4. The four-axis vs five-axis comparison differs by both pair-update and lowtsoft — those two contributions remain bundled.
+- **No NN config file on disk for this run.** `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_*.yaml` does not exist locally; the NN architecture is replayed only from the saved `cfg_exp` in the ckpt. Re-running this probe after the ckpt is moved/deleted would require either re-rsyncing the ckpt or authoring the NN config locally.
+
+**Possible narrative.** Non-narrative — kept for tuning/decision-making. Feeds the **isolating-ablation row** in the K=64-bundle attribution matrix: this is the first read on "BigBird globals only, on top of K=64-curric-self, no other architectural axes". A matched-step rerun (≥ step 944) is the load-bearing follow-up; without it, "is BigBird alone helping?" cannot be answered from this single snapshot.
+
+**Cross-references.**
+- Architectural cousin (same trunk + BigBird + pair-update + lowtsoft): [E055](#e055--first-designability-probe-of-the-five-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird_pairupdate_lowtsoft-step-944-2026-05-12).
+- Architectural ancestor (same trunk, no BigBird): [E049](#e049--first-inference-probe-of-the-k64--curriculum-trained-ckpt-ca_only_sparse_k64_curriculum_self-ep9-step944-2026-05-08) (step 944), [E051](#e051--n3-quick-designability-probe-of-ca_only_sparse_k64_curriculum_self-at-step-1800-2026-05-10) (step 1800).
+- Configs: `configs/inference_sparse_K64_bigbird_step819_n6_nfe400.yaml` (NEW); driver `script_utils/probe_sparse_K64_bigbird_step819.sh` (NEW).
+- Output CSV: `inference/results_inference_sparse_K64_bigbird_step819_n6_nfe400_0.csv` (15 281 bytes).
+- Output PDB dir: `inference/inference_sparse_K64_bigbird_step819_n6_nfe400/` (18 PDBs across `job_0_n_{50,100,200}_id_{0..5}`).
+- Logs: `nohup_inference_sparse_K64_bigbird_step819_n6_nfe400.{gen,eval}.log`, `nohup_probe_K64_bigbird_step819.out`.
+- Symlink under expected handle: `/home/ks2218/la-proteina/sparse_K64_bigbird_step819.ckpt → best_val_00000008_000000000819.ckpt`.
+
+---
+
+## E057 — BigBird wiring audit on E047 step 1200 (2026-05-12) — renumbered from upstream E048 on 2026-05-13 merge
 
 **Why ran:** [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s in-progress val curve matches §11 K=64-curriculum-self at high t and is strictly worse at low t with the same shape. User question: is BigBird actually being applied, or is the bundle effectively §11 + pair-update + lowtsoft because the globals are inert? An end-to-end read of `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M.yaml` → `proteina.py:131` → `LocalLatentsTransformer.__init__` → `_attach_globals` → `PairBiasAttention._attn_sparse` shows the wiring is correct on paper; checking whether it's actually used at runtime needs a forward-pass hook, which is what this entry runs. The answer decides whether the next move is "fix BigBird" (if inert) or "reconsider what BigBird at low t actually does to the learned routing policy" (if heavily used).
 
@@ -4403,11 +5143,13 @@ Sanity numbers from the same audit (param magnitudes at step 1200, ckpt inspecti
 
 ---
 
-## E049 — Cold-start BigBird-only (no pair-update, no LOWTSOFT) on the §11 trunk (2026-05-12)
+## E058 — Cold-start BigBird-only (no pair-update, no LOWTSOFT) on the §11 trunk (2026-05-12) — renumbered from upstream E049 on 2026-05-13 merge
+
+> **2026-05-13 post-hoc note (added during merge):** The first designability probe of this run's output (`best_val_00000008_000000000819.ckpt`, step 819) is [E056](#e056--first-designability-probe-of-the-four-axis-bundle-ca_only_sparse_k64_curriculum_self_bigbird-step-819-2026-05-13) — 0/18 designable, called dead by user on three converging lines (sample evidence + position-unaware-globals mechanism + val_loss tracks worse than cousins). The predicted milestones below were not met at step 819; arm is dead, not pre-convergence. Keeping the predicted-milestones text as-authored for the lab-record trail.
 
 **Status:** in progress (queued; SLURM **29277806**, SL2 15h slot, submitted ~mid-day BST 2026-05-12).
 
-**Why ran:** [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s five-axis bundle (BigBird + pair-update + LOWTSOFT on the §11 K=64-curriculum-self trunk) stalled at low t — `val_loss_by_t.t_000_020` stuck at ~7.2 at global_step=1196 vs the §11 predecessor's ~4.3 at the same horizon (slot 7sdu834p, global_step=1196). [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12) audit confirmed BigBird is correctly wired and heavily used (residue queries route 22-34 % of late-layer attention into globals at t=0.1), and the differential degradation across t-buckets localised cleanly to the curriculum cell where the schedules differ: at t<0.33, §11 had `(32, 0, 0)` sequence-only and the five-axis bundle had LOWTSOFT `(16, 8, 24)`. Chat consensus 2026-05-12 (the one with this entry) was that LOWTSOFT and pair-update were the load-bearing regressions, **not** BigBird itself. This entry isolates the BigBird contribution by dropping LOWTSOFT and pair-update.
+**Why ran:** [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s five-axis bundle (BigBird + pair-update + LOWTSOFT on the §11 K=64-curriculum-self trunk) stalled at low t — `val_loss_by_t.t_000_020` stuck at ~7.2 at global_step=1196 vs the §11 predecessor's ~4.3 at the same horizon (slot 7sdu834p, global_step=1196). [E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge) audit confirmed BigBird is correctly wired and heavily used (residue queries route 22-34 % of late-layer attention into globals at t=0.1), and the differential degradation across t-buckets localised cleanly to the curriculum cell where the schedules differ: at t<0.33, §11 had `(32, 0, 0)` sequence-only and the five-axis bundle had LOWTSOFT `(16, 8, 24)`. Chat consensus 2026-05-12 (the one with this entry) was that LOWTSOFT and pair-update were the load-bearing regressions, **not** BigBird itself. This entry isolates the BigBird contribution by dropping LOWTSOFT and pair-update.
 
 Decision the entry feeds: whether **BigBird alone is the right addition on top of §11** for the K=64 baseline going forward, or whether `n_global_tokens: 0` (the §11 trunk as-is) should remain the baseline and BigBird is dropped from the variant catalog.
 
@@ -4441,7 +5183,7 @@ Only two deltas vs §11: BigBird globals on, cap fix in code.
 - **Step ~1200 (10h):** total `val/loss_epoch` close to §11's 4.32 at slot 7sdu834p step 1196, within +0.1. Low-t `t_000_020` should be in the 4.3-4.7 range (vs §11's 4.49 and [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s 7.24 at the same step).
 - **Step ~1800 (15h, end-of-slot):** total `val/loss_epoch` ≤ §11's step-1385 4.19. Designability probe (N=6 × L∈{50, 100, 200}, nsteps=400, seed=5) at the closest-to-1800 ckpt vs §11 step-1385's 8/10/2 N=18 reference.
 
-If low-t recovers fully (i.e. matches §11's t-bucketed val curve to within +0.1 at every bucket) AND globals continue to attract late-layer attention mass as in [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12), the conclusion is *BigBird is a free axis on §11*. Designability at step ~1800 then tests whether it actually translates to a sample-quality improvement.
+If low-t recovers fully (i.e. matches §11's t-bucketed val curve to within +0.1 at every bucket) AND globals continue to attract late-layer attention mass as in [E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge), the conclusion is *BigBird is a free axis on §11*. Designability at step ~1800 then tests whether it actually translates to a sample-quality improvement.
 
 If low-t recovers but designability is the same or worse than §11, the read is *BigBird helps val MSE marginally (more parameters, more capacity at low t) but the additional capacity does not translate to better samples* — same pattern as Fix C2 (E021/E039 — Fix C2 hit the §11 designability ceiling but didn't beat it).
 
@@ -4450,7 +5192,7 @@ If low-t does NOT recover (`t_000_020` still > 5 at step ~1200), BigBird is the 
 **Methodological caveats:**
 
 - **Single 15h slot, no chained re-queue.** End-of-slot at ~step 1800 is just inside the canonical 1800-2200 best-val window; if the bundle plateaus later (as [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) appeared to be doing at step 1200), the designability read might come from a not-yet-converged ckpt. Acceptable for the first read; a chained second slot is the natural follow-up if convergence isn't visible.
-- **Cold start cost.** The 4 BigBird global embeddings + their three pair-bias parameter tensors (`global_pair_bias_res_to_glob`, `_glob_to_res`, `_glob_to_glob`) are zero / near-zero at init. [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) showed these reach useful magnitudes by step 1200 (cf. [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12)'s param magnitudes table). With pair-update OFF and LOWTSOFT OFF, the trunk doesn't have to learn around globals AND a degraded curriculum AND extra pair-update layers simultaneously — the BigBird parameters should reach useful magnitudes faster, but the prediction is unverified for this exact configuration.
+- **Cold start cost.** The 4 BigBird global embeddings + their three pair-bias parameter tensors (`global_pair_bias_res_to_glob`, `_glob_to_res`, `_glob_to_glob`) are zero / near-zero at init. [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) showed these reach useful magnitudes by step 1200 (cf. [E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge)'s param magnitudes table). With pair-update OFF and LOWTSOFT OFF, the trunk doesn't have to learn around globals AND a degraded curriculum AND extra pair-update layers simultaneously — the BigBird parameters should reach useful magnitudes faster, but the prediction is unverified for this exact configuration.
 - **The §11 reference's 44/56/11 % designability at N=18 came from chained slots `rmuumq8v` (slot 3, val 4.19 @ step 1385) — pre-cap-fix.** This entry's designability probe will use post-cap-fix code, so the comparison is not strictly matched on the integrator side. Cap-fix is a no-op at L>K=64 (i.e. L=100, L=200) and only fires at L≤K=64 (L=50). The L=50 comparison is the one with the integrator mismatch; L=100 / L=200 are clean A/Bs.
 - **Designability comparison at N=6 is one slot, not pooled.** If the step-1800 N=6 read is ambiguous (e.g. 3/4/0 vs §11's 4/5/1 single-slot read), pool with a second N=12 probe at a different seed before drawing a conclusion. CLAUDE.md auto-memory `feedback_seed_propagation_audit.md` applies: seeds don't propagate cleanly across `nsamples` settings, so use an explicit-fresh-seed pattern.
 - **No designability re-probe of [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) at matched val MSE.** The five-axis bundle's stalled-at-low-t val curve never crossed §11's step-1385 val (4.19), so a matched-val comparison isn't possible. E049 vs §11 is the comparison this entry produces; E049 vs [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) at matched step is a separate read.
@@ -4458,7 +5200,7 @@ If low-t does NOT recover (`t_000_020` still > 5 at step ~1200), BigBird is the 
 
 **Cross-references:**
 - Predecessor (architecture): variants.md §11 (K=64-curriculum-self trunk; `rmuumq8v`, val 4.19 @ step 1385).
-- Predecessor (BigBird wiring): [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) (first BigBird training) + [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12) (audit confirming wiring + heavy use).
+- Predecessor (BigBird wiring): [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) (first BigBird training) + [E057](#e057--bigbird-wiring-audit-on-e047-step-1200-2026-05-12-renumbered-from-upstream-e048-on-2026-05-13-merge) (audit confirming wiring + heavy use).
 - Predecessor (cap fix): [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) (commit `04f6bf2`).
 - Sibling on disk (not yet trained): `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_lowtsoft.yaml` (BigBird + LOWTSOFT, no pair-update). Useful if E049's low-t recovers AND we want to attribute the LOWTSOFT regression specifically.
 - Follow-up if E049 lands: BigBird + pair-update without LOWTSOFT (`configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate.yaml`, already on disk, not yet trained) to isolate pair-update on top of E049's bundle.

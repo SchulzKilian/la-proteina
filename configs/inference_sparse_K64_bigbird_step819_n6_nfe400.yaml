@@ -1,0 +1,28 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_bigbird_step819_n6_nfe400
+config_name: inference_sparse_K64_bigbird_step819_n6_nfe400
+
+# Canonical N=6 × L∈{50,100,200} × nsteps=400 designability probe of the
+# FOUR-AXIS bundle (K=64 SALAD-canonical sparse + curriculum + self-inclusion
+# + BigBird globals n=4; NO pair-update, NO lowtsoft) at the freshly-rsynced
+# step-819 best_val ckpt.
+#
+# Ckpt: `best_val_00000008_000000000819.ckpt` (epoch 8, opt step 819).
+# run_name_ in the ckpt: `ca_only_sparse_K64_curriculum_self_bigbird`.
+# NN architecture is read from the ckpt's exp_config_*.json — no NN override
+# needed here. nsteps inherited from `inference_base.yaml` (=400; CLAUDE.md
+# hard rule).
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_bigbird_step819.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]
