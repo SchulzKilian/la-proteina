@@ -96,20 +96,31 @@ def compute_gradient_K_set(
                                   get a placeholder filled with zeros)
       slot_valid[B, n_pad, K]  — True if the index points to a real residue
     """
-    B, n_pad, _ = x_t_bb.shape
-    assert B == 1, "Only batch size 1 supported for the per-query backward loop."
+    B_in, n_pad, _ = x_t_bb.shape
     device = x_t_bb.device
+    # run_sampling_one pads B from 1 to 2 by duplication to satisfy
+    # full_simulation's squeeze+assert; here we recover row 0 (the real
+    # sample) and expand outputs back to B_in.
     real_len = int(mask[0].sum().item())
+    B = 1
+    x_t_bb_row0 = x_t_bb[:1]      # [1, n_pad, 3]
+    mask_row0 = mask[:1]          # [1, n_pad]
+    # coords_nm / coord_mask / residue_type are constructed at [1, ...] in
+    # the caller — pass as-is. (Dense doesn't care about rows beyond what
+    # x_t / mask define.)
+    coords_nm_row0 = coords_nm[:1] if coords_nm.shape[0] >= 1 else coords_nm
+    coord_mask_row0 = coord_mask[:1] if coord_mask.shape[0] >= 1 else coord_mask
+    residue_type_row0 = residue_type[:1] if residue_type.shape[0] >= 1 else residue_type
 
     # Make x_t a leaf with grad enabled.
-    x_t_bb_g = x_t_bb.detach().clone().requires_grad_(True)
+    x_t_bb_g = x_t_bb_row0.detach().clone().requires_grad_(True)
 
     # Build a minimal batch dict for dense.call_nn.
     batch = {
-        "coords_nm": coords_nm,
-        "coord_mask": coord_mask,
-        "residue_type": residue_type,
-        "mask": mask,
+        "coords_nm": coords_nm_row0,
+        "coord_mask": coord_mask_row0,
+        "residue_type": residue_type_row0,
+        "mask": mask_row0,
         "x_t": {"bb_ca": x_t_bb_g},
         "t": {"bb_ca": torch.full((B,), float(t_val), device=device)},
     }
@@ -151,6 +162,12 @@ def compute_gradient_K_set(
     slot_valid = torch.zeros(B, n_pad, K, device=device, dtype=torch.bool)
     slot_valid[0, :real_len, :Keff] = True  # the real top-K entries
     # Padding columns (Keff..K) are False; padding queries' rows are all False.
+
+    # Broadcast row 0 to all B_in rows (rows 1..B_in-1 are duplicates of row 0
+    # under run_sampling_one's pad).
+    if B_in != B:
+        neighbor_idx = neighbor_idx.expand(B_in, n_pad, K).contiguous()
+        slot_valid = slot_valid.expand(B_in, n_pad, K).contiguous()
 
     return neighbor_idx.detach(), slot_valid.detach()
 
@@ -255,54 +272,76 @@ def run_sampling_one(
     device: torch.device,
 ) -> torch.Tensor:
     """Returns the final sampled bb_ca coords [n_pad, 3]."""
+    from functools import partial as _partial
+    from omegaconf import OmegaConf as _OC
     torch.manual_seed(seed)
-    # Build a minimal batch and call the model's full_simulation.
-    # We reuse the sampling machinery; the model's _build_neighbor_idx is patched.
     B, n_pad = mask.shape
+    assert B == 1, f"run_sampling_one is per-sample (B=1); got B={B}"
 
-    # Sample initial noise x_0 via the model's fm.
+    # full_simulation squeezes any batch tensor with size(0)==1 (see
+    # product_space_flow_matcher.py:626-632), which then trips the assert
+    # `mask.shape == (nsamples, n)`. Workaround: pad to nsamples=2 internally,
+    # return the first sample. Same per-call seed preserves paired-noise
+    # semantics between the two arms at the caller level.
+    B_use = 2
+    mask_use = mask.expand(B_use, n_pad).contiguous()
+
+    # Match the canonical inference path in proteina.py:predict_step. The fm
+    # expects a sampling_model_args dict (the inference YAML's
+    # generation.model block) and a predict_for_sampling Callable; it does NOT
+    # take nn=/x_0=/additional_batch_info= directly. Pull defaults from
+    # inference_base.yaml (verified 2026-05-13). CA-only path → only bb_ca.
+    sampling_model_args = _OC.create({
+        "bb_ca": {
+            "schedule": {"mode": "log", "p": 2.0},
+            "gt": {"mode": "1/t", "p": 1.0, "clamp_val": None},
+            "simulation_step_params": {
+                "sampling_mode": "sc",
+                "sc_scale_noise": 0.1,
+                "sc_scale_score": 1.0,
+                "t_lim_ode": 0.98,
+                "t_lim_ode_below": 0.02,
+                "center_every_step": True,
+            },
+        },
+    })
     batch = {
-        "coords_nm": coords_nm,
-        "coord_mask": coord_mask,
-        "residue_type": residue_type,
-        "mask": mask,
+        "nsamples": B_use,
+        "nres": n_pad,
+        "mask": mask_use,
     }
-    # The fm expects batch["x_1"] (target) and "mask" — but for inference, only
-    # x_0 (noise) is needed. We use full_simulation which generates from noise.
+    fn_predict_for_sampling = _partial(
+        sparse_model.predict_for_sampling, n_recycle=0
+    )
+    sc_neighbors_active = sparse_model.cfg_exp.training.get("sc_neighbors", False)
     with torch.no_grad():
-        # Build a synthetic batch suitable for full_simulation.
-        x_1_dict, mask_proc, batch_shape, n_pad_proc, dtype, dev = (
-            sparse_model.fm.process_batch(batch)
-        )
-        x_0 = sparse_model.fm.sample_noise(
-            n=n_pad_proc, shape=batch_shape, mask=mask_proc, device=dev
-        )
-        # full_simulation runs the ODE from t=0 (noise=x_0) to t=1 (clean).
-        result = sparse_model.fm.full_simulation(
-            nn=sparse_model.nn,
-            x_0=x_0,
-            mask=mask_proc,
+        gen_samples, _extra_info = sparse_model.fm.full_simulation(
+            batch=batch,
+            predict_for_sampling=fn_predict_for_sampling,
             nsteps=nsteps,
-            additional_batch_info=batch,
+            nsamples=B_use,
+            n=n_pad,
+            self_cond=True,
+            sampling_model_args=sampling_model_args,
+            device=device,
+            save_trajectory_every=0,
+            guidance_w=1.0,
+            ag_ratio=0.0,
             steering_guide=None,
+            sc_neighbors_active=sc_neighbors_active,
+            sc_neighbors_bootstrap=True,
         )
 
-    # result is a dict; the final bb_ca coords are at "x_1_est" or similar.
-    # Different code paths name it differently; try the canonical fields.
-    if isinstance(result, dict):
-        if "bb_ca" in result:
-            final = result["bb_ca"]
-        elif "x_1_est" in result:
-            final = result["x_1_est"]
-            if isinstance(final, dict):
-                final = final["bb_ca"]
+    # gen_samples is a dict keyed by data_mode; CA-only path has "bb_ca".
+    if isinstance(gen_samples, dict):
+        if "bb_ca" in gen_samples:
+            final = gen_samples["bb_ca"]
         else:
-            # Fallback: take the last entry of any trajectory key
-            final = next(iter(result.values()))
+            final = next(iter(gen_samples.values()))
             if isinstance(final, dict) and "bb_ca" in final:
                 final = final["bb_ca"]
     else:
-        final = result
+        final = gen_samples
 
     return final[0]  # [n_pad, 3]
 
@@ -415,6 +454,19 @@ def main():
     sparse_model.to(device).eval()
     for p in sparse_model.parameters():
         p.requires_grad_(False)
+
+    # Unwrap torch.compile: the ckpt's `cfg_exp.opt.compile_nn=True` makes
+    # proteina.py wrap `self.nn` with torch.compile at init. Dynamo cannot
+    # trace the patched `_build_neighbor_idx` (it sees K as a SymInt and
+    # einops.rearrange raises `unhashable type: non-nested SymInt`). Swap
+    # back to the original module before patching. Slower per forward but
+    # correct for this hybrid path.
+    if hasattr(sparse_model.nn, "_orig_mod"):
+        logger.info("  unwrapping sparse_model.nn from torch.compile (hybrid patch is incompatible with dynamo).")
+        sparse_model.nn = sparse_model.nn._orig_mod
+    if hasattr(dense_model.nn, "_orig_mod"):
+        logger.info("  unwrapping dense_model.nn from torch.compile (per-query VJP needs dense without dynamo).")
+        dense_model.nn = dense_model.nn._orig_mod
 
     # Confirm sparse_attention flag
     sp_cfg = sparse_model.cfg_exp.get("nn", {})
