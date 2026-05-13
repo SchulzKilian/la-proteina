@@ -1,0 +1,114 @@
+# K=64 SALAD-canonical sparse + softened low-t curriculum + self-inclusion
+# + BigBird CLS globals (n=4). **NO pair-update.** + cap-fix in code.
+#
+# E055 ablation — built 2026-05-12 to test whether pair-update is the
+# dominant low-t degradation source in the five-axis bundle. Sibling of
+# `training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft.yaml`
+# (SLURM 29210711 / wandb vru8hr9y) with ONE delta: NN config swapped to
+# `ca_only_sparse_K64_curriculum_self_bigbird_160M.yaml` which sets
+# `update_pair_repr: False`.
+#
+# Hypothesis under test (E055 follow-up): pair-update's residual-additive
+# `linear_x` projection of the current token state at low t injects noise
+# that accumulates across 5 update passes; without a t-conditional gate
+# the model can't learn to be a no-op there. The initial pair_rep
+# (containing t-invariant `rel_seq_sep`) is more useful at low t than
+# pair-update's learned projections. Removing pair-update should recover
+# low-t val without losing the BigBird + LOWTSOFT contributions.
+#
+# Expected decision after the first probe-worthy ckpt:
+# - If low-t val recovers and matches/beats §11 (`ca_only_sparse_K64_curriculum_self`)
+#   at similar steps, pair-update is the culprit and the bundle should be
+#   the four-axis form going forward.
+# - If low-t val is still degraded, BigBird globals are the remaining
+#   suspect (LOWTSOFT-only on §11 trunk is the next disambiguation).
+#
+# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4,
+# no scheduler). Identical to the five-axis sibling.
+run_name_: ca_only_sparse_K64_curriculum_self_bigbird_lowtsoft
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_self_bigbird_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:  # null → cold start
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  curriculum_neighbors: True
+  # LOWTSOFT bucket — same as the five-axis sibling.
+  # Must sum to K=64 = 2*n_seq + n_sp + n_rd.
+  curriculum_low_t_split: [16, 8, 24]
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block. Constant LR=2e-4
+# via omitting `scheduler:`.
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  compile_nn: True
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

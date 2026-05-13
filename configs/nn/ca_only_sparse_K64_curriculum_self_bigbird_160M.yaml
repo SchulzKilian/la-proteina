@@ -1,0 +1,84 @@
+# SALAD-canonical K=64 sparse + low-t→SALAD curriculum + self-inclusion
+# + BigBird-style learnable CLS globals. **NO pair-update.**
+#
+# Bundle minus pair-update — built 2026-05-12 to test the hypothesis that
+# pair-update is the dominant low-t degradation source in E055's five-axis
+# bundle (`..._bigbird_pairupdate_lowtsoft`). Same K=68 topology (K_canonical=64
+# residue slots + 4 BigBird globals), same LOWTSOFT-friendly trunk, but the
+# pair representation is BUILT ONCE at the trunk entrance and STAYS FROZEN
+# across all 14 layers.
+#
+# Mechanism the ablation tests (from §11 line 544's deliberate
+# "not bundled: update_pair_repr=True"):
+# - With pair-update on, every 3 layers `linear_x` projects the current token
+#   state into the pair representation via additive residual. linear_x has no
+#   t-conditional gate, so at low t (where the token state is downstream of
+#   noisy CA coords) those projections inject noise that accumulates across
+#   5 update passes. The model cannot learn to be a no-op at low t without
+#   sacrificing high-t.
+# - Without pair-update, the initial pair_rep — including its t-invariant
+#   `rel_seq_sep` sinusoidal embedding — is the pair_rep every layer sees.
+#   At low t the t-invariant signal is preserved at full strength; only the
+#   one-shot pair-distance features (which ARE noisy at low t) carry the cost.
+#
+# If this variant recovers low-t val vs E055's bundle (which it should if the
+# pair-update-noise-amplification hypothesis is correct), pair-update is
+# isolated as the culprit. BigBird and LOWTSOFT remain in the bundle so the
+# difference attributes cleanly to pair-update only.
+#
+# Cold start; canonical OLD recipe. See matching training config
+# `training_ca_only_sparse_K64_curriculum_self_bigbird_lowtsoft.yaml`.
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Pair update DISABLED — this is the only delta vs ..._bigbird_pairupdate_160M.
+# Initial pair_rep built once at trunk entrance, then frozen across all 14
+# layers. `update_pair_repr_every_n` and `use_tri_mult` are now unreached;
+# kept as documentation of the bigbird_pairupdate sibling's settings.
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# SALAD-canonical sparse attention. K_canonical = 2*8 + 16 + 32 = 64 at high t.
+# Curriculum reshuffles split at lower t (LOWTSOFT (16,8,24) at t<0.33;
+# intermediate at 0.33≤t<0.66 — set by training config's curriculum_low_t_split).
+# Self-inclusion in K-set is handled in sparse_neighbors.py.
+sparse_attention: true
+n_seq_neighbors: 8        # sequential per side → 16 sequential total at high t
+n_spatial_neighbors: 16
+n_random_neighbors: 32
+
+# BigBird-style learnable global tokens. 4 CLS embeddings appended at
+# [N, N+4). K_total inside the trunk = K_canonical + 4 = 68.
+n_global_tokens: 4

@@ -69,6 +69,8 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E045](#e045--t-dependent-k-budget-reallocation-curriculum-on-plain-sparse_k40-step-1259-2026-05-07) | 2026-05-07 | finished | Same ckpt + protocol as E044 but with K-reallocation instead of masking: keep total K=40 fixed across the whole trajectory, just reallocate (n_seq, n_spatial, n_random) by t. 3 buckets — t<0.33 → (20,0,0); t<0.66 → (12,8,8); t≥0.66 → canonical (8,8,16). Softmax always sees 40 real slots; only composition shifts. | non-narrative — **same pooled count as mask (3/18) but a completely different per-length distribution**. **L=50 spectacular** (3/6 designable, **min 0.63 Å** = best ever on this ckpt; every sample within 3.10 Å); paired Δ=−10.77 Å rescue at L=50 id=0 (11.40 → 0.63). **L=100 disaster**: 3/6 → 0/6, **two new collapsed samples appear** (id=0 1.43 → 9.04, id=3 4.30 → 7.02). L=200 fails uniformly. **Mechanism is chain-length-dependent**: at short L the spatial/random/sequential groups overlap heavily so realloc is a benign content shift; at L≥100 the model uses long-range info encoded in the spatial+random slots even when noisy, and stripping it for sequential causes collapse. Mask (E044) and realloc (E045) are complementary: hypothetical realloc-at-L<60 + mask-at-L≥60 would yield 6/18 (33%) — but L-dependent schedule, not static, is the principled next step before retraining. |
 | [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) | 2026-05-11 | finished (code fix + numerical tests + inference probes at step-1385) | Investigation of the K=64-curriculum-self variant's (variants.md §11; NO BigBird, NO pair-update) L=50/L=100 gap vs canonical. Numerical tests of `sparse_neighbors.build_neighbor_idx` and `PairBiasAttention._attn_sparse`. Found+fixed an off-by-one cap (`min(2*n_seq, N-1)` → `min(2*n_seq, N)`). Falsified four candidate bug mechanisms. Then re-probed step-1385 with three schedule variants (canonical, NOCURR, LOWTSOFT) and pushed LOWTSOFT to N=18 paired with the variants.md §11 baseline. | non-narrative — feeds the retrain decision ([E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)). **LOWTSOFT N=18 post-fix: 56 % / 61 % / 0 % at L=50/100/200** vs canonical N=18 pre-fix 44 % / 56 % / 11 % — **+12 pp at L=50 (paired with the cap fix) and +5 pp at L=100**, but **−11 pp at L=200 (one-or-two-protein swing on N=18)**. Same-day same-code paired probes give the cleanest A/B: at N=6 post-fix, canonical 4/3/0, NOCURR 4/1/0, LOWTSOFT 4/4/0 — i.e. removing the schedule entirely tanks L=100 (3→1), softening the low-t bucket improves it (3→4). Direction is consistent with the variant-design hypothesis. |
 | [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) | 2026-05-11 | in progress (running; SLURM 29210711, SL2 20h slot, started ~18:00 BST 2026-05-11) | Cold-start retrain of a FIVE-AXIS bundle: K=64 SALAD-canonical sparse + curriculum (`(16,8,24)` low-t / `(16,8,24)` mid / `(8,16,32)` high) + self-inclusion + **BigBird globals n=4 (FIRST TIME TRAINED)** + **pair-update every 3 layers (FIRST TIME TRAINED in K=64 sparse path)**, with the off-by-one cap fix from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) live in code. **Architecture differs from step-1385:** step-1385 is variants.md §11 (only K=64 + curriculum + self-inclusion, three axes — no BigBird, no pair-update); this retrain is the planned §12-LowTSoft bundle (five axes). OLD recipe wd=0.05 / constant LR=2e-4 / no scheduler / dataset / seed=42 / 160M trunk are unchanged from §11. | non-narrative — first cold-start training of BigBird + pair-update + lowtsoft simultaneously. **Predicted milestones:** val MSE convergence trajectory tracks below the §11 step-1385 curve once the new (BigBird + pair-update) parameters reach their working points (initial divergence is the cost of training 3 new architectural axes from zero-init); designability at step ~1800–2200 of the bundle vs §11's step-1385 reading (8/10/2 N=18); designability at step ~2400 vs canonical's E019 step-2646 N=30 baseline (19/20/3 = 63 % / 67 % / 10 %). Decision: if the bundle clears canonical at L=100 with the L=200 dropout not deeper than the LOWTSOFT-N=18 inference probe (−11 pp), the five-axis bundle is the new K=64 baseline; ablations (drop pair-update, drop BigBird, isolate cap-fix) follow. |
+| [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12) | 2026-05-12 | finished | Read-only audit of the BigBird + pair-update wiring inside [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s in-progress checkpoint (`last.ckpt`, global_step=1200). Triggered by the observation that the bundle's val curve matches §11 at high t and is strictly worse at low t with the same shape, raising the question "was BigBird actually applied?". Loads the trained ckpt, runs forward at t∈{0.1, 0.5, 0.9}, hooks `PairBiasAttention._attn_sparse` to record per-layer attention mass on the 4 global slots and the std of global K vectors; logs cosine similarity between the 4 trained `global_token_emb` rows; then runs one fwd+bwd on a fresh-init clone to compare per-param gradient norms (globals vs trunk), with and without `global_cond_emb` overridden to the time-embedding broadcast. | non-narrative — **BigBird is correctly wired AND heavily used by the trained model, contradicting the "globals are inert" hypothesis.** Late-layer attention mass on globals at t=0.1 hits 22–34 % (vs 5.88 % uniform baseline), with several residue queries placing ~100 % of their attention on globals in layers 7–13. The 4 globals are NOT collapsed (off-diagonal cos sim ≤ 0.071) and carry distinct keys (std across globals ≥ 0.32 every layer). Fresh-init grad norms on globals are 0.04–3.3× the trunk's to_qkv grad — not structurally tiny. The time-emb-cond override (B2) gives no speedup (1.00×), so `global_cond_emb` being learnable-zero-init is not the bottleneck. **Reframes the low-t pathology:** globals are time-agnostic by design (`global_cond_emb` doesn't see time-emb), the curriculum strips real spatial/random capacity at low t (`(16,8,24)`), and the model has learned to compensate by routing 20–30 % of low-t late-layer attention into 4 protein-agnostic globals — which cannot encode protein-specific structure. That's a *learned-policy* pathology, not a wiring bug. Audit script: `script_utils/audit_bigbird_wiring.py`. |
+| [E049](#e049--cold-start-bigbird-only-no-pair-update-no-lowtsoft-on-the-11-trunk-2026-05-12) | 2026-05-12 | in progress (queued; SLURM 29277806, SL2 15h slot, submitted ~mid-day BST 2026-05-12) | Cold-start retrain of a **four-axis** bundle: K=64 SALAD-canonical sparse + curriculum + self-inclusion + **BigBird globals n=4 only** — **NO pair-update, NO LOWTSOFT** (curriculum_low_t_split absent → default `(32, 0, 0)` sequence-only at t<0.33). Cap fix from [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) live in code. **Isolates the BigBird contribution against the §11 reference** ([E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s five-axis bundle stalled at low t per [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12); chat consensus 2026-05-12 was that LOWTSOFT + pair-update were the suspects, not BigBird itself). | non-narrative — first BigBird-only training. **Predicted milestones:** at matched horizon (~1200 opt steps), expect `val_loss_by_t.t_000_020` close to §11's 4.3-4.5 (vs E047's stuck-at-7.2) since the low-t bucket is back to `(32, 0, 0)`; expect total `val/loss_epoch` to track §11 to within +0.1 (the parameter overhead of 4 globals + their pair-bias entries). Decision: if low-t recovers AND BigBird globals attract non-trivial attention mass as in [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12), the four-axis form is the new K=64 baseline and the next ablation is pair-update on top of THIS variant; if low-t still degrades vs §11, BigBird is the regression and `n_global_tokens: 0` should be the K=64 baseline going forward. |
 
 ---
 
@@ -4286,3 +4288,177 @@ Plausible explanation: the §12 bundle introduces 3 new architectural axes (BigB
 - Architecture: variants.md §11 trunk (K=64-curriculum-self) plus §12-forthcoming additions (BigBird + pair-update). The §12 entry will be added to variants.md once a checkpoint has been probed.
 - Sibling untrained config: `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate.yaml` (the §12 forthcoming reference — never trained; this run replaces it with lowtsoft baked in).
 - Deferred ablation candidates: `configs/training_ca_only_sparse_K64_curriculum_lowtsoft.yaml` (drops BigBird + pair-update, keeps lowtsoft); `configs/training_ca_only_sparse_K64_nocurr.yaml` (drops curriculum entirely); not-yet-written cap-fix-isolation config (= `..._bigbird_pairupdate.yaml` re-run with cap fix in code but `(32, 0, 0)` low-t).
+
+---
+
+## E048 — BigBird wiring audit on E047 step 1200 (2026-05-12)
+
+**Why ran:** [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s in-progress val curve matches §11 K=64-curriculum-self at high t and is strictly worse at low t with the same shape. User question: is BigBird actually being applied, or is the bundle effectively §11 + pair-update + lowtsoft because the globals are inert? An end-to-end read of `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_160M.yaml` → `proteina.py:131` → `LocalLatentsTransformer.__init__` → `_attach_globals` → `PairBiasAttention._attn_sparse` shows the wiring is correct on paper; checking whether it's actually used at runtime needs a forward-pass hook, which is what this entry runs. The answer decides whether the next move is "fix BigBird" (if inert) or "reconsider what BigBird at low t actually does to the learned routing policy" (if heavily used).
+
+**Configs:**
+- Audit script: `script_utils/audit_bigbird_wiring.py` (CPU-only; ~2 min wall on login node; no GPU available locally).
+- Reads checkpoint: `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K64_curriculum_self_bigbird_pairupdate_lowtsoft/1778520282/checkpoints/last.ckpt` (global_step=1200, E047 mid-training snapshot).
+- NN constructor kwargs assembled from the snapshot's `exp_config_*.json` (n_global_tokens=4, sparse_attention=True, update_pair_repr=True, update_pair_repr_every_n=3, K_canonical=64, K_total=68, curriculum_neighbors=True, curriculum_low_t_split=(16,8,24)).
+- Synthetic batch B=3, N=100, t_bb_ca = (0.1, 0.5, 0.9) — one protein per curriculum bucket. `mask=True` everywhere; `x_t`/`x_sc` ∼ 𝒩(0, 0.3²); `residue_type=0`. Fresh torch.manual_seed(0).
+- Probe surface:
+  - **A1**: hook `PairBiasAttention._attn_sparse` to record, for each of 14 transformer layers, the mean+max attention mass that residue queries place on the 4 global slots (slots [K_canonical:K_total] = [64:68]).
+  - **A2**: same hook, record std of global keys across the 4 global tokens (collapse check).
+  - **A3**: pairwise cosine similarity between the 4 rows of trained `global_token_emb` (collapse check, pre-forward).
+  - **B1**: fresh-init clone (same kwargs, torch.manual_seed(123)), one fwd+bwd on a synthetic L2 loss, log |∇| for `global_*` params vs representative trunk params.
+  - **B2**: same as B1 but with `_attach_globals` monkey-patched on the instance to set `global_cond = cond[:, :1, :].expand(B, G, dim_cond)` (broadcast the per-protein time embedding into globals) instead of the zero-init learnable `global_cond_emb` — speedup ratio diagnoses whether time-agnostic global cond is the gradient bottleneck.
+- Code paths exercised (relevant if anyone re-reads later):
+  - `LocalLatentsTransformer._attach_globals` at `local_latents_transformer.py:293-383`.
+  - `_attn_sparse` at `pair_bias_attn.py:132-181`.
+  - `PairReprUpdate.forward` sparse branch at `pair_update.py:62-86`.
+  - Hook attaches to `model.transformer_layers[i].mhba.mha` (note: attribute is `mhba`, not `mha`, on `MultiheadAttnAndTransition`).
+- Single-machine, no SLURM. Login-node CPU only (`torch.cuda.is_available()=False` here).
+
+**Results (verbatim from run log):**
+
+A3 — trained `global_token_emb` pairwise cosine similarity:
+```
++1.0000  +0.0032  -0.0386  +0.0031
++0.0032  +1.0000  -0.0042  +0.0353
+-0.0386  -0.0042  +1.0000  +0.0708
++0.0031  +0.0353  +0.0708  +1.0000
+```
+All off-diagonal entries within ±0.071; no two of the 4 globals are aligned. **No collapse at the embedding level.**
+
+A1 + A2 — attention mass to globals per layer (averaged over residue queries and heads), and key-std across globals. Uniform baseline = G/K_total = **0.0588** (5.88%).
+
+| Layer | t=0.1 | t=0.5 | t=0.9 | max(t=0.1) | std(globK) |
+|---|---|---|---|---|---|
+| 0 | 0.0396 | 0.1936 | 0.4173 | 0.4754 | 0.8128 |
+| 1 | 0.0214 | 0.1034 | 0.2782 | 0.4738 | 0.7404 |
+| 2 | 0.0184 | 0.1279 | 0.3014 | 0.5388 | 0.6498 |
+| 3 | 0.0059 | 0.0379 | 0.0665 | 0.0580 | 0.3721 |
+| 4 | 0.0060 | 0.0185 | 0.0607 | 0.0401 | 0.3287 |
+| 5 | 0.0510 | 0.0070 | 0.0069 | 0.9529 | 0.3987 |
+| 6 | 0.0073 | 0.0064 | 0.0347 | 0.0393 | 0.4341 |
+| 7 | **0.2966** | 0.1825 | 0.1426 | **0.9997** | 0.4609 |
+| 8 | 0.0873 | 0.0028 | 0.0043 | **0.9999** | 0.3887 |
+| 9 | **0.3401** | 0.1655 | 0.0534 | 0.9972 | 0.3495 |
+| 10 | **0.2299** | 0.0781 | 0.0018 | **1.0000** | 0.3938 |
+| 11 | **0.2783** | 0.1287 | 0.0547 | **1.0000** | 0.4098 |
+| 12 | **0.2664** | 0.0217 | 0.0017 | 0.9987 | 0.3861 |
+| 13 | **0.3200** | 0.0610 | 0.0411 | 0.9922 | 0.3187 |
+
+Two regimes are visible. **Early layers (0-2) at high t (t=0.9)** route 28-42 % of attention into globals — globals act as an initial-layout broadcast channel for the cleaner state. **Late layers (7, 9-13) at low t (t=0.1)** route 22-34 % of attention into globals, with the per-residue max repeatedly hitting ~100 % (a single residue query at low t in layers 7, 8, 10, 11 puts essentially all of its attention on the 4 global slots). At mid- and high-t these late layers route <6 % into globals — uniform or below. The per-layer std of global keys stays in [0.32, 0.81] across all layers, so the 4 globals continue carrying distinct k/v signals throughout the trunk; they are not collapsing to a single token even though they're competing for the same slots.
+
+B1 — fresh-init |∇| ratios (relative to `transformer_layers.0.mhba.mha.to_qkv.weight` |∇| as 1.0):
+```
+global_token_emb                                          |grad|=6.17e-1   ratio=0.350
+global_cond_emb                                           |grad|=5.84e+0   ratio=3.315
+global_pair_bias_res_to_glob                              |grad|=5.11e-1   ratio=0.290
+global_pair_bias_glob_to_res                              |grad|=7.77e-2   ratio=0.044
+global_pair_bias_glob_to_glob                             |grad|=8.26e-2   ratio=0.047
+transformer_layers.0.mhba.mha.to_qkv.weight               |grad|=1.76e+0   ratio=1.000  (reference)
+transformer_layers.0.mhba.mha.to_bias.weight              |grad|=4.74e-2   ratio=0.027
+transformer_layers.0.mhba.scale_output.to_adaln_zero_gamma.0.weight  |grad|=5.03e-6   ratio≈0
+pair_update_layers.0.linear_x.weight                      |grad|=7.68e-1   ratio=0.435
+ca_linear.1.weight                                        |grad|=8.45e+0   ratio=4.794
+```
+Globals' gradient is **not structurally tiny** — `global_token_emb` and `global_pair_bias_res_to_glob` have grad ratios 0.29-0.35 (same order of magnitude as trunk to_qkv); `global_cond_emb` has the largest grad ratio (3.32) because it starts at exactly zero. The two globally-broadcast pair-bias params for `(global → residue)` and `(global → global)` have smaller grad ratios (0.04-0.05) but still non-tiny.
+
+B2 — fresh-init with `global_cond_emb` overridden to broadcast of time-emb (per-instance monkey patch of `_attach_globals`):
+
+| Param | ratio (B1, learnable zero-init) | ratio (B2, time-emb broadcast) | speedup |
+|---|---|---|---|
+| global_token_emb | 0.3497 | 0.3514 | 1.00× |
+| global_pair_bias_res_to_glob | 0.2898 | 0.2813 | 0.97× |
+| global_pair_bias_glob_to_res | 0.0441 | 0.0444 | 1.01× |
+| global_pair_bias_glob_to_glob | 0.0468 | 0.0484 | 1.03× |
+
+No measurable speedup. The time-agnostic learnable global cond is **not** the gradient bottleneck at init.
+
+Sanity numbers from the same audit (param magnitudes at step 1200, ckpt inspection):
+- `global_token_emb` (4, 768): |x|.mean=1.63e-2 (init scale was randn·0.02, so ~unchanged).
+- `global_cond_emb` (4, 256): |x|.mean=1.39e-3 (from zero-init).
+- `global_pair_bias_res_to_glob` (4, 256): |x|.mean=2.81e-3.
+- `global_pair_bias_glob_to_res` (4, 256): |x|.mean=2.52e-3.
+- `global_pair_bias_glob_to_glob` (4, 4, 256): |x|.mean=2.21e-3.
+- `pair_update_layers` exist at i ∈ {0, 3, 6, 9, 12} (5 updates over 14 layers, every_n=3); LN weights ~ 0.97; trained.
+
+**Possible narrative:** non-narrative — this is a wiring + learned-policy diagnostic, not a paper claim. **Reframes [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s low-t pathology.** The "BigBird is inert" hypothesis is falsified: globals are heavily used. Instead the data fits a *learned-policy* picture — at low t the curriculum (`(16,8,24)`) strips real spatial/random capacity, and the model compensates by routing 20-34 % of late-layer attention into 4 protein-agnostic globals (each global's slot has its own pair-bias entries but the global token itself is a single learnable vector shared across all proteins, with a time-agnostic cond). Since globals cannot encode protein-specific structure, that learned shortcut caps low-t accuracy. Decision the entry feeds:
+- **Soft fix (no retrain)**: at inference, mask the 4 global slots in `_attn_sparse` when `t < 0.33` (force the residue to spend its attention on real neighbors). If this helps the §11+pair-update+lowtsoft pretrained policy, the hypothesis is confirmed.
+- **Hard fix (retrain ablation)**: re-cold-start §12 with `n_global_tokens: 0` (BigBird off) to attribute. If the no-BigBird run beats this one at low t, BigBird is the regression at this recipe. If the no-BigBird run is identical, BigBird is a wash.
+- **Architectural fix (retrain ablation)**: re-cold-start §12 with `global_cond_emb` replaced by a per-protein time-embedded cond (broadcast of `cond[:, 0, :]`) so globals can specialise per-t. B2 shows the gradient bottleneck argument doesn't apply, so this is speculative; only worth running if the soft-fix probe shows globals are the load-bearing failure at low t.
+
+**Methodological caveats:**
+- **Single mid-training checkpoint (global_step=1200).** Attention-mass patterns at later checkpoints may differ — globals could become less or more dominant as training continues. Re-run this audit on a later ckpt (e.g. step 2000) before treating the late-layer 20-34 % low-t mass as the trained policy's steady state.
+- **Synthetic batch, single seed, single (B, N) = (3, 100).** No PDB structure. At real PDB inputs with realistic Cα coords the curriculum's spatial/random group at low t (8 spatial + 24 random) would be picked from noisy coordinates per `x_t`, so the alternative slots the model could pull info from are different from this audit's. The audit shows globals are *used*; the exact magnitude on real data could be different.
+- **N=100 is below the L=200 designability cliff.** Whether the late-layer global-routing intensifies further at L=200 (where designability collapses to 0/18 in E046) is untested. Re-run the audit at N∈{200, 300} to see if the low-t global-routing pattern strengthens with chain length.
+- **Per-head attention is averaged.** The mean over 12 heads can hide per-head specialisation — some heads may put 100 % on globals while others put 0 %. Per-head breakdown not extracted here; the per-residue max ~ 1.0 is a hint that head-level concentration is real.
+- **B1/B2 are *init* grad ratios** on a fresh model, not gradient flow at step 1200. Trained models can develop bottlenecks that init-time grads don't predict; the strict claim is "no init-time bottleneck from time-agnostic global cond".
+- **`_attach_globals` patch in B2 mutates only the cond fed to AdaLN/scale_output; the pair-bias parameters (res→glob, glob→res, glob→glob) stay time-agnostic.** A "full" time-conditioned globals architecture would also condition those, which B2 doesn't test.
+- The audit is **read-only**: no checkpoint, config, or experiment file was modified by the audit itself. The new script is `script_utils/audit_bigbird_wiring.py`; existing configs are unchanged.
+
+**Cross-references:**
+- Triggered by: [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) "in-progress val curve matches §11 at high t, strictly worse at low t" observation.
+- Predecessor for the wiring contract: [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) (introduced the cap fix and the LOWTSOFT bucket).
+- Code paths inspected: `proteinfoundation/nn/local_latents_transformer.py` (`_attach_globals`, forward), `proteinfoundation/nn/modules/pair_bias_attn.py` (`_attn_sparse`), `proteinfoundation/nn/modules/pair_update.py` (sparse branch), `proteinfoundation/nn/modules/sparse_neighbors.py` (cap fix), `proteinfoundation/proteina.py` (kwargs plumbing).
+- Existing smoke test it complements (and exposes the gap of): `script_utils/smoke_bigbird_pairupdate.py` (asserts grad-presence on globals but not attention-mass or std-across-globals — would have passed for this checkpoint regardless of whether globals were inert or load-bearing).
+- Deferred follow-ups (decision pending): soft-fix inference probe with `t<0.33` global-mask; `n_global_tokens: 0` retrain ablation; time-embedded `global_cond` retrain ablation; re-run audit on E047 step ≥ 2000 ckpt; per-head attention breakdown; audit at N ∈ {200, 300}.
+
+
+---
+
+## E049 — Cold-start BigBird-only (no pair-update, no LOWTSOFT) on the §11 trunk (2026-05-12)
+
+**Status:** in progress (queued; SLURM **29277806**, SL2 15h slot, submitted ~mid-day BST 2026-05-12).
+
+**Why ran:** [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s five-axis bundle (BigBird + pair-update + LOWTSOFT on the §11 K=64-curriculum-self trunk) stalled at low t — `val_loss_by_t.t_000_020` stuck at ~7.2 at global_step=1196 vs the §11 predecessor's ~4.3 at the same horizon (slot 7sdu834p, global_step=1196). [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12) audit confirmed BigBird is correctly wired and heavily used (residue queries route 22-34 % of late-layer attention into globals at t=0.1), and the differential degradation across t-buckets localised cleanly to the curriculum cell where the schedules differ: at t<0.33, §11 had `(32, 0, 0)` sequence-only and the five-axis bundle had LOWTSOFT `(16, 8, 24)`. Chat consensus 2026-05-12 (the one with this entry) was that LOWTSOFT and pair-update were the load-bearing regressions, **not** BigBird itself. This entry isolates the BigBird contribution by dropping LOWTSOFT and pair-update.
+
+Decision the entry feeds: whether **BigBird alone is the right addition on top of §11** for the K=64 baseline going forward, or whether `n_global_tokens: 0` (the §11 trunk as-is) should remain the baseline and BigBird is dropped from the variant catalog.
+
+**Configs:**
+- Training config: `configs/training_ca_only_sparse_K64_curriculum_self_bigbird.yaml` (NEW, sibling of `..._bigbird_lowtsoft.yaml` with `curriculum_low_t_split` removed — default `(32, 0, 0)` from `proteina.py:129` kicks in).
+- NN config: `configs/nn/ca_only_sparse_K64_curriculum_self_bigbird_160M.yaml` (already on disk from a 2026-05-12 earlier session; `update_pair_repr: False`, `n_global_tokens: 4`, all other keys byte-equivalent to `..._bigbird_pairupdate_160M.yaml`).
+- Cold start (no `pretrain_ckpt_path`). The §11 step-1385 ckpt has no `global_token_emb` / `global_cond_emb` / `global_pair_bias_*` parameters, so warm-start would resume the trunk and leave the BigBird parameters zero-init — wouldn't give a clean A/B for BigBird's contribution.
+- Recipe: locked to canonical OLD recipe (wd=0.05, constant LR=2e-4, no scheduler). Identical to §11 and the [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) bundle in every other respect.
+- Submit: `sbatch --time=15:00:00 --exclude=gpu-q-43 script_utils/submit_train_ca_only_1gpu.sh -n training_ca_only_sparse_K64_curriculum_self_bigbird` — single 15h SL2 slot. At canonical's ~131 opt-steps/h that's ~1900 opt steps in one shot, comfortably past the §11 step-1385 reference and into the canonical 1800-2200 best-val window.
+- SLURM job id: 29277806.
+- Wandb group: `ca_only_sparse_K64_curriculum_self_bigbird` (auto-set from `run_name_` by the submit script). Wandb run id: tbd (logged at job start).
+- Store dir: `/rds/user/ks2218/hpc-work/store/ca_only_sparse_K64_curriculum_self_bigbird/<launch_ts>/checkpoints/`.
+
+**Architecture delta vs §11 (`rmuumq8v`, val 4.19 @ step 1385, designability 8/10/2 = 44/56/11 % at N=18 — the comparison reference):**
+
+| axis | §11 reference | E049 (this entry) | five-axis [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) |
+|---|---|---|---|
+| K | 64 | 64 | 64 |
+| `curriculum_neighbors` | True | True | True |
+| `curriculum_low_t_split` (t<0.33 cell) | default `(32, 0, 0)` — sequence-only | default `(32, 0, 0)` — sequence-only | `(16, 8, 24)` — LOWTSOFT |
+| self-inclusion | True (code) | True (code) | True (code) |
+| `update_pair_repr` | False | False | True (every 3) |
+| `n_global_tokens` | 0 | **4** | 4 |
+| off-by-one cap fix | absent (trained pre-`04f6bf2`) | live (code) | live (code) |
+
+Only two deltas vs §11: BigBird globals on, cap fix in code.
+
+**Predicted milestones (set at submission time, to be retro-checked):**
+
+- **Step ~600 (5h, first val read):** total `val/loss_epoch` ≈ §11's ~5.0-5.2 at the same horizon (initial BigBird cost of learning the 4 globals' embeddings + their pair-bias entries from zero-init). The `val_loss_by_t` shape should already show low-t recovery — `t_000_020` somewhere in the 4.5-5.5 range, **NOT** the 7.0+ that [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) showed at step 503.
+- **Step ~1200 (10h):** total `val/loss_epoch` close to §11's 4.32 at slot 7sdu834p step 1196, within +0.1. Low-t `t_000_020` should be in the 4.3-4.7 range (vs §11's 4.49 and [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11)'s 7.24 at the same step).
+- **Step ~1800 (15h, end-of-slot):** total `val/loss_epoch` ≤ §11's step-1385 4.19. Designability probe (N=6 × L∈{50, 100, 200}, nsteps=400, seed=5) at the closest-to-1800 ckpt vs §11 step-1385's 8/10/2 N=18 reference.
+
+If low-t recovers fully (i.e. matches §11's t-bucketed val curve to within +0.1 at every bucket) AND globals continue to attract late-layer attention mass as in [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12), the conclusion is *BigBird is a free axis on §11*. Designability at step ~1800 then tests whether it actually translates to a sample-quality improvement.
+
+If low-t recovers but designability is the same or worse than §11, the read is *BigBird helps val MSE marginally (more parameters, more capacity at low t) but the additional capacity does not translate to better samples* — same pattern as Fix C2 (E021/E039 — Fix C2 hit the §11 designability ceiling but didn't beat it).
+
+If low-t does NOT recover (`t_000_020` still > 5 at step ~1200), BigBird is the regression and the next move is `n_global_tokens: 0` on the same trunk (i.e. just re-train §11 with the cap fix in code) to confirm.
+
+**Methodological caveats:**
+
+- **Single 15h slot, no chained re-queue.** End-of-slot at ~step 1800 is just inside the canonical 1800-2200 best-val window; if the bundle plateaus later (as [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) appeared to be doing at step 1200), the designability read might come from a not-yet-converged ckpt. Acceptable for the first read; a chained second slot is the natural follow-up if convergence isn't visible.
+- **Cold start cost.** The 4 BigBird global embeddings + their three pair-bias parameter tensors (`global_pair_bias_res_to_glob`, `_glob_to_res`, `_glob_to_glob`) are zero / near-zero at init. [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) showed these reach useful magnitudes by step 1200 (cf. [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12)'s param magnitudes table). With pair-update OFF and LOWTSOFT OFF, the trunk doesn't have to learn around globals AND a degraded curriculum AND extra pair-update layers simultaneously — the BigBird parameters should reach useful magnitudes faster, but the prediction is unverified for this exact configuration.
+- **The §11 reference's 44/56/11 % designability at N=18 came from chained slots `rmuumq8v` (slot 3, val 4.19 @ step 1385) — pre-cap-fix.** This entry's designability probe will use post-cap-fix code, so the comparison is not strictly matched on the integrator side. Cap-fix is a no-op at L>K=64 (i.e. L=100, L=200) and only fires at L≤K=64 (L=50). The L=50 comparison is the one with the integrator mismatch; L=100 / L=200 are clean A/Bs.
+- **Designability comparison at N=6 is one slot, not pooled.** If the step-1800 N=6 read is ambiguous (e.g. 3/4/0 vs §11's 4/5/1 single-slot read), pool with a second N=12 probe at a different seed before drawing a conclusion. CLAUDE.md auto-memory `feedback_seed_propagation_audit.md` applies: seeds don't propagate cleanly across `nsamples` settings, so use an explicit-fresh-seed pattern.
+- **No designability re-probe of [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) at matched val MSE.** The five-axis bundle's stalled-at-low-t val curve never crossed §11's step-1385 val (4.19), so a matched-val comparison isn't possible. E049 vs §11 is the comparison this entry produces; E049 vs [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) at matched step is a separate read.
+- **Sample-quality bar inheritance.** Inference will use `nsteps=400` per the CLAUDE.md hard rule.
+
+**Cross-references:**
+- Predecessor (architecture): variants.md §11 (K=64-curriculum-self trunk; `rmuumq8v`, val 4.19 @ step 1385).
+- Predecessor (BigBird wiring): [E047](#e047--cold-start-retrain-of-the-k64-bundle-with-cap-fix--lowtsoft-low-t-bucket-2026-05-11) (first BigBird training) + [E048](#e048--bigbird-wiring-audit-on-e047-step-1200-2026-05-12) (audit confirming wiring + heavy use).
+- Predecessor (cap fix): [E046](#e046--sparse-attention-off-by-one-cap-investigation--fix--bf16-audit-2026-05-11) (commit `04f6bf2`).
+- Sibling on disk (not yet trained): `configs/training_ca_only_sparse_K64_curriculum_self_bigbird_lowtsoft.yaml` (BigBird + LOWTSOFT, no pair-update). Useful if E049's low-t recovers AND we want to attribute the LOWTSOFT regression specifically.
+- Follow-up if E049 lands: BigBird + pair-update without LOWTSOFT (`configs/training_ca_only_sparse_K64_curriculum_self_bigbird_pairupdate.yaml`, already on disk, not yet trained) to isolate pair-update on top of E049's bundle.

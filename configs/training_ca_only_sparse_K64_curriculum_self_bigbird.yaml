@@ -1,0 +1,124 @@
+# K=64 SALAD-canonical sparse + curriculum + self-inclusion
+# + BigBird CLS globals (n=4). **NO pair-update. NO lowtsoft.**
+# + cap-fix in code.
+#
+# BigBird-isolation variant — built 2026-05-12. Sibling of
+# `training_ca_only_sparse_K64_curriculum_self_bigbird_lowtsoft.yaml` with
+# `curriculum_low_t_split` removed so the default `(32, 0, 0)` sequence-only
+# low-t bucket kicks in (`proteina.py:129`). NN config reused as-is
+# (`ca_only_sparse_K64_curriculum_self_bigbird_160M.yaml`,
+# `update_pair_repr: False`, `n_global_tokens: 4`).
+#
+# Motivation: E047 (vru8hr9y, five-axis bundle BigBird + PU + LOWTSOFT)
+# stalled at low t — `val_loss_by_t.t_000_020` stuck at ~7.2 at step 1196
+# vs §11's ~4.3 at the same horizon. E048 audit confirmed BigBird is
+# correctly wired and heavily used; the differential degradation localised
+# to the LOWTSOFT cell of the curriculum schedule (LOWTSOFT (16, 8, 24)
+# vs §11's (32, 0, 0) sequence-only at t<0.33 — half the noise-invariant
+# slots replaced by spatial/random groups that are KNN/1-d^3 over near-pure-
+# noise coords). This variant turns LOWTSOFT and pair-update OFF and adds
+# ONLY BigBird globals to the §11 trunk, to isolate the BigBird contribution
+# against the §11 reference (rmuumq8v, val 4.19 @ step 1385; designability
+# 8/10/2 = 44/56/11% at N=18).
+#
+# Three-axis delta vs §11:
+#   - BigBird n_global_tokens=4    (NEW)
+#   - update_pair_repr=False       (same as §11)
+#   - curriculum_low_t_split=default (32, 0, 0)  (same as §11)
+#   - off-by-one cap fix from commit 04f6bf2 (in code, applies always)
+#
+# COLD START. The §11 step-1385 ckpt has no `global_token_emb` /
+# `global_cond_emb` / `global_pair_bias_*` parameters, so a warm-start
+# would resume the trunk and leave the BigBird parameters zero-init —
+# this would not give a clean A/B for BigBird's contribution.
+#
+# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4,
+# no scheduler). DO NOT touch wd/LR/scheduler — confounds the BigBird
+# attribution with the v2/paramgroups failure mode. See CLAUDE.md
+# "Canonical baseline run" and variants.md §1.
+run_name_: ca_only_sparse_K64_curriculum_self_bigbird
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_self_bigbird_160M
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:  # null → cold start
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  # Curriculum on — matches §11. NO curriculum_low_t_split override → default
+  # (32, 0, 0) from proteina.py:129 kicks in → sequence-only at t<0.33.
+  curriculum_neighbors: True
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block. Constant LR=2e-4
+# via omitting `scheduler:`.
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  compile_nn: True
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False
