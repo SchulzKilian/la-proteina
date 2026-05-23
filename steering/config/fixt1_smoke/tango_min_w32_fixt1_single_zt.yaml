@@ -1,0 +1,25 @@
+# fix_t_input=1 predictor (fold 2), single fold, feed_z_t_directly=true.
+# Note: this is now OUT-OF-DISTRIBUTION for fixt1 — training was t=1, this
+# inference feeds real noisy t. Mirror of NA-v1's OOD case (legacy path
+# was OOD for NA-v1 because NA-v1 was trained on real noisy t).
+steering:
+  enabled: true
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_2_best.pt
+  feed_z_t_directly: true
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

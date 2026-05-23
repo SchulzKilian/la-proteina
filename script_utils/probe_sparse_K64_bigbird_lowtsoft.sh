@@ -16,8 +16,8 @@
 set -uo pipefail
 cd /home/ks2218/la-proteina
 
-export PYTHON_EXEC=/home/ks2218/conda_envs/laproteina_env/bin/python
-export PATH=/home/ks2218/conda_envs/laproteina_env/bin:$PATH
+export PYTHON_EXEC=/home/ks2218/.conda/envs/laproteina_env/bin/python
+export PATH=/home/ks2218/.conda/envs/laproteina_env/bin:$PATH
 CFG=inference_sparse_K64_bigbird_lowtsoft_step1133_n6_nfe400
 GPU=${CUDA_VISIBLE_DEVICES:-0}
 LOGBASE=/home/ks2218/la-proteina/nohup_${CFG}

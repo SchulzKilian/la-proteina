@@ -32,6 +32,7 @@ from omegaconf import OmegaConf
 from proteinfoundation.generate import load_ckpt_n_configure_inference, parse_args_and_cfg
 from proteinfoundation.utils.pdb_utils import write_prot_to_pdb
 from steering.guide import SteeringGuide
+from steering.guide_coords import SteeringGuideCoords
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,10 @@ def main():
                         help="Skip the paired unguided generation. Use when sweeping "
                              "multiple steering configs that share seeds+lengths so "
                              "the unguided baseline only has to be produced once.")
+    parser.add_argument("--skip_guided", action="store_true",
+                        help="Skip the guided generation. Use to extend the matched-seed "
+                             "unguided baseline only — the steering config is still loaded "
+                             "but never applied.")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -220,9 +225,15 @@ def main():
     # Set device for steering predictor to match model
     steering_cfg["device"] = str(device)
 
-    # Build steering guide
-    guide = SteeringGuide(steering_cfg)
-    logger.info("Steering: enabled=%s, objectives=%s", guide.enabled, steering_cfg.get("objectives", []))
+    # Build steering guide. `steering.use_coords: true` selects the
+    # CA-conditioned guide; default False preserves the existing latent-only path.
+    if steering_cfg.get("use_coords", False):
+        guide = SteeringGuideCoords(steering_cfg)
+        logger.info("Steering: CA-conditioned guide, enabled=%s, objectives=%s",
+                    guide.enabled, steering_cfg.get("objectives", []))
+    else:
+        guide = SteeringGuide(steering_cfg)
+        logger.info("Steering: enabled=%s, objectives=%s", guide.enabled, steering_cfg.get("objectives", []))
 
     # Create output directories
     output_dir = Path(args.output_dir)
@@ -266,27 +277,30 @@ def main():
                 save_protein(coors_u, res_u, mask_u, protein_id, unguided_dir)
 
             # --- Guided ---
-            model.steering_guide = guide
-            coors_g, res_g, mask_g, extra_g = generate_one(model, length, seed, device)
-            save_protein(coors_g, res_g, mask_g, protein_id, guided_dir)
+            if args.skip_guided:
+                logger.info("  Skipping guided generation (--skip_guided set).")
+            else:
+                model.steering_guide = guide
+                coors_g, res_g, mask_g, extra_g = generate_one(model, length, seed, device)
+                save_protein(coors_g, res_g, mask_g, protein_id, guided_dir)
 
-            # Save diagnostics
-            diag = extra_g.get("steering_diagnostics", [])
-            diag_path = diag_dir / f"{protein_id}_diagnostics.json"
-            # Convert to serialisable format
-            diag_serialisable = []
-            for d in diag:
-                entry = {}
-                for k, v in d.items():
-                    if isinstance(v, dict):
-                        entry[k] = {kk: float(vv) for kk, vv in v.items()}
-                    elif isinstance(v, (int, float, bool, str)):
-                        entry[k] = v
-                    else:
-                        entry[k] = str(v)
-                diag_serialisable.append(entry)
-            with open(diag_path, "w") as f:
-                json.dump(diag_serialisable, f, indent=2)
+                # Save diagnostics
+                diag = extra_g.get("steering_diagnostics", [])
+                diag_path = diag_dir / f"{protein_id}_diagnostics.json"
+                # Convert to serialisable format
+                diag_serialisable = []
+                for d in diag:
+                    entry = {}
+                    for k, v in d.items():
+                        if isinstance(v, dict):
+                            entry[k] = {kk: float(vv) for kk, vv in v.items()}
+                        elif isinstance(v, (int, float, bool, str)):
+                            entry[k] = v
+                        else:
+                            entry[k] = str(v)
+                    diag_serialisable.append(entry)
+                with open(diag_path, "w") as f:
+                    json.dump(diag_serialisable, f, indent=2)
 
             elapsed = time.time() - t0
             rate = done / elapsed

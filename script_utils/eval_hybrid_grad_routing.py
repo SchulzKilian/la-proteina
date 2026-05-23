@@ -39,13 +39,21 @@ def main():
         "--num_seq_per_target", type=int, default=8,
         help="ProteinMPNN sequences per PDB. evaluate.py default is 8.",
     )
+    parser.add_argument(
+        "--n_samples", type=int, default=3,
+        help="Number of samples per (arm, L) to evaluate.",
+    )
+    parser.add_argument(
+        "--lengths", type=str, default="50,100,200",
+        help="Comma-separated lengths.",
+    )
     args = parser.parse_args()
 
     root = Path(args.root_dir) / args.label
     assert root.exists(), f"No such dir: {root}"
     arms = ["baseline", "hybrid"]
-    lengths = [50, 100, 200]
-    samples = [0, 1, 2]
+    lengths = [int(x) for x in args.lengths.split(",")]
+    samples = list(range(args.n_samples))
 
     rows = []
     for arm in arms:

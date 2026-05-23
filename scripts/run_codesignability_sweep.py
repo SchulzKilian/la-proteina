@@ -63,13 +63,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lengths", type=int, nargs="+", default=[300, 400, 500])
     ap.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44, 45])
+    ap.add_argument("--cfgs", type=str, nargs="+", default=None,
+                    help="Override the hardcoded CFGS list (e.g. for high-w scout cells).")
     args = ap.parse_args()
+
+    cfgs = args.cfgs if args.cfgs else CFGS
 
     tmp_root = _ROOT / "tmp" / "codesign_sweep"
     tmp_root.mkdir(parents=True, exist_ok=True)
 
     pdb_set: list[tuple[str, Path]] = []
-    for cfg in CFGS:
+    for cfg in cfgs:
         guided_dir = OUT_BASE / cfg / "guided"
         if not guided_dir.exists():
             logger.warning("Missing %s, skipping", guided_dir)

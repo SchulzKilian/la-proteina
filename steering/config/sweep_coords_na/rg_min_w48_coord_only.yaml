@@ -1,0 +1,28 @@
+# Coord-channel Rg-min steering. Rg is a pure CA-geometry quantity with no
+# sequence-level signal, so steering it via the CA channel is the most direct
+# possible test. Real-world utility: compact backbones tend to be more stable,
+# less aggregation-prone, and lower in formulation viscosity — Rg-min is the
+# direction biotech protein-design pipelines actually want.
+steering:
+  enabled: true
+  use_coords: true
+  channel: bb_ca
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_0_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_1_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_2_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_3_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_4_best.pt
+  objectives:
+  - property: rg
+    direction: minimize
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 48.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  log_diagnostics: true

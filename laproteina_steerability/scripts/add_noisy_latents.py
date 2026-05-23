@@ -111,6 +111,7 @@ class NoisyPropertyDataset(PropertyDataset):
         t_max: float,
         sigma_langevin: float,
         seed: int = 42,
+        fix_t_input: float | None = None,
     ):
         super().__init__(records, prop_df, stats=stats, t_value=1.0)
         if not (0.0 <= t_min < t_max <= 1.0):
@@ -120,6 +121,12 @@ class NoisyPropertyDataset(PropertyDataset):
         self.t_min = float(t_min)
         self.t_max = float(t_max)
         self.sigma_langevin = float(sigma_langevin)
+        # When set, the time embedding fed to the model is pinned to this value
+        # (typically 1.0 to match what the clean predictor saw) while the noisy
+        # z_t sample is still generated with the real `t ~ U(t_min, t_max)`.
+        # Isolates "noise smoothing of the landscape" from "time-conditioning
+        # of the predictor at the actual noise level".
+        self.fix_t_input = None if fix_t_input is None else float(fix_t_input)
         # Per-worker rng — reseeded in worker_init_fn so workers don't share noise
         self._seed = seed
         self._rng = np.random.default_rng(seed)
@@ -140,7 +147,7 @@ class NoisyPropertyDataset(PropertyDataset):
             z_t = z_t + self.sigma_langevin * scale * eps_2
 
         item["latents"] = z_t
-        item["t"] = t
+        item["t"] = t if self.fix_t_input is None else self.fix_t_input
         return item
 
 
@@ -181,6 +188,7 @@ def fine_tune_fold(
         t_min=cfg["t_min"], t_max=cfg["t_max"],
         sigma_langevin=cfg["sigma_langevin"],
         seed=42 + fold_idx * 1000,
+        fix_t_input=cfg.get("fix_t_input"),
     )
     # Validation also uses the same noise distribution — that's the regime
     # we care about for steering. We additionally evaluate on clean t=1
@@ -190,6 +198,7 @@ def fine_tune_fold(
         t_min=cfg["t_min"], t_max=cfg["t_max"],
         sigma_langevin=cfg["sigma_langevin"],
         seed=43 + fold_idx * 1000,
+        fix_t_input=cfg.get("fix_t_input"),
     )
     val_ds_clean = PropertyDataset(val_records, prop_df, stats=stats, t_value=1.0)
 
@@ -369,6 +378,7 @@ def fine_tune_fold(
                 "t_min": cfg["t_min"],
                 "t_max": cfg["t_max"],
                 "sigma_langevin": cfg["sigma_langevin"],
+                "fix_t_input": cfg.get("fix_t_input"),
                 "src_ckpt": str(src_ckpt_path),
             }, ckpt_path)
             logger.info("  New best r2_noisy=%.4f, saved %s", best_r2, ckpt_path.name)
@@ -404,6 +414,11 @@ def main():
                     help="Max t for the steering window (matches schedule.t_end)")
     ap.add_argument("--sigma-langevin", type=float, default=0.1,
                     help="Extra Langevin noise scale; 0.0 = principled marginal only (forward interpolant)")
+    ap.add_argument("--fix-t-input", type=float, default=None,
+                    help="Pin the time embedding fed to the predictor to this value (e.g. 1.0) "
+                         "while still generating z_t with real `t ~ U(t_min, t_max)`. Isolates "
+                         "noise-smoothing of the landscape from time-conditioning. Default None = "
+                         "use real noisy t (the original noise-aware fine-tune behaviour).")
 
     # Training (fine-tune defaults: shorter, lower LR than the from-scratch run)
     ap.add_argument("--epochs", type=int, default=10)
@@ -460,6 +475,7 @@ def main():
         "t_min": args.t_min,
         "t_max": args.t_max,
         "sigma_langevin": args.sigma_langevin,
+        "fix_t_input": args.fix_t_input,
         # provenance
         "src_run": str(src_run),
         "timestamp": timestamp,
@@ -468,8 +484,9 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device: %s, output dir: %s", device, out_dir)
-    logger.info("Noise: t ~ U(%.2f, %.2f), sigma_langevin=%.3f",
-                cfg["t_min"], cfg["t_max"], cfg["sigma_langevin"])
+    logger.info("Noise: t ~ U(%.2f, %.2f), sigma_langevin=%.3f, fix_t_input=%s",
+                cfg["t_min"], cfg["t_max"], cfg["sigma_langevin"],
+                "real_noisy_t" if cfg["fix_t_input"] is None else f"{cfg['fix_t_input']:.2f}")
 
     # Load data — use the data config from the src run, with the same fallback logic
     # the original run.py uses (primary path, then la-proteina/data/pdb_train symlink).

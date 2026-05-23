@@ -749,7 +749,12 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                 # Dict[data_mode, torch.Tensor]
 
                 # --- Steering guidance injection ---
-                if steering_guide is not None and "local_latents" in nn_out:
+                # The guide names the channel it modifies via `guide.channel`
+                # (default "local_latents"). Existing latent-only guides keep
+                # the prior behaviour byte-for-byte; CA-aware guides may set
+                # `channel="bb_ca"` to steer the CA velocity instead.
+                _steer_channel = getattr(steering_guide, "channel", "local_latents") if steering_guide is not None else None
+                if steering_guide is not None and _steer_channel in nn_out:
                     _v_key = "v_guided" if "v_guided" in nn_out["local_latents"] else "v"
                     _t_ll = t["local_latents"].flatten()[0].item()
 
@@ -771,12 +776,29 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                         nn_out_inner = self.nn_out_add_simulation_tensor(batch_inner, nn_out_inner)
                         return nn_out_inner["local_latents"]["v"]
 
+                    # bb_ca / v_bb_ca are forwarded as kwargs so a CA-conditioned
+                    # guide can consume them; the default SteeringGuide accepts
+                    # **_extra_kwargs and ignores them (additive, no behaviour
+                    # change for existing latent-only guides).
+                    _bb_ca = x.get("bb_ca") if isinstance(x, dict) else None
+                    _v_bb_ca = (
+                        nn_out["bb_ca"].get("v") if isinstance(nn_out, dict) and "bb_ca" in nn_out
+                        else None
+                    )
                     _guidance, _ = steering_guide.guide(
                         z_t=x["local_latents"], v_theta=nn_out["local_latents"][_v_key],
                         t_scalar=_t_ll, mask=mask,
                         flow_step_fn=_flow_step_fn,
+                        bb_ca=_bb_ca, v_bb_ca=_v_bb_ca,
                     )
-                    nn_out["local_latents"][_v_key] = nn_out["local_latents"][_v_key] + _guidance
+                    # Apply the guidance to whichever channel the guide named.
+                    if _steer_channel == "local_latents":
+                        nn_out["local_latents"][_v_key] = nn_out["local_latents"][_v_key] + _guidance
+                    elif _steer_channel == "bb_ca":
+                        _v_key_ca = "v_guided" if "v_guided" in nn_out["bb_ca"] else "v"
+                        nn_out["bb_ca"][_v_key_ca] = nn_out["bb_ca"][_v_key_ca] + _guidance
+                    else:
+                        raise ValueError(f"Steering channel {_steer_channel!r} not in nn_out")
                 # --- End steering ---
 
                 simulation_step_params = {

@@ -1,0 +1,29 @@
+# Coord-channel Rg-max steering. Tests whether the CA gradient can EXPAND the
+# backbone (Rg up) against the apparent default "compress" bias observed in
+# tango_min / sap_min coord-channel sweeps (Rg drops 0.27–0.40 σ as collateral
+# regardless of objective). Rg is a pure CA-geometry quantity — there is no
+# sequence-level signal available, so this is the cleanest possible test of
+# CA-channel directional control.
+steering:
+  enabled: true
+  use_coords: true
+  channel: bb_ca
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_0_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_1_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_2_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_3_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_4_best.pt
+  objectives:
+  - property: rg
+    direction: maximize
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 48.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  log_diagnostics: true

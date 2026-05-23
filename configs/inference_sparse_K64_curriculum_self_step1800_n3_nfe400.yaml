@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_curriculum_self_step1800_n3_nfe400
+config_name: inference_sparse_K64_curriculum_self_step1800_n3_nfe400
+
+# Short N=3 designability probe of the K=64 SALAD-canonical sparse + low-t→SALAD
+# curriculum + self-inclusion variant (group `ca_only_sparse_K64_curriculum_self`)
+# at global_step=1800, epoch=17 (rsynced as last.ckpt 2026-05-09, copied to a
+# stable name so subsequent rsyncs don't clobber).
+#
+# Step 1800 sits ~31% past the prior step1385 best-val probe; this is a quick
+# convergence check before committing to a full N=6 panel.
+#
+# nsteps inherited from inference_base.yaml (=400). DO NOT override downward.
+# Curriculum + self-inclusion are baked into the saved exp_config inside the
+# ckpt; LocalLatentsTransformer reads `curriculum_neighbors=True` and the K=64
+# SALAD-canonical (8/16/32) split from kwargs. Don't add curriculum overrides
+# here or the schedule diverges from training.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_curriculum_self_step1800.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 3
+    max_nsamples_per_batch: 3
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

@@ -1,0 +1,26 @@
+# Coord-channel Rg-min steering at low w. Tests the codesign-preserving end of
+# the dose-response curve — at w∈{32,48,64} Rg-min collapses codesign; w<32 is
+# where any "free lunch" Rg compression would live.
+steering:
+  enabled: true
+  use_coords: true
+  channel: bb_ca
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_0_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_1_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_2_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_3_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_4_best.pt
+  objectives:
+  - property: rg
+    direction: minimize
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 8.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  log_diagnostics: true

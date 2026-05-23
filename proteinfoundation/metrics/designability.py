@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
@@ -129,7 +130,7 @@ def run_proteinmpnn(
         RuntimeError: If ProteinMPNN command fails.
     """
     name = pdb_name_from_path(pdb_file_path)
-    python_exec = os.environ.get("PYTHON_EXEC", "python")
+    python_exec = os.environ.get("PYTHON_EXEC", sys.executable)
     # Base command without optional parameters
     base_command = f"""
     {python_exec} ./ProteinMPNN/protein_mpnn_run.py \

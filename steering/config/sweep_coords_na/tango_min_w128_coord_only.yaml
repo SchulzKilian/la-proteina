@@ -1,0 +1,26 @@
+# Coord-CHANNEL steering: predictor sees latents + coords (both as context);
+# gradient flows through bb_ca only; guidance added to nn_out["bb_ca"]["v"].
+# Same predictor ensemble + schedule as the latent-channel cell at the same w.
+steering:
+  enabled: true
+  use_coords: true
+  channel: bb_ca
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_0_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_1_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_2_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_3_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_4_best.pt
+  objectives:
+  - property: tango
+    direction: minimize
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 128.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  log_diagnostics: true

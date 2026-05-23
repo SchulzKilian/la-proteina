@@ -1,0 +1,24 @@
+# Same v1 fold 2 as steering/config/zt_smoke/tango_min_w16_v1_zt.yaml,
+# but at w_max=32 instead of 16. Single-fold NA-v1 + feed_z_t_directly=true.
+# First corrected-input data point above w=16 (zt_smoke_v1 was w=16).
+steering:
+  enabled: true
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_2_best.pt
+  feed_z_t_directly: true
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

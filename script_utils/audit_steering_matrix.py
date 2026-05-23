@@ -200,6 +200,12 @@ def stage_generate(args) -> None:
     pred_clean = Path(args.pred_clean)
     pred_na = Path(args.pred_na)
     cells = make_smoke_cells(pred_clean, pred_na) + make_sweep_cells(pred_na)
+    if getattr(args, "cells", None):
+        wanted = set(args.cells)
+        cells = [c for c in cells if c.name in wanted]
+        missing = wanted - {c.name for c in cells}
+        if missing:
+            print(f"WARNING: requested cells not in registry: {sorted(missing)}", file=sys.stderr)
     for cell in cells:
         cfg_path = CONFIG_DIR / f"{cell.name}.yaml"
         if not cfg_path.exists():
@@ -415,6 +421,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_gen = sub.add_parser("generate", parents=[common])
     p_gen.add_argument("--device", default="cuda:0")
+    p_gen.add_argument("--cells", nargs="+", default=None,
+                       help="Restrict generation to these cell names (default: all). "
+                            "Used to split work across multiple GPUs.")
     p_gen.set_defaults(fn=stage_generate)
 
     p_ev = sub.add_parser("eval", parents=[common])

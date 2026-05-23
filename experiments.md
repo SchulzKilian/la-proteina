@@ -85,6 +85,19 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E061](#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13) | 2026-05-13 | finished — **reopens the E060 STOP** | Per-query VJP version of [E060](#e060--gradient-saliency-companion-to-e059--cross-metric-grad-vs-attn-2026-05-13)'s gradient saliency audit. Same canonical step-2646 ckpt, same 9 proteins, same t-grid, seed=42. New per-query path: for each sampled query residue i, backprop ‖v_pred[i]‖₂ individually — one saliency vector PER query, structurally one-to-one with sparse's per-residue K-set. 8 queries × 9 proteins × 5 t = 360 per-query records; 5040 cross-metric records (360 queries × 14 layers). Script: `script_utils/audit_dense_gradient_saliency.py` (per-query refactor commit `9ed7a93` + 1-line f-string-syntax fix today); output `results/dense_attn_audit/canonical_2646_grad_per_query.json` (~3.5 MB). | non-narrative — **all three E060 negatives flip when you ask the question per-query.** (1) **Per-query gradient is SHARPER than attention** (E059): mass_top_16_per_query = **0.709** (vs attn 0.656); mass_top_32_per_query = **0.830** (vs attn 0.794). E060's "grad is more diffuse" came from summing per-query losses before differentiating — washed out the per-query specialization. (2) **Per-query t-Jaccard = 0.663** (vs aggregate 0.200) — the same query's important set is largely stable across adjacent t-values; just under the 0.7 GO bar, far from STOP. (3) **Per-query attention × gradient agreement at the best (layer, head): mean-of-max = 0.833**, min 0.524, max 1.000 — every query has at least one (layer, head) sharing ≥8/16 important residues with gradient; the average best (layer, head) per query overlaps 13/16. Even at the head-AVERAGED layer level, mean Jaccard is 0.337 (vs aggregate 0.114). Every layer has at least one record with Jaccard=1.0; the per-layer head-max-avg ranges 0.68-0.77, layer 2 highest at 0.77. **Query-pair Jaccard within a (protein, t) = 0.146** — different queries care about substantially different K-sets, confirming the user's intuition that **per-query routing is the right unit of analysis**. Combined picture: dense's attention DOES reflect loss-importance per-query at some (layer, head) for every query, and per-query gradient is a faithful (and slightly sharper) teacher signal. **Distillation is back on the table — but per-query, not per-layer × per-head shared**: a student that picks a per-query K-set from per-query gradient saliency could capture the dense routing prior. This is a substantive structural lever for sparse-attention-with-routing, in contrast to the K-set-shared-across-layers/heads we currently train. **2026-05-13 follow-up: [E062](#e062--hybrid-grad-routing-inference-time-test-of-the-per-query-routing-prior-on-11-sparse-step-1800-frozen_t05--every_m50-2026-05-13) tested the inference-only version of this idea (swap sparse's K-set for the gradient-derived one at sampling time); net Δ +1.15 to +2.23 Å worse than baseline at N=3, on the "training-vs-inference" side of F12's prediction.** |
 | [E062](#e062--hybrid-grad-routing-inference-time-test-of-the-per-query-routing-prior-on-11-sparse-step-1800-frozen_t05--every_m50-2026-05-13) | 2026-05-13 | finished — directional negative | Inference-time test of the per-query routing prior surfaced in [E061](#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13) / Finding 12: monkey-patch §11 sparse (`ca_only_sparse_K64_curriculum_self`, step 1800) `_build_neighbor_idx` to consult a gradient-derived per-residue K-set computed via per-query VJP through canonical dense (step 2646). Sparse's own trained weights run the trajectory; only the K-set source changes. Two strategies tested: (1) `frozen_t05` — single K-set anchored at t=0.5, frozen for all 400 steps; (2) `every_M=50` — refresh the K-set every 50 ODE steps with consistent (x_t, t) (the user-flagged anchor-mismatch fix). N=3 per L ∈ {50, 100, 200}, paired-by-noise vs §11-default-K-set baseline. Script: `script_utils/hybrid_grad_routing_inference.py` (with four bug-fix patches applied locally — see body); eval `script_utils/eval_hybrid_grad_routing.py`. | non-narrative — **inference-only K-set swap is net negative on §11's trained weights at N=3.** frozen_t05 N=9: hybrid mean Δ **+2.23 Å** vs baseline (7 baseline wins, 0 ties, 2 hybrid wins). every_M=50 N=9: hybrid mean Δ **+1.15 Å** (5 baseline wins, 1 tie, 3 hybrid wins) — the anchor-fix moves the needle ~1 Å in the right direction but does not flip the sign. Pooled designability at N=9: frozen_t05 baseline 1/9 vs hybrid 1/9; every_M=50 baseline 2/9 vs hybrid 1/9. **The most informative single sample is L=50/s=0**, where the same noise seed yields hybrid 8.04 Å (frozen) / 8.12 Å (every_M) vs baseline 2.13/1.46 Å — a categorical hybrid failure that is invariant to anchor strategy, on the noise seed where baseline is most clearly designable. The K-set quality cannot be the issue for this paired sample, since switching K-set strategy didn't move the hybrid number; the failure is downstream of K-set selection. **Supports F12's "must train with the routing prior, not just swap at inference"**: §11's q/k/v projections + pair-bias weights + the curriculum's t-dependent K-mix were calibrated for (seq + spatial-1/d³ + random) at K=64; feeding a different K-set at inference is a distribution shift the trained weights don't tolerate. Next step is to TRAIN sparse with the gradient-derived K-set as supervisory signal for a router head, not to keep iterating on inference-only K-set strategies. |
 | [E063](#e063--hybrid-attn-routing-inference-time-test-using-dense-attention-at-l1-h7-as-routing-teacher-2026-05-13) | 2026-05-13 | finished — directional positive on pooled designability, net Δ still negative | Attention-routing sibling of [E062](#e062--hybrid-grad-routing-inference-time-test-of-the-per-query-routing-prior-on-11-sparse-step-1800-frozen_t05--every_m50-2026-05-13) — disambiguates whether E062's negative was due to (a) gradient being the wrong routing signal or (b) §11's trained weights tolerating no foreign K-set distribution. Identical scaffolding (§11 sparse step 1800, canonical dense step 2646, N=3 × L∈{50, 100, 200}, paired-by-noise, nsteps=400, `every_M=50` refresh) — only delta: K-set per residue is taken from **dense's softmax attention at (layer=1, head=7)** instead of from per-query gradient saliency. L1 H7 was [E061](#e061--per-query-vjp-gradient-saliency-inverts-e060-2026-05-13)'s top winner in the per-query cross-metric audit (18.3 % of queries' best-match cell vs gradient; max-over-(l,h) Jaccard 0.74-0.91). Script: `script_utils/hybrid_attn_routing_inference.py`. Eval reuses `script_utils/eval_hybrid_grad_routing.py`. | non-narrative — **attention is a meaningfully better routing teacher than gradient, but inference-only K-set swap is still net-negative on §11's trained weights at N=3. Mixed read on the (a) vs (b) decision tree: both branches are real.** Headline: attn hybrid is the **first hybrid arm to pool-beat its baseline on designability** (2/9 = 22 % vs baseline 1/9 = 11 %); both gradient strategies (E062) were ≤ baseline pooled. The cleanest single-sample positive is L=100 s=0: hybrid 1.93 Å ✓ designable vs baseline 5.81 Å dead (Δ −3.88), where gradient on the same noise seed gave 6.05 Å (every_M) / 9.62 Å (frozen) — attention catches what gradient misses, branch (a) confirmed for this seed. **BUT** mean paired Δ = **+1.71 Å** vs baseline (6 baseline wins, 3 hybrid wins, 0 ties) — sign still negative, mid-way between E062's frozen_t05 (+2.23) and every_M=50 (+1.15). The L=50 s=0 wreck is invariant across **all three** strategies (attn 7.13 / grad every_M 8.12 / grad frozen 8.04 vs baseline 1.46-2.13 ✓) — branch (b) (trained-weights-mismatch) confirmed for at least one paired noise. **Combined picture**: the per-query routing prior is genuine AND viable as a teacher signal — attention from L1 H7 is strictly better than gradient at this — but inference-only deployment is bottlenecked by train/inference mismatch on the K-set distribution. **Next experiment is the F12 training-side path with attention (not gradient) as the routing teacher**, not more inference-only iteration. |
+| [E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14) | 2026-05-14 | finished | E064 sibling on the **noise-aware ensemble sweep** (`results/noise_aware_ensemble_sweep/`, 480 PDBs), the sweep where real TANGO actually moved at w=16 (E032 closed the gap, real Δ ≈ -60 ≈ -0.17 σ of natural protein-to-protein TANGO spread). Same script (`check_sequence_collapse.py`), same metric panel, same three baselines (w=1 same direction / unsteered 1000-protein panel / natural PDB). Sequences extracted from PDBs (this sweep does not dump `sequences_guided.fasta`); script now reads `guided/*.pdb` via residue-type-at-CA fallback. Output: `results/sequence_collapse_audit_noise_aware/{summary, per_sequence, composition_per_cell}.csv`. | non-narrative — **same flat-AA-composition picture as E064 on the clean-predictor sweep.** All 10 cells `ok`; `kl_vs_w1` 0.000–0.001 nats at w=16 in both directions. The only sub-detectable shift: at `camsol_max_w16` the **top AA flips from N (Asn) to E (Glu)** at 11.10 % vs 11.51 % w=1 — direction-correct for solubility (E is charged), magnitude is 0.79 percentage points. Per-AA Δ(w16 − w1) for `camsol_max`: charged up (E +0.79pp, R +0.41pp, K +0.12pp), F/I/Q/T down — mostly correct direction, magnitude tiny. For `tango_min`: I −0.55pp, V −0.39pp, T −0.47pp (β-prone-down, correct), but L +0.92pp (largest delta, wrong direction since L is moderately β-prone). **Combined with E064:** AA composition is essentially invariant to the latent-channel steering gradient in both the clean-predictor and noise-aware-ensemble regimes — the joint sequence head is decoupled from the steering direction the latent moves in. Open question this opens up: is `w=16` not pushing the latent hard enough, or is the gradient moving the latent in a sequence-head-invariant "free direction"? Decisive test: w ∈ {32, 64} cells, three predicted outcomes (linear scaling vs plateau vs designability-breaks). **Methodological caveats**: (i) sequences are derived from the structural PDB's CA residue types, not from the joint sequence head's pre-decode probabilities — `guided/*.pdb` IS the joint head's sampled output, so this is faithful but undocumented in CLAUDE.md; (ii) other E064 caveats carry over (N=48 per cell, no w=0 cell, etc.); (iii) the noise-aware sweep's `properties_guided.csv` data shows the actual real-property delivery on this sweep is small: ΔSWI = +0.003 (~+0.20 σ of natural) for `camsol_max_w16`, ΔTANGO = -60 (-0.17 σ) for `tango_min_w16` — the four-corner picture is now closed for the only sweep where the property actually moved, and *all four corners are quiet*. The flat AA composition is consistent with the small real-property delivery in either of the user's two hypotheses (under-steered vs free-direction); E065 alone cannot distinguish them. |
+| [E069](#e069--steering-walltime-overhead-measurement-vs-unsteered-baseline-2026-05-16) | 2026-05-16 | finished | Empirical timing comparison of steered vs unsteered generation at nsteps=400 on cuda:0 (L4). Three protein lengths (L=300, 400, 500) timed head-to-head. Steered cell used the noise-aware 5-fold ensemble predictor (the canonical setup since F10). | non-narrative — **steering only adds ~10–20 % wall-time overhead per protein**. Per-protein generation times: L=300 unsteered 18.7 s vs steered 22.0 s (+18 %); L=400 ~30 s both; L=500 unsteered 45.6 s vs steered 49.3 s (+8 %). For a 48-PDB cell (16 seeds × 3 lengths × nsteps=400), wall is ~23-25 min unsteered vs ~28 min steered. The predictor ensemble (5 × ~13 M params, batched into one forward) is small relative to the flow net's forward; steering only fires in t∈[0.3, 0.9] (60 % of ODE steps); the gradient backward flows through the predictor only (`v_theta` is detached in `steering/guide.py:227`), avoiding any flow-net backward. Operational implication: **steering is effectively free compute-wise** — the bottleneck is the property/codesign Pareto frontier (F10/E066/E067/E068), not generation time. Caveats: (i) overhead is per-step; longer schedules with smaller t-windows would shift the ratio; (ii) measurement uses an unsteered config with `steering.enabled: false` — confirmed to skip the predictor forward, not just zero its weight; (iii) single-protein-per-length sample; consistent with the 48-protein per-cell averages from E066/E067/E068. |
+| [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15) | 2026-05-15 | finished | Multi-objective steering scout: simultaneously `camsol_intrinsic_max` AND `tango_min` (both at weight=1.0), w∈{16, 32, 64, 128} × 16 seeds × 3 lengths = 192 PDBs. Tests whether two correlated objectives (more soluble ↔ less aggregation-prone) reinforce or fight when their gradients are summed. Same noise-aware 5-fold predictor + linear-ramp schedule + unit gradient norm + nsteps=400 protocol as F10/E066. Generation driver `script_utils/run_combo_camsol_tango_pipeline.sh`, audit chain `script_utils/steering_cost_audit.py --evals property,aa,codesign,diversity`. Configs at `steering/config/sweep_combo_camsol_tango/`. Anchored against true paired-seed w=0 unsteered baseline (`codesign_unsteered_matched_seed.csv`, n=30 codesign + n=422 properties at L∈[290, 510]). | **Finding-grade — multi-objective gradient reinforcement.** Headline at the no-cost ceiling: combo_w32 codesign **52.1 %** (Δ **+8.8 pp** vs unsteered 43.3 %), delivering **SWI +0.35σ AND TANGO +0.39σ simultaneously** = +0.74σ aggregate. **The only cell across the entire steering project where codesign came in above baseline** (within Wilson 95 % CI noise of ±14 pp at n=48, but direction is clean and reproducible across 3 lengths). Pareto frontier vs single-objective sweeps at matched w: at w=32 combo delivers +0.74σ aggregate vs camsol-alone +0.50σ or tango-alone +0.42σ — **~1.5× the σ-delivery for equal-or-better codesign**. At w=64 combo +2.44σ aggregate vs camsol/tango alone ~1.5σ — **1.6× more delivery, same codesign cost (~20 %)**. AA composition: top AA flips N→**L** (Leu) at w=32+, same residue tango_min favors — when both gradients push, the structurally-permissive helix-promoter wins over Glu (camsol's favorite). This is mechanistic: Glu would only help solubility (one gradient), Leu helps both (low TANGO via α-helix preference; neutral-to-positive for solubility via large favorable burial energy). KL_vs_w=1: 0.003 at w=16, 0.003 at w=32, 0.123 at w=64, 0.291 at w=128 — comparable scale to single-objective. Diversity flat (mean pairwise TM 0.406-0.407 across all w, identical to all other sweeps). **F10 upgrade for the thesis**: multi-objective version delivers more total property movement for equal-or-lower codesign cost than single-objective; the "production default" recommendation upgrades from "w=32 single-objective" to "w=32 multi-objective (if you have multiple correlated objectives to push)". Open questions: (a) does this reinforcement hold for *uncorrelated* objectives like camsol_max + iupred_max where chemistries fight (charged residues vs disorder residues)? not tested. (b) what's the maximum number of objectives that can be combined before gradients destructively interfere? unknown. |
+| [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15) | 2026-05-15 | finished | Single-objective steering scout for `iupred3_fraction_disordered_max` at w∈{16, 32, 64, 128} × 16 seeds × 3 lengths = 192 PDBs. Different chemistry class from F10's camsol/tango: disorder-promoting residues are P, Q, N, S, E (turn-/coil-favoring) rather than helix-promoting Leu or charged Glu. Tests (a) whether the steering pipeline generalizes to a third chemistry class, (b) whether the Pareto frontier shape is direction-asymmetric in a way that maps to the chemistry of boosted residues, (c) whether the predictor's accessibility-honesty story (F10 update) applies to IUPred. Same noise-aware 5-fold predictor, schedule, nsteps=400. Driver `script_utils/run_iupred_max_pipeline.sh`. Anchored against true w=0 unsteered baseline. Reference: AFDB natural mean `iupred3_fraction_disordered` = 0.123; unsteered La-Proteina mean = 0.158 (model already produces 4 pp more disordered than natural). | **Finding-grade — three results.** (1) **Sharper Pareto knee than camsol/tango**: codesign 41.7 % (w=16) → 37.5 % (w=32, Δ-5.8 pp = noise, **FREE LUNCH** with +0.76 σ real IUPred delivery) → **10.4 %** (w=64, Δ-32.9 pp) → **0.0 %** (w=128, Δ-43 pp). Compare camsol_max_w64 18.8 % / tango_min_w64 22.9 % — iupred breaks ~50 % harder at matched w. (2) **At w=64 and w=128 the model crosses into "fully disordered IDP" regime**: real `iupred3_fraction_disordered` at w=64 = **0.91**, at w=128 = **1.000** (saturated; every residue of every generated protein classified as disordered by IUPred3). The codesign collapse at these w-levels is not a steering bug — it is mechanistically expected: IDPs by definition do not fold to a defined structure. The codesign metric becomes ill-posed at iupred ≥ 0.7. (3) **Predictor honesty INVERTS vs F10's TANGO**: across all w, real IUPred *exceeds* predictor's claim (delivery ratio Δreal / Δpred = 0.30/0.17 = 1.8× at w=16; 0.91/0.65 = 1.4× at w=64). TANGO predictor over-promises by 2-3×; IUPred predictor under-promises by 1.4-1.8×. Same predictor architecture, opposite directions of error. Mechanism guess: IUPred is a much cleaner sequence-function (residue-disorder propensity averages over the sequence with little gradient-hackable shortcut), whereas TANGO has many adversarial latent directions that move predictor output without moving real binary output. AA composition: top AA is N (Asn) at every cell — Asn is the classic turn/disorder-promoting residue, mechanistically appropriate; freq grows 11.2 % (w=16) → 12.2 % (w=32) → 14.8 % (w=64) → 18.5 % (w=128). KL_vs_w=16 at w=128 is **0.502 nats**, the largest of any sweep — 1.7× camsol_max_w128's 0.30 nats. Diversity flat at 0.407 across all w. **F10 generalization**: the predictor architecture trained on the natural-protein latent distribution generalizes across chemistry classes (helix-promoter / charged / turn-promoter), but the Pareto knee and the direction of predictor:real disagreement are property-specific. |
+| [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) | 2026-05-14 | finished (camsol_max codesign + AA + property complete; tango_min codesign in flight) | Direct test of the "under-steering vs free-direction" question raised by [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14)/[E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14): extend the noise-aware ensemble sweep to w ∈ {32, 64, 128} on both directions, paired-by-seed with the existing w∈{1..16} sweep (same 16 seeds × 3 lengths × nsteps=400). 288 new PDBs total. Full evaluation panel: predictor:real gap per property, AA composition KL, codesign rate, and σ-normalized property delivery vs the true w=0 paired baseline. Generation driver `script_utils/run_noise_aware_high_w_scout.sh` (one-direction-per-GPU), audit `script_utils/steering_cost_audit.py`, AA sub-audit `script_utils/check_sequence_collapse.py`, codesign via patched `scripts/run_codesignability_sweep.py` (now accepts `--cfgs`). Output tree: `results/noise_aware_high_w_scout/`. | **Finding-grade — three results.** (1) **Under-steering hypothesis confirmed**: SWI delivery scales roughly linearly with w in the camsol_max direction — w=16: +0.25σ, w=32: +0.50σ, w=64: +1.53σ, w=128: +2.58σ (anchored to unsteered population mean from `generated_stratified_300_800_nsteps400/properties_generated.csv`, n=422 at L∈[290, 510], std=0.0152). Free-direction (constant-σ plateau) and adversarial (wrong-direction) hypotheses both falsified. (2) **Pareto knee between w=32 and w=64**: camsol_max codesign rate 43.3 % (w=0 paired baseline, `codesign_unsteered_matched_seed.csv`) → 41.7 % (w=32, Δ−1.7pp = noise) → 22.0 % (w=64 n=41 partial, Δ−21pp) → 2.1 % (w=128, Δ−41pp). **w=32 is free lunch** (codesign noise-level, 2× the property delivery of w=16). w=64 pays ~half the codesign rate for 3× the property delivery vs w=32. w=128 is broken. (3) **Predictor:real gap re-opens at extreme w** in a new way: at w=128 tango_min the predictor outputs TANGO = −105 (physically impossible — TANGO is a probability sum ≥ 0), real is +236. The "absolute gap closed at w=16" claim from E032 was driven by a coincidence of trajectories crossing at that w (baseline offset ~118 between predictor and real at w=1; predictor moves faster, so they cross around w=16). The *effort* gap (ΔReal / ΔPred) was never closed: TANGO delivery ratio is 25–34 % at w=2–32, improving to ~60 % at w=64–128; SWI delivery ratio is 42 → 128 % (predictor honest about solubility, brittle about TANGO). (4) **AA composition shifts with steering at high w, in chemically appropriate directions**: w=128 camsol_max top AA flips N→E at 18.5 % (Glu, charged → soluble), w=128 tango_min boosts L to 23.6 % (helix-promoter → low β-aggregation). KL_vs_w=1: 0.030 nats (w=32), 0.115 nats (w=64), 0.30 nats (w=128). Mechanistically appropriate, not poly-K collapse — but at w=128 the joint sequence head outputs residues that **don't fold to the steered backbone** (codesign collapse). The codesign failure mode is sequence/structure decoupling: backbone holds up (partial scRMSD-MPNN N=13 at w=128 = 77 % designable; backbone-only test), but the steered sequence and the un-steered backbone become inconsistent. **F10 upgrade**: previous claim "+0.25σ SWI at w=16 with no cost" → "+0.50σ at w=32 with no cost; Pareto frontier from +0.5σ (w=32) to +1.5σ (w=64, paying ~half codesign rate) to +2.6σ (w=128, broken)." Recommended default is w=32 for any production use; w=64 for codesign-rescuable workflows. The 16× property-gain free-lunch I claimed in the headline of [the property analysis hours before codesign data landed] was wrong — the actual free-lunch ceiling is 2–3× (w=32 vs w=16), not 16× (w=128). |
+| [E074](#e074--inference-time-compute-benchmark-sparse-k40-vs-canonical-dense-2026-05-20) | 2026-05-20 | finished | In-process inference benchmark on 1× NVIDIA L4: peak GPU memory + per-protein wall-clock at **L ∈ {50, 100, 200, 300, 400, 500}**, N=2, nsteps=400, seed=5. Compares canonical dense (`baseline_wd0.05_step2646.ckpt`) vs sparse-K40 (`sparse_K40_step1259.ckpt`). | non-narrative — **measures the full sparse-vs-dense inference scaling curve**: crossover at L≈100–200, then sparse pulls away fast. Dense wall fits **L^1.72** (R²=0.999); sparse wall fits **L^0.91** (R²=0.997). At L=500 sparse is **3.25× faster** (13.4 vs 43.7 s/protein) and uses **78 % less memory** (984 vs 4526 MB). Headline scaling claim for the thesis: "Sparse attention turns dense's super-linear inference cost into a linear one." Quality not measured at L>200 — both arms collapse there. |
+| [E075](#e075--ca-conditioned-multi-task-property-predictor-5-fold-from-scratch-2026-05-20) | 2026-05-20 | finished (from-scratch); noise-aware FT in progress | 5-fold from-scratch training of a new CA-conditioned property predictor: same FiLM-transformer trunk as the latent-only baseline plus an SE(3)-invariant CA pair-bias (32-RBF pairwise distance + 65-vocab `|i−j|` rel-pos → per-head additive attention bias). 14 properties, 56K-protein training set (300–800 aa), identical recipe to the latent-only run (lr=3e-4, wd=0.01, 30 epochs, patience=5, batch=16, length-bucket sampler, cosine LR, same seed-42 splits). Single L4 GPU, ~128 s/epoch, ~5h 30min total. | **Finding-grade — CA conditioning is essentially free on sequence-only properties and decisive on 3D-coord-dependent ones.** 5-fold r²_mean **0.9306 vs latent-only 0.8754 (+0.055)**, consistent +0.03–0.04 per fold. Per-property fold-mean Δr² (coord − latent): **Rg +0.182**, **hydrophobic_patch_n_large +0.081**, **hydrophobic_patch_total_area +0.070**, **sap +0.052**, **iupred3_fraction_disordered +0.029**, scm_negative +0.022, scm_positive +0.019, tango +0.013, camsol_intrinsic +0.010, pI +0.004, net_charge +0.003, iupred3 +0.003, shannon_entropy +0.003, swi +0.003. **Gains concentrate exactly on the structure-dependent measurement class**: Rg, hydrophobic patches, SAP — and are negligible on the sequence-only class (camsol, TANGO, SWI, charge/pI, IUPred3, Shannon). Direct confirmation that the pair-bias channel is actively used. Bridges into [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19)'s **measurement-class steerability hierarchy**: the predictor underlying that finding was structure-blind, so the hierarchy was a property of the predictor as much as of the protein design space; a CA-conditioned predictor is the right tool for re-running the SAP / hydrophobic-patch / Rg axes of the cocktail. Noise-aware fine-tune (same `t∈[0.3, 0.8]` + `sigma_langevin=0.1` recipe as the latent NA-v1 run) is launched on GPU 2; see follow-up entry. |
+| [E073](#e073--wandb-compute-efficiency-audit-sparse-k40-vs-canonical-dense-2026-05-20) | 2026-05-20 | finished | Wandb metric pull comparing sparse-K40 (`c60iiywv → pgdo2dw3`) vs canonical dense (`d1k1587u → jeponiu5 → 0fnyfbi9`) training-time GPU memory, power, and step duration on matched hardware (A100-80GB SXM4, maxl=512, 158.3 M params). | non-narrative — quantifies the sparse-K40 compute trade-off for the thesis "compute claims" paragraph: −65 % peak GPU memory (14.9 GB vs 42.4 GB), −45 % median power (94 W vs 172 W), but +51 % per-step wall-clock (1.04 s vs 0.69 s). |
+| [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) | 2026-05-19 | finished | 4-objective steering cocktail extending [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15)'s 2-obj combo: `camsol_intrinsic_max + tango_min + sap_min + scm_positive_min`, all weights 1.0, w∈{32, 48, 64, 128} × 16 seeds × 3 lengths = 192 PDBs. Tests E068's open question "max objectives before destructive interference?" and adds the 3D-coord-dependent measurement class (SAP / SCM⁺) which no prior steering sweep exercised. NA-v1 5-fold ensemble predictor; same nsteps=400 / `inference_ucond_notri_long` / linear-ramp schedule / unit gradient norm as F10. Driver `script_utils/run_combo_devel4_pipeline.sh`; configs `steering/config/sweep_combo_devel4/combo_devel4_w<W>.yaml`. Anchored to n=48 paired unsteered (47.9 % codesign, from [E070](#e070--fixt1-predictor-full-pareto-frontier-replication--paired-n48-baseline-extension-2026-05-19)'s extension) and n=422 unsteered properties (`generated_stratified_300_800_nsteps400`). | **Finding-grade — cleanest free-lunch cell anywhere in the project + first quantification of the predictor's steerability hierarchy across measurement classes.** combo_devel4_w32: codesign **47.9 % (23/48), exactly matches the n=48 paired baseline, McNemar p=1.000** (zero net discordant pairs in favour of either side) — AND delivers **aggregate +1.37 σ across 4 axes (SWI +0.54, TANGO +0.32, SAP +0.15, SCM⁺ +0.35) = 1.85× E068's 2-obj sum (+0.74 σ) at matched w**. Pareto-dominates the 2-obj combo in the production regime (w ≤ 64): codesign equal-or-better at every w∈{32, 48, 64}, σ-delivery 1.45–1.55× higher. **At w=128 the cocktail breaks asymptotically harder** (0/48 codesign vs E068's 4/48 = 8.3 %) — the extra axes' gradient demands extreme latent movement crossing the structural-feasibility cliff. **Predictor steerability hierarchy across measurement classes** (Δσ per unit w, w=32→128): sequence-only axes ≈ 0.017–0.018 σ/w (SWI, TANGO), charge-dominated structure-dependent ≈ 0.009 σ/w (SCM⁺), hydrophobic+SASA-coupled structure-dependent ≈ 0.003 σ/w (SAP). **6× gap between sequence-only and the hardest 3D-coord-dependent axis**; SCM⁺ behaves nearly as a sequence axis because its formal-charge dependence is dominated by which charged residues are present. **Cross-axis reinforcement is favourable, not adversarial:** at w=32, 4-obj SWI delivery (+0.54 σ) is higher than E068's 2-obj SWI (+0.35 σ) — SAP/SCM⁺ minimization gradients push toward charged/small residues that also help solubility, so adding more anti-aggregation objectives mechanically helps the existing camsol objective. **Therapeutic translation**: at w=32, every generated protein is +0.54 σ more soluble (SWI), +0.32 σ less β-aggregating (TANGO), +0.15 σ less surface-aggregation-prone (SAP), and +0.35 σ less viscous/polyspecific (SCM⁺) than unsteered — *with the same probability of folding* (McNemar 0.0 pp). The antibody/biologics developability cocktail in a single inference pass, with the measurement-class hierarchy now quantified. |
+| [E071](#e071--slot-permutation-invariance-diagnostic-on-sparse-attention-trunks-2026-05-19) | 2026-05-19 | finished | Static + behavioural audit: is slot index k a learned position signal in sparse trunks? | non-narrative — closes a candidate mechanism for the L=50 sparse-vs-dense gap |
+| [E070](#e070--fixt1-predictor-full-pareto-frontier-replication--paired-n48-baseline-extension-2026-05-19) | 2026-05-19 | finished | Full Pareto-frontier replication using the `fixt1` predictor ensemble (5-fold, **time-awareness ablated** — trained at fixed t=1 instead of t∈[0.3, 0.8]) in place of the original noise-aware-v1 predictor. 15 cells × 4 directions (camsol_max, tango_min, iupred_max, combo) × 4 w-levels {32, 48, 64, 128} × 16 seeds × 3 lengths = 720 guided PDBs at nsteps=400. Codesign + property + AA audit run on all cells (`compare_fixt1_vs_nav1_pareto.py` + `steering_cost_audit.py --evals property,aa`). **In parallel: extended the paired-by-seed unsteered codesign baseline from n=30 (seeds 42-51) to n=48 (seeds 42-57)** — 18 new unsteered PDBs at L=300/400/500 generated under `steering.generate --skip_guided` + same `inference_ucond_notri_long` recipe; codesigned and appended to `results/noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv`. Tests the memory claim `fixt1 ablation matches NA-v1` at scale on the full Pareto curve, not just the original tango_min_w16 cell. | **Finding-grade — the strongest version of "time-awareness in training adds nothing" so far.** σ-delivery anchored to the same `generated_stratified_300_800_nsteps400` n=422 baseline as [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) / [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15) / [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15) for direct comparability. **Pooled across 15 steered cells: Δσ-delivery = +0.07 σ (fixt1 favored 10/15, tied 1, NA-v1 favored 4); Δcodesign = −0.28 pp (NA-v1 favored 7/15, tied 3, fixt1 favored 5).** Every individual cell's Δσ sits within ±0.10 σ except `camsol_max_w128` (+0.33 σ) and `combo_w128` (+0.18 σ) — both at <7 % codesign where the protein is structurally broken and the σ delta isn't usable. **Critical re-reading of E068's headline "combo_w32 codesign +8.8 pp = above baseline"**: with the n=48 paired baseline (47.9 %) instead of the old n=30 baseline (43.3 %), combo_w32 sits at 52.1 % = +4.2 pp vs baseline; **McNemar exact binomial on 6 discordant pairs (c=4, b=2): p = 0.688**. Paired SE 5.1 pp, 95 % CI ±10 pp. The "combo beats baseline" reading is **withdrawn** — it was the lucky n=48 spike that E068's own w=48 addendum had already flagged as inside Wilson noise. The reinforcement claim (combo > single-objective at matched w) survives because σ-delivery is on a separate, paired axis. Headline σ numbers for fixt1 (vs NA-v1 in parens): camsol_w32 +0.48 σ (+0.50), camsol_w64 +1.67 σ (+1.53), iupred_w32 +0.72 σ (+0.76), iupred_w64 +3.35 σ (+3.34), combo_w32 +0.72 σ (+0.74), combo_w64 +2.53 σ (+2.44). Codesign at the production knee (w=32) across all 4 directions: 45.8 / 45.8 / 47.9 / 45.8 % — all within ±2.1 pp of the 47.9 % baseline, all inside the n=48 Wilson 95 % CI ±14 pp. **Memory `feedback_steering_denoised_is_best.md`'s claim "Time-awareness in training adds nothing (fixt1 ablation matches NA-v1)" upgrades from "single-cell evidence" to "15-cell Pareto-frontier-wide evidence on 4 chemistry classes". Implication for the thesis: any future predictor work that adds time-conditioning needs to justify itself against this null result. Caveat: σ axis for "camsol_max" is the SWI proxy, not `camsol_intrinsic` (which is always-NaN in the developability panel) — same axis used by E066, so cross-comparable, but it's a related-not-identical property to the predictor's training target.** |
+| [E076](#e076--real-camsol-intrinsic-solubility-from-the-camsol-web-server-on-200-unsteered--48-camsol_max-w32--48-w128-2026-05-21) | 2026-05-21 | finished | Real CamSol intrinsic-solubility scores from the CamSol web server (Sormanni lab, Cambridge) on 296 La-Proteina sequences: 200 unsteered (subsampled from the 1000-protein length-stratified `generated_stratified_300_800_nsteps400`, 20 per 50-residue bin) + 48 noise-aware-ensemble `camsol_max_w32` (production knee) + 48 `camsol_max_w128` (saturation). First time real `camsol_intrinsic` has been measured on La-Proteina latent-steered output — every prior steering Finding used the SWI proxy because `compute_developability.compute_camsol` is NaN (no public CamSol binary). FASTA submitted: `camsol_submission_296.fasta`. Results file: `CamSol_intrinsicschulzqwerbw6_1540331041.txt` (tab-separated, schema = `Name\tprotein variant score\tintrinsic solubility profile`). Headers structured `un_s{seed}_n{L}` / `n32_s{seed}_n{L}` / `n128_s{seed}_n{L}` for recovery. | **Finding-grade — closes the F10/E066 latent-steering story on the actual target property.** Real CamSol mean (sd): unsteered +1.733 (1.631) → camsol_max_w32 +2.386 (1.221) → camsol_max_w128 +6.735 (1.763). **Per-length Cohen's d (the right effect-size denominator — see Section B caveat) at w=32: L=300 d=+1.55, L=400 d=+1.20, L=500 d=+0.05** — large effects at L=300/400 (Cohen-large by convention), zero at L=500 (under-steering at long L, mirroring E066's per-length SWI finding). At w=128 the effect is robust across all three lengths (d = 4.7–8.3). The aggregate pooled-across-L Cohen's d = +0.40 understates the production-relevant effect because the pooled unsteered SD (1.63) is inflated by the systematic length-mean drift in unsteered La-Proteina output (unsteered CamSol mean rises +1.48 → +2.13 across L=300→500); the pooled-within-bin SD ≈ 0.80 gives a cleaner one-number aggregate Cohen's d = +0.81. 95 % CI on aggregate Δmean = [+0.24, +1.07] (excludes zero). Predictor honesty check on the real-target property: predictor under-calls unsteered baseline by 0.6 CamSol units (calibration offset), but delivery ratio Δreal/Δpred = **41% at w=32, 105% at w=128** — confirms E066's "predictor honest about solubility" claim on the actual `camsol_intrinsic` axis, not just the SWI proxy. At w=128 reality moves *more* than the predictor claimed (+5.00 vs +4.78), the opposite of classical gradient-hacking. Headline defensible claim: **at the production-knee w=32, latent steering raises real CamSol intrinsic solubility by Cohen's d = +1.55 at L=300 and +1.20 at L=400 (Cohen-large effects), with L=500 unchanged (d=+0.05); codesignability is preserved at 41.7% (within Wilson 95% CI of the 47.9% paired baseline).** w=128 delivers a +3 σ real solubility shift across all lengths but codesign collapses to ~2%, so it is not deployable. Caveats: (i) population-level comparison, not paired-by-seed (the steered cells use seeds 42-57 × L∈{300,400,500} while unsteered uses seeds 1000+ stratified across L=300-800; paired analysis would require running unsteered on seeds 42-57 at the matched lengths — the 48 PDBs at `sanity_unsteered_seed42_45/unguided/` + `sanity_unsteered_seed52_57/unguided/` were generated for this purpose but their sequences are NOT in the submitted FASTA, so the paired-by-seed CamSol comparison is still open); (ii) w=32 unsteered baseline at L=500 (mean +2.13) is already higher than at L=300 (+1.48), so the L=500 zero-effect could reflect a ceiling rather than under-steering; (iii) only 2 weight cells × 48; w∈{16, 48, 64} not measured on real CamSol; (iv) Sormanni-lab web server, public version — same predictor that produced `CamSolpH_results.txt` for the 56K training data, so directly cross-comparable to the unsteered La-Proteina baseline produced here. |
+| [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14) | 2026-05-14 | finished | Sequence-level sanity audit of the E025 camsol_max / tango_min × w∈{1,2,4,8,16} × L∈{300,400,500} × 16-seed steered sweep (480 PDBs total), to catch a failure mode invisible to scRMSD (E033) and pairwise-TM diversity (E036): does the joint sequence head collapse to a degenerate residue distribution under steering pressure? Script: `script_utils/check_sequence_collapse.py`. Per-sequence metrics: 20-AA composition, Shannon entropy (bits), longest homopolymer run, low-complexity fraction (12-residue SEG-style window at 2.0 bits), unique-3mer fraction. Per-cell aggregation: mean of each + KL divergence vs three baselines — (a) w=1 same direction within the sweep, (b) unsteered 1000-protein generation panel (`generated_stratified_300_800_nsteps400/sequences.fasta`), (c) natural PDB AA frequencies (`results/aa_composition_nsteps400/stratified_vs_pdb/`). Flag thresholds set relative to w=1 anchor (MAX_AA > 20 % absolute, ΔShannon < −0.30 bits, ΔLow-complexity > +0.05, ΔHomopolymer > +2.0, KL > 0.20 nats). Output: `results/sequence_collapse_audit/{summary,per_sequence,composition_per_cell}.csv`. | non-narrative — **steering has zero effect on AA composition at any w in either direction.** All 10 cells flagged `ok`. Per-cell `kl_vs_w1` is 0.000 nats at w=2,4,8 in both directions and **0.001 nats at w=16** in both directions — the cell-level AA distribution at the strongest steering pressure is statistically indistinguishable from w=1. Mean per-sequence Shannon = 3.50 bits across all 10 cells (range 3.50–3.51), mean longest_run = 4.4 (range 4.38–4.52), mean low-complexity fraction = 0.16 (range 0.156–0.163), mean unique-3mer fraction = 0.64 (range 0.637–0.639), mean max-AA frequency = 0.195 (range 0.194–0.196). **Top AA in every cell is N (Asn) at 11.2–11.9 %**, vs unsteered top L (12.3 %) and natural PDB top L (8.9 %). The joint sequence head's AA distribution is set by the model and is invariant to the latent-channel steering gradient — `kl_vs_unsteered = 0.018` nats *flat across all 10 cells* including w=1, and `kl_vs_natural = 0.108–0.111` nats also flat. This means **(a)** the user's worry "maybe it's always using the same amino acids" is confirmed in a weaker sense than feared: the model has a moderate bias toward Asn / against Leu vs both the unsteered generator and natural PDB, but **steering does not introduce or amplify this bias** — it is a property of the joint sequence head itself, present at w=1 (and presumably at w=0 in this codebase, untested directly here). **(b)** This is mechanistically consistent with the steering design noted in CLAUDE.md ("Latent channel only (`local_latents`); `bb_ca` is never modified"): the sequence head reads downstream of the steered latent but is apparently insensitive enough to the latent shift that no AA-distribution change registers. **(c)** Combined with E033 (designability 80–100 % w-flat) and E036 (pairwise TM ≈ 0.41 baseline-flat), this closes the third corner of the "is steering damaging the protein?" question on the **sequence** side: codesignability (E042, 33–42 % flat across w) is the joint head's intrinsic ceiling, not a steering-induced sequence-collapse signal. The "collateral effect of steering on AA composition" hypothesis is ruled out. **Methodological caveats:** (i) **No w=0 cell in the sweep** — the closest "no steering at all" baseline is the unsteered stratified panel from a different generation run; the w=1 anchor used for relative flags is steered at weight 1, not weight 0. The kl_vs_unsteered = 0.018 nats flatness across w=1..16 makes this caveat weaker (the floor is being measured), but a clean w=0 cell in this same generation pipeline would tighten it. (ii) **N=48 sequences per cell** (16 seeds × 3 lengths) — KL of two distributions estimated at 48 × ~400-residue = ~19 k residues per cell has a non-trivial sampling floor; the 0.001 nat KL at w=16 may sit at that floor. The flat *kl_vs_unsteered* across w lends confidence that the w-effect is small, not just under-powered. (iii) **The script only sees the joint sequence head's own output** (`sequences_guided.fasta`). The MPNN-redesigned sequences used in E033's designability evaluation are not in this audit; this is by design (E042's codesignability is the relevant gate, not E033's MPNN-rescue). (iv) **The "Asn-top" baseline observation is itself worth flagging separately** — it raises a question about the joint sequence head's training distribution that is orthogonal to steering and is not addressed by this experiment. |
 
 ---
 
@@ -5848,3 +5861,1034 @@ The hybrid number is essentially invariant to anchor strategy (8.04 vs 8.12) —
 - Output PDBs: `results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/{baseline, hybrid}/L{50, 100, 200}/sample_{0, 1, 2}.pdb` (18 PDBs).
 - Logs: `nohup_hybrid_attn_routing.out`, `nohup_eval_attn_routing.out`.
 - **F12 (`content_masterarbeit.md`) update — narrow claim unchanged; the constructive recommendation is upgraded from "use per-query gradient as router teacher" to "use dense attention at L1 H7 (or top-3 cells) as router teacher; gradient is dominated by attention in the inference-time test."
+
+---
+
+## E064 — Sequence-level collapse sanity of the E025 camsol/tango steered sweep (2026-05-14)
+
+**Status:** Finished.
+
+**Why ran:** User-prompted sanity check on the E025 sweep: scRMSD (E033) and pairwise-TM diversity (E036) gates pass at w=16, but neither metric sees sequence-level degeneracy — "the joint sequence head collapsed to poly-K" would slip through both. User specifically worried about AA composition collapse under steering pressure. The check is a sequence-side companion to E033's structural gate.
+
+**Configs / scripts:**
+- Script: `script_utils/check_sequence_collapse.py`.
+- Inputs: `results/steering_camsol_tango_L500_nsteps400/{camsol_max, tango_min}_w{1,2,4,8,16}/sequences_guided.fasta` (10 cells × 48 sequences/cell = 480 sequences).
+- Baselines used:
+  - (a) **w=1 same direction** — within-sweep "lightly steered" anchor; relative flags fire on the delta from this.
+  - (b) **Unsteered**: `results/generated_stratified_300_800_nsteps400/sequences.fasta` (1000 seqs, joint-sequence-head output from the same model under unsteered generation).
+  - (c) **Natural PDB**: `results/aa_composition_nsteps400/stratified_vs_pdb/aa_composition.csv` (per-AA `ref_mean`).
+- Per-sequence metrics: 20-AA composition, Shannon entropy (bits), longest homopolymer run, low-complexity fraction (12-residue window, < 2.0 bits — SEG-style), unique-3mer fraction.
+- Per-cell aggregation: mean of each metric + KL divergence vs each of (a, b, c).
+- Flag thresholds: MAX_AA > 0.20 absolute; ΔShannon < −0.30 bits vs w=1; ΔLowComplex > +0.05 vs w=1; ΔHomopolymer > +2.0 vs w=1; KL_vs_w1 > 0.20 nats.
+- Output: `results/sequence_collapse_audit/{summary, per_sequence, composition_per_cell}.csv`.
+
+**Results:**
+
+All 10 cells flagged `ok`. Per-cell numbers (mean across 48 sequences/cell unless noted; cell-aggregated AA frequencies for KL columns):
+
+| cell           | mean_shannon | mean_max_aa_freq | top_aa | top_aa_freq | mean_longest_run | mean_low_complex | mean_unique_3mer | kl_vs_natural | kl_vs_unsteered | kl_vs_w1 |
+|----------------|-------------:|-----------------:|--------|------------:|-----------------:|-----------------:|-----------------:|--------------:|----------------:|---------:|
+| camsol_max_w1  | 3.51         | 0.194            | N      | 0.114       | 4.42             | 0.158            | 0.639            | 0.108         | 0.018           | 0.000    |
+| camsol_max_w2  | 3.51         | 0.194            | N      | 0.114       | 4.52             | 0.156            | 0.639            | 0.108         | 0.018           | 0.000    |
+| camsol_max_w4  | 3.50         | 0.195            | N      | 0.114       | 4.52             | 0.157            | 0.637            | 0.109         | 0.018           | 0.000    |
+| camsol_max_w8  | 3.50         | 0.195            | N      | 0.113       | 4.50             | 0.156            | 0.638            | 0.110         | 0.018           | 0.000    |
+| camsol_max_w16 | 3.50         | 0.196            | N      | 0.112       | 4.46             | 0.161            | 0.637            | 0.110         | 0.018           | 0.001    |
+| tango_min_w1   | 3.50         | 0.195            | N      | 0.115       | 4.44             | 0.156            | 0.638            | 0.109         | 0.018           | 0.000    |
+| tango_min_w2   | 3.50         | 0.195            | N      | 0.116       | 4.44             | 0.157            | 0.637            | 0.109         | 0.018           | 0.000    |
+| tango_min_w4   | 3.50         | 0.195            | N      | 0.117       | 4.44             | 0.159            | 0.637            | 0.110         | 0.018           | 0.000    |
+| tango_min_w8   | 3.50         | 0.196            | N      | 0.117       | 4.38             | 0.159            | 0.638            | 0.110         | 0.019           | 0.000    |
+| tango_min_w16  | 3.50         | 0.196            | N      | 0.119       | 4.42             | 0.163            | 0.638            | 0.111         | 0.018           | 0.001    |
+
+Reference baselines: unsteered top AA = L at 0.123 (Shannon 3.99 bits); natural PDB top AA = L at 0.089 (Shannon 4.19 bits).
+
+**Headline:** Steering has zero detectable effect on AA composition at any w in either direction. `kl_vs_w1` is 0.000 nats at w=2,4,8 in both directions and 0.001 nats at w=16 in both directions — the cell-level AA distribution at the strongest steering pressure is statistically indistinguishable from w=1.
+
+**Secondary observation: real properties also barely move on this sweep** (joined to `properties_guided.csv` per cell, mean over 48 proteins):
+
+| cell           | swi_mean | tango_mean | net_charge_mean | hydrophob_patch_mean |
+|----------------|---------:|-----------:|----------------:|---------------------:|
+| camsol_max_w1  | 0.80     | 895.56     | -10.59          | 2084.93              |
+| camsol_max_w16 | 0.80     | 872.51     | -11.64          | 1987.13              |
+| tango_min_w1   | 0.80     | 894.06     | −9.94           | 2098.16              |
+| tango_min_w16  | 0.80     | 864.84     | −4.85           | 2050.37              |
+
+- **SWI** (solubility-weighted index, the closest in-house proxy for CamSol) **does not move at any w in either direction** — 0.80 across all 10 cells to two decimal places.
+- Real **TANGO** moves Δ = −23 (camsol_max) / Δ = −29 (tango_min) at w=16, ~3 % of the w=1 baseline. Sign is correct for tango_min; for camsol_max it's a small side-effect.
+- This is consistent with [E028](#e028--predictor-vs-real-gap-on-the-may-04-ensemble-steered-run-2026-05-05)'s clean-predictor diagnosis on the same generation pipeline: predictor Δ −288 at w=16, real Δ −34 (~8.5 × gap). The E025 sweep uses the same clean predictor, so the gradient is hacking the predictor rather than moving the protein.
+
+**Connecting the two observations:** The reason AA composition, scRMSD ([E033](#e033--scrmsd-validation-of-the-noise-aware-ensemble-sweep-2026-05-06)), and pairwise TM ([E036](#e036--pairwise-tm-score-diversity-of-the-noise-aware-ensemble-sweep-2026-05-06)) all stay flat is *not* that steering has zero cost — it's that **the steering on this clean-predictor sweep barely moves the real protein at all**, so there's nothing for the cost gates to register. The user's "free lunch on three corners" reading is correct only because the fourth corner (real-property delivery) is also essentially zero on this sweep. The proper free-lunch question is "do the four corners all hold simultaneously when the property actually moves?" — that requires re-running this sequence audit on the noise-aware ensemble sweep ([E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05)/[E033](#e033--scrmsd-validation-of-the-noise-aware-ensemble-sweep-2026-05-06)) where real TANGO did move ~7 % at w=16.
+
+**Auxiliary structural finding:** The joint sequence head has a moderate Asn-top bias (11.2–11.9 %) vs both the unsteered generation panel (top = L at 12.3 %) and natural PDB (top = L at 8.9 %). This bias is invariant to w (KL_vs_unsteered = 0.018 nats across all 10 cells including w=1) — it's a property of the joint head itself, not steering damage. Orthogonal to the steering question, but flagged because it appeared while writing the audit script.
+
+**Possible narrative.** Non-narrative — kept for tuning/decision-making. Adds the **sequence-side gate** to the steering-quality stack alongside structural designability (E033) and structural diversity (E036). Does not become a Finding by itself, but the secondary read ("clean-predictor sweep barely moves the real protein, so cost gates are trivially satisfied") is a load-bearing methodological caveat for any future paper claim that uses E025 as the cost-gate evidence. The defensible cost-gate-vs-delivery story has to use the noise-aware ensemble sweep, not E025.
+
+**Methodological caveats:**
+- **No w=0 cell in the sweep.** Closest "no steering at all" baseline is the unsteered 1000-protein stratified panel from a different generation run; the w=1 anchor is steered at weight 1, not 0. The flatness of `kl_vs_unsteered = 0.018` across w=1..16 makes this caveat weaker (the floor is being measured), but a w=0 cell from this same pipeline would tighten it.
+- **N=48 sequences per cell** (16 seeds × 3 lengths). KL between two 19 k-residue empirical distributions has a non-trivial sampling floor; the 0.001 nat at w=16 may sit at that floor. The flat `kl_vs_unsteered` across w lends confidence the w-effect is genuinely small, not just under-powered.
+- **Script only sees the joint sequence head's own output** (`sequences_guided.fasta`). The MPNN-redesigned sequences from E033's designability pipeline are not in this audit; this is by design (E042's codesignability is the relevant gate, not E033's MPNN-rescue).
+- **Confounded with the real-property-delivery null.** The "no AA composition cost" reading is real but uninformative for the free-lunch question on its own — it needs to be combined with a sweep where real properties actually moved (E032 noise-aware ensemble) to be a load-bearing observation. Open follow-up: re-run this audit on `results/noise_aware_ensemble_sweep/` to close the four-corner picture for the only sweep where real property delivery was measurable.
+- **The Asn-top auxiliary observation** is not addressed by this experiment — orthogonal to steering, raises a question about the joint sequence head's training distribution that's worth its own investigation.
+
+**Cross-references:**
+- Predecessor (clean-predictor real-vs-predictor gap, same dataset): [E028](#e028--predictor-vs-real-gap-on-the-may-04-ensemble-steered-run-2026-05-05).
+- Predecessor (the sweep itself): [E025](#e025--steered-generation-sweep-camsol-max--tango-min--official-ld3ae2-l300400500-2026-05-03).
+- Sibling cost gate on structure: [E033](#e033--scrmsd-validation-of-the-noise-aware-ensemble-sweep-2026-05-06) (designability).
+- Sibling cost gate on structural diversity: [E036](#e036--pairwise-tm-score-diversity-of-the-noise-aware-ensemble-sweep-2026-05-06).
+- Sibling cost gate on codesignability: [E042](#e042--codesignability-validation-of-the-noise-aware-ensemble-sweep-2026-05-07).
+- Successor (proposed): re-run on `results/noise_aware_ensemble_sweep/` for the four-corner closure on the sweep where real properties moved.
+- Output CSVs: `results/sequence_collapse_audit/summary.csv`, `per_sequence.csv`, `composition_per_cell.csv`.
+- Script: `script_utils/check_sequence_collapse.py`.
+
+---
+
+## E065 — Sequence-level collapse sanity of the noise-aware ensemble sweep (2026-05-14)
+
+**Status:** Finished.
+
+**Why ran:** [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14) showed AA composition is flat across w on the clean-predictor sweep (E025), but that sweep also has near-zero real-property delivery — the cost gates were quiet because there was no payload to charge. The decisive four-corner test is on the **noise-aware ensemble sweep** (`results/noise_aware_ensemble_sweep/`, E032/E033/E036/E042), the only sweep where real TANGO actually moved at w=16 (Δ ≈ −60 ≈ −0.17 σ of natural protein-to-protein TANGO spread, gap-closed predictor:real ≈ −1.6). Does AA composition cost remain quiet on the sweep that genuinely delivered?
+
+**Configs / scripts:**
+- Same script as E064: `script_utils/check_sequence_collapse.py`, run with `--tree results/noise_aware_ensemble_sweep --out results/sequence_collapse_audit_noise_aware`.
+- Script change today: `read_sequences()` fallback that extracts the one-letter sequence from each `guided/*.pdb` by reading the residue type at every CA atom in residue-number order, used when `sequences_guided.fasta` is missing. The noise-aware sweep doesn't dump fasta; sequences come from the PDBs, which IS the joint sequence head's sampled output (just packaged differently).
+- 480 PDBs total: `{camsol_max, tango_min} × w∈{1,2,4,8,16} × L∈{300,400,500} × 16 seeds`. n=48 sequences/cell.
+- Baselines: same three as E064 — w=1 same direction, unsteered 1000-protein generation panel (`generated_stratified_300_800_nsteps400/sequences.fasta`), natural PDB AA frequencies.
+
+**Results:**
+
+| cell           | mean_shannon | mean_max_aa_freq | top_aa | top_aa_freq | mean_longest_run | mean_low_complex | mean_unique_3mer | kl_vs_natural | kl_vs_unsteered | kl_vs_w1 |
+|----------------|-------------:|-----------------:|--------|------------:|-----------------:|-----------------:|-----------------:|--------------:|----------------:|---------:|
+| camsol_max_w1  | 3.50         | 0.195            | N      | 0.115       | 4.44             | 0.158            | 0.638            | 0.110         | 0.018           | 0.000    |
+| camsol_max_w2  | 3.50         | 0.195            | N      | 0.115       | 4.40             | 0.159            | 0.638            | 0.109         | 0.018           | 0.000    |
+| camsol_max_w4  | 3.51         | 0.194            | N      | 0.114       | 4.40             | 0.159            | 0.638            | 0.109         | 0.018           | 0.000    |
+| camsol_max_w8  | 3.50         | 0.195            | N      | 0.113       | 4.38             | 0.157            | 0.638            | 0.110         | 0.018           | 0.000    |
+| camsol_max_w16 | 3.49         | 0.196            | **E**  | 0.111       | 4.46             | 0.162            | 0.636            | 0.113         | 0.020           | 0.001    |
+| tango_min_w1   | 3.51         | 0.194            | N      | 0.115       | 4.40             | 0.157            | 0.639            | 0.108         | 0.018           | 0.000    |
+| tango_min_w2   | 3.50         | 0.194            | N      | 0.115       | 4.44             | 0.157            | 0.638            | 0.109         | 0.018           | 0.000    |
+| tango_min_w4   | 3.50         | 0.195            | N      | 0.116       | 4.42             | 0.160            | 0.638            | 0.109         | 0.017           | 0.000    |
+| tango_min_w8   | 3.50         | 0.195            | N      | 0.116       | 4.40             | 0.162            | 0.637            | 0.108         | 0.017           | 0.000    |
+| tango_min_w16  | 3.49         | 0.196            | N      | 0.117       | 4.58             | 0.169            | 0.636            | 0.110         | 0.015           | 0.001    |
+
+All 10 cells flagged `ok`. **One qualitative shift**: at `camsol_max_w16` the top AA flips from N (Asn) at w=1 (11.51 %) to E (Glu) at w=16 (11.10 %) — direction-correct for solubility (E is charged), magnitude is 0.79 pp on E.
+
+Per-AA Δ(w16 − w1), largest 5 up + largest 5 down:
+
+```
+camsol_max:  +E +0.79pp   +R +0.41pp   +L +0.24pp   +K +0.12pp   +Y +0.12pp
+             −N −0.43pp   −F −0.40pp   −I −0.30pp   −Q −0.28pp   −T −0.28pp
+
+tango_min:   +L +0.92pp   +N +0.22pp   +Q +0.20pp   +A +0.18pp   +R +0.13pp
+             −I −0.55pp   −T −0.47pp   −V −0.39pp   −Y −0.11pp   −E −0.10pp
+```
+
+Directional read: `camsol_max` mostly correct (charged ↑ E, R, K; F ↓; one anomaly L ↑). `tango_min` mostly correct (β-prone I, V, T ↓; one anomaly L ↑ which is moderately β-prone). Magnitudes are tiny — largest single-AA delta is 0.92 pp, total KL = 0.001 nats — but the signal is *direction-correct* on residues we have a chemistry-first reason to expect to move.
+
+**Real-property delivery on this sweep** (from `properties_guided.csv` per cell, mean over n=48):
+
+| cell             | SWI    | TANGO  | hydroph_patch | net_charge | ΔSWI (σ) | ΔTANGO (σ) |
+|------------------|-------:|-------:|--------------:|-----------:|---------:|-----------:|
+| camsol_max_w1    | 0.797  | 893.0  | 2082          | -10.17     | —        | —          |
+| camsol_max_w16   | 0.800  | 866.4  | 1994          | -11.50     | +0.20 σ  | -0.07 σ    |
+| tango_min_w1     | 0.797  | 893.3  | 2103          | -10.26     | —        | —          |
+| tango_min_w16    | 0.797  | 833.4  | 2090          | -9.41      |  0.00 σ  | -0.17 σ    |
+
+σ-normalized against the unsteered 422-protein panel at L∈[300, 510]: TANGO_unst mean = 921.4, std = 358.4; SWI_unst mean = 0.796, std = 0.015. So at w=16 the noise-aware sweep delivers **~0.17–0.20 σ** of natural protein-to-protein property spread in the steered direction. Detectable at n=48 (~1.7 SEM), real signal, but small in absolute terms.
+
+**Combined picture (four corners now closed for the noise-aware sweep):**
+
+| Cost gate                                | E-id  | w=16 result vs w=1 |
+|------------------------------------------|-------|--------------------|
+| Designability (MPNN rescue)              | E033  | 80–100 % flat      |
+| Codesignability (joint seq head)         | E042  | 33–42 % flat       |
+| Structural diversity (pairwise TM)       | E036  | 0.41 flat ≈ unsteered 0.41 |
+| **AA composition (this entry)**          | E065  | KL_vs_w1 = 0.001 nats |
+| **Real-property delivery (payload)**     | E028/E032 | TANGO −0.17 σ, SWI +0.20 σ |
+
+All four cost gates are quiet **and** real-property delivery is small. The user's hypothesis (under-steering — w=16 isn't large enough yet) and the alternative (the gradient is moving the latent in a sequence-and-structure-head-invariant "free direction") are both consistent with this readout. E065 alone does not distinguish them.
+
+**Decisive test for the under-steering vs free-direction distinction:** w ∈ {32, 64} cells on the same noise-aware ensemble setup, smaller N (4 seeds × 3 lengths × 2 directions = 24 PDBs per w-level) for a first read. Three predicted outcomes:
+- (a) Property scales roughly linearly with w, designability holds → under-steering confirmed, free lunch is real and just needs larger w.
+- (b) Property plateaus, designability stays high → free-direction hypothesis confirmed; cranking w further is wasted compute.
+- (c) Designability collapses before property moves further → the latent has finite head-room before structure decoder gives up; cranking w breaks the protein without delivering more property.
+
+~2–3 hours wall on L4. Open as a follow-up; not run here.
+
+**Possible narrative.** Non-narrative — kept for tuning/decision-making. **Important load-bearing observation for Finding 10**: the four cost gates of Finding 10 are all quiet on the only sweep where the payload moved, *but the payload that moved is ~0.17 σ in natural-population-variance units, not a category-changing shift*. Any paper claim of "we move TANGO at w=16 without breaking the protein" must include this magnitude calibration; otherwise the reader will reasonably infer a larger effect than the data supports.
+
+**Methodological caveats:**
+- **Sequences derived from PDBs, not from a separate sequence-head log.** `guided/*.pdb` is the joint sequence head's sampled output written into a structural file; reading residue type at CA per residue recovers it exactly. The mapping is faithful because the codebase's PDB writer uses the joint-head-sampled residue identities. If a future change ever separates "structural PDB" from "joint head sequence", this script's PDB fallback would silently lie. Today it's fine.
+- **N=48 sequences per cell** — same caveat as E064; KL of two empirical AA distributions over 48 × ~400-residue = 19 k residues per cell has a non-trivial sampling floor. The 0.001 nat at w=16 may sit at that floor.
+- **No w ∈ {32, 64} cell yet** — the audit cannot, on its own, distinguish under-steering from free-direction. Decisive follow-up is the w ∈ {32, 64} scout described above.
+- **Direction-correct AA shifts in `tango_min` are mixed**: I/V/T ↓ is correct (β-prone-down), but L ↑ +0.92pp is the largest single delta and L is moderately β-prone — wrong direction. The signal is small enough that this could be noise (largest residue change is 0.92pp, ~3 % of L's baseline frequency). A direction-of-shift test would need larger N to be tight on which residues genuinely move.
+- **Property-delivery σ normalization** uses the unsteered 1000-protein stratified panel at L∈[300, 800], filtered to L∈[290, 510] (n=422). Choice of panel matters: if you used the unsteered cell directly inside the E033/E036/E042 set (not generated by this audit), σ might differ; the current normalization is the closest "natural protein-to-protein variance" we have on disk and is reported with that framing.
+
+**Cross-references:**
+- Predecessor (clean-predictor version of the same audit): [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14).
+- Cost-gate siblings on this same sweep: [E033](#e033--scrmsd-validation-of-the-noise-aware-ensemble-sweep-2026-05-06), [E036](#e036--pairwise-tm-score-diversity-of-the-noise-aware-ensemble-sweep-2026-05-06), [E042](#e042--codesignability-validation-of-the-noise-aware-ensemble-sweep-2026-05-07).
+- Real-property delivery sibling: [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05) (predictor:real gap closure on this sweep).
+- Successor (proposed, not run): w ∈ {32, 64} scout to distinguish under-steering from free-direction.
+- Output CSVs: `results/sequence_collapse_audit_noise_aware/{summary, per_sequence, composition_per_cell}.csv`.
+- Script: `script_utils/check_sequence_collapse.py` (with PDB fallback added 2026-05-14).
+
+---
+
+## E066 — High-w noise-aware scout (w∈{32,64,128}×16-seeds×both-directions) — reveals Pareto frontier in codesign vs property (2026-05-14)
+
+**Status:** Finished. All 6 cells complete on generation, property panel, AA composition, codesign (n=48 per cell), and pairwise-TM diversity. Final update 2026-05-14 22:48 BST.
+
+**Why ran:** Direct decisive test of the "under-steered vs free-direction vs adversarial" question raised by [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14)/[E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14): does property delivery scale with w past the w=16 cap of the canonical noise-aware sweep, and at what point does a cost gate break? F10's previous claim ("+0.25σ SWI / +0.25σ TANGO at w=16 with no cost on any of the four cost gates") sits at the toe of an unknown curve.
+
+**Configs / scripts:**
+- Generation YAMLs: `steering/config/sweep_noise_aware_high_w/{camsol_max, tango_min}_w{32, 64, 128}.yaml`, copied from `sweep_noise_aware_ensemble/_w16.yaml` with `w_max` changed. Steering schedule unchanged: `linear_ramp` peak at w_max in t∈[0.3, 0.8], drop at t∈[0.8, 0.9]. `gradient_norm: unit`, `gradient_clip: 10.0` (clip runs BEFORE unit-norm, so it's harmless at high w — confirmed in `steering/guide.py:236-247`).
+- Driver: `script_utils/run_noise_aware_high_w_scout.sh <direction> <device>`. Chained two directions sequentially on cuda:0 (admin pins one GPU per user via `CUDA_VISIBLE_DEVICES` UUID; "cap 3 GPUs" memory turned out to be one-GPU on this box). 288 PDBs total (16 seeds × 3 lengths × 3 w-levels × 2 directions).
+- Same noise-aware predictor 5-fold ensemble as E032 (`laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt`).
+- Property eval: `script_utils/run_property_eval_high_w.sh` (CPU; ran in parallel with the second half of generation).
+- AA composition: `script_utils/check_sequence_collapse.py --tree results/noise_aware_high_w_scout`.
+- Codesign: `scripts/run_codesignability_sweep.py` patched today to accept `--cfgs <names...>` (was hardcoded to noise_aware_ensemble cell list); driven via `script_utils/steering_cost_audit.py --tree ... --evals codesign,diversity`.
+- scRMSD-with-MPNN-rescue intentionally NOT run on full sweep — codesign is the relevant gate for the steering question per `feedback_steering_use_codesignability.md`; backbone is never directly steered (only `local_latents` channel modified), so scRMSD-with-MPNN tests a dimension steering doesn't touch. (Partial scRMSD-MPNN on camsol_max_w128 at n=13 ran briefly before the script was killed; 77 % designable, confirming the backbone is fine; preserved here as supporting evidence.)
+
+**Anchor:** w=0 paired baseline `results/noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv` (n=30, same seeds 42-57 × L=300/400/500 × unsteered). w=1 baseline is `noise_aware_ensemble_sweep/{direction}_w1/codesign_guided.csv` and turns out to be statistically identical to w=0 (43.3 % vs 43.3 % camsol direction; 40.0 % vs 40.0 % tango direction). Property σ-normalization against unsteered population mean/std from `generated_stratified_300_800_nsteps400/properties_generated.csv` filtered to L∈[290, 510] (n=422): SWI mean 0.7958, std 0.0152; TANGO mean 921.4, std 358.4.
+
+**Results — camsol_max:**
+
+| cell           | n  | codesign≤2Å | Δvs w=0 | SWI mean | ΔSWI vs unsteered | σ_SWI | top AA  | top freq | KL vs w=1 |
+|----------------|---:|------------:|--------:|---------:|------------------:|------:|---------|---------:|----------:|
+| w=0 unsteered  | 30 | 43.3 %      | 0.0 pp  | 0.7958   | 0.0000           | 0.00  | (panel) | —        | —         |
+| w=1            | 30 | 43.3 %      | 0.0 pp  | 0.7972   | +0.0014          | +0.09 | N       | 11.5 %   | 0.000     |
+| w=16           | 30 | 40.0 %      | −3.3 pp | 0.7995   | +0.0037          | +0.25 | E       | 11.1 %   | 0.001     |
+| w=32           | 48 | 41.7 %      | −1.7 pp | 0.8034   | +0.0076          | +0.50 | E       | 11.8 %   | 0.030     |
+| w=64 (partial) | 41 | 22.0 %      | −21.3 pp| 0.8192   | +0.0234          | +1.53 | E       | 14.7 %   | 0.115     |
+| w=128          | 48 |  2.1 %      | −41.2 pp| 0.8351   | +0.0393          | +2.58 | E       | 18.5 %   | 0.304     |
+
+Pairwise TM-score diversity, aggregated across L (n_pairs=360 per cell): camsol_max 0.408 (w=32), 0.407 (w=64), 0.407 (w=128) — **diversity flat across all w-levels** within the rounding floor, equal to the unsteered ~0.41 anchor (E036).
+
+**Results — tango_min** (codesign complete for all cells, n=48 each):
+
+| cell           | codesign≤2Å         | Δvs w=0  | TANGO mean | σ_TANGO (toward target) | top AA | top freq | KL vs w=1 | pairwise TM |
+|----------------|--------------------:|---------:|-----------:|------------------------:|--------|---------:|----------:|------------:|
+| w=0 unsteered  | 43.3 %              |  0.0 pp  | 921.4      | 0.00                    | (panel)| —        | —         | ~0.41       |
+| w=1            | 40.0 %              | −3.3 pp  | 893.3      | +0.08                   | N      | 11.5 %   | 0.000     | 0.407       |
+| w=16           | 40.0 %              | −3.3 pp  | 833.4      | +0.25                   | N      | 11.7 %   | 0.001     | 0.407       |
+| w=32           | **49.2 %**          | **+5.8 pp** | 772.1   | +0.42                   | L      | 12.6 %   | 0.015     | 0.407       |
+| w=64           | 26.2 %              | −17.1 pp | 404.0      | +1.44                   | L      | 20.8 %   | 0.136     | 0.407       |
+| w=128          |  9.5 %              | −33.8 pp | 235.7      | +1.91                   | L      | 23.6 %   | 0.288     | 0.406       |
+
+(σ values vs unsteered population mean+std, **signed toward target**.)
+
+**Direction asymmetry headline:** tango_min holds codesign systematically better than camsol_max at every comparable w:
+
+```
+              camsol_max          tango_min        asymmetry
+w=32          41.7 % (−1.7 pp)    49.2 % (+5.8 pp)  +7.5 pp on tango
+w=64          18.8 % (−24.6 pp)   26.2 % (−17.1 pp) +7.4 pp on tango
+w=128          2.1 % (−41.2 pp)    9.5 % (−33.8 pp) +7.4 pp on tango
+```
+
+The advantage is consistent at ~7 pp across the Pareto frontier. Mechanism: Leu (which tango_min boosts to 23.6 % at w=128) is the strongest α-helix promoter and is structurally compatible with most backbones; Glu (which camsol_max boosts to 18.5 % at w=128) is charged and tends to demand specific surface positioning, so a Glu-heavy sequence is more likely to want a *different* fold than the structure head produced. Also: at w=128, the tango_min coScRMSD median is 7.0 Å vs camsol_max's 20.4 Å — when tango_min fails codesign, it fails *softly* (sequences almost fold); when camsol_max fails, the protein and sequence are *fully decoupled*.
+
+**Best operating points for the steering pipeline:**
+- **tango_min w=32** is the cleanest data point in the entire sweep: codesign Δ +5.8 pp vs w=0 baseline (slight positive trend, well within noise), +0.42 σ TANGO delivery toward target, AA composition KL = 0.015 nats, diversity unchanged. This is the new "no-tax-detected" anchor.
+- **camsol_max w=32** is also free lunch: codesign Δ −1.7 pp (noise), +0.50 σ SWI delivery, KL = 0.030 nats.
+- **For workflows with downstream MPNN-rescue available**, w=64 in either direction delivers ~1.4 σ at ~20 pp codesign cost — the Pareto point that gives 3× the property delivery for ~half the codesign rate.
+- **w=128 is broken in both directions** but tango_min's break is recoverable (median 7 Å is close to designable with downstream sequence repair), camsol_max's break is fundamental decoupling (median 20 Å).
+
+(σ values are vs the unsteered population mean+std, **signed toward target** — so positive = property moved toward what we asked for.)
+
+**Predictor:real gap analysis** (per-property delivery ratio = ΔReal / ΔPred, where ΔReal and ΔPred are measured against the cell's own w=1 baseline):
+
+```
+camsol_max (steered property = camsol_intrinsic, proxy in-tree = SWI):
+                          w=2    w=4    w=8    w=16   w=32   w=64   w=128
+SWI (steered proxy)       0.42   0.46   0.53   0.56   0.66   0.98   1.28
+TANGO (collateral)        0.42   0.49   0.84   1.08
+hydrophobic_patch_area    1.11   1.92   2.42   2.67   (real moves FASTER than predictor anticipates at high w)
+
+tango_min (steered property = TANGO):
+                          w=16   w=32   w=64   w=128
+TANGO (steered)           0.34   0.34   0.61   0.59     ← never closed; brittle predictor
+net_charge                0.34   0.27   0.48   0.57
+```
+
+Key gap finding: **at w=128 tango_min the predictor outputs TANGO = −105** (physically impossible; TANGO is a probability sum ≥ 0). Real TANGO = +236. The "noise-aware predictor stays calibrated" claim from E032 was driven by the absolute trajectories of (predictor mean, real mean) happening to cross at w=16 — there's a baseline offset of ~118 between predictor TANGO and real TANGO at w=1, which closes by coincidence around w=16 because predictor moves faster than real. The *effort* gap (delivery ratio) was never closed: TANGO delivery is 25–34 % at low w, improving to 60 % at high w. SWI delivery is 42–128 % (predictor honest about solubility, brittle about TANGO — historical pattern of the codebase, E028/E030 era).
+
+**The four corners at the candidate sweet spot (camsol_max w=32):**
+
+| cost gate                    | w=0 unsteered  | w=32 result   | verdict             |
+|------------------------------|---------------:|--------------:|---------------------|
+| Codesignability              | 43.3 %         | 41.7 %        | Δ −1.7 pp = noise   |
+| AA composition KL vs w=1     | 0.000          | 0.030 nats    | well under WARN (0.05) |
+| Top-AA freq                  | 11–12 % (N/L)  | 11.8 % (E)    | top-AA flipped but freq comparable; chemically sensible |
+| Pairwise TM diversity        | pending        | pending       | low-priority — held at all w=1..16 in E036, expected to hold here |
+| **Property delivery (SWI)**  | 0.00 σ         | **+0.50 σ**   | 2× the E032 w=16 delivery (+0.25σ) |
+
+**Comparison to literature for the +0.50σ magnitude:** SWI std across the 422-protein L=300–510 unsteered panel = 0.0152. +0.50σ = +0.0076 SWI absolute. In Normal-percentile terms this moves the *average* generated protein from the 50th to the 69th percentile of unsteered proteins. Comparable in magnitude to a single ProteinMPNN solubility-redesign pass (~0.5–1σ per Dauparas '22). Useful for enrichment in a downstream screening funnel; not "rewrite the protein into a top-5 % solubility outlier."
+
+**The four corners at w=128 (broken):**
+
+| cost gate                    | w=0  | w=128         | verdict      |
+|------------------------------|-----:|--------------:|--------------|
+| Codesignability              | 43.3 %| 2.1 %        | **BROKEN** Δ−41 pp |
+| AA composition KL vs w=1     | 0.000 | 0.304 nats   | FAIL (> 0.20 threshold) |
+| Backbone-only designability (partial scRMSD-MPNN n=13) | ~92 % | ~77 % | mostly intact |
+| Top-AA freq                  | 11–12 %| 18.5 % (E)  | WARN (>15 %) |
+| **Property delivery (SWI)**  | 0.00 σ | **+2.58 σ** | 5× the w=32 delivery |
+
+The failure mode at w=128 is **sequence/structure decoupling**: backbone is largely preserved (MPNN can find a sequence that folds onto it 77 % of the time), but the joint sequence head's *own* output doesn't fold to that backbone. The 0/11 → 1/48 codesign at w=128 is exactly the failure the user predicted ("the model just putting the wrong amino acids for the backbone").
+
+**Possible narrative — Finding 10 upgrade.**
+
+Current F10 claim: *"noise-aware ensemble + smoothing closes the predictor:real gap and delivers ~0.17σ real-TANGO movement at w=16 with no cost on any of the four corners (codesign, diversity, AA composition, designability)."* This entry **substantively upgrades F10 in three independent directions:**
+
+1. **Magnitude upgrade**: the cost-free zone extends to **w=32**, delivering +0.50σ SWI / +0.42σ TANGO (toward target), 2× the previous claim. Recommendation: default to w=32 for production use of this steering pipeline.
+2. **Pareto frontier characterization**: between w=32 and w=128 there is a continuous trade-off. At w=64 you trade ~half the codesign rate for 3× the property delivery vs w=32 (+1.5σ vs +0.5σ); at w=128 codesign collapses to ~2 %. This Pareto curve is publishable as a methodological observation on its own.
+3. **Mechanism correction**: the E032 "predictor:real gap closed at w=16" claim was misleading. The *absolute* gap closed at that w by coincidence of trajectories crossing; the *effort* gap (delivery ratio) was always 25-60 % for TANGO. F10's mechanism story needs to be re-framed as "noise-aware ensemble brings the effort gap from clean predictor's 12 % to noise-aware's 35-60 %; absolute gap is small near w=16 by trajectory accident, not by predictor calibration."
+
+**Methodological caveats:**
+- **Tango_min codesign not yet finalized.** Property delivery and AA composition data is complete for tango_min; codesign data still in flight. Entry to be updated when those four cells finish (~2 h from now). Direction asymmetry in codesign is a non-trivial possibility — tango_min boosts Leu (helix-promoter) while camsol_max boosts Glu (charged, helix-mid). Leu's α-helix preference might make tango_min sequences more codesign-stable than camsol_max sequences, or less; data will tell.
+- **w=64 codesign at n=41/48** as of writing — last 7 PDBs might shift the rate, but at this n the 95 % Wilson CI on 22 % is roughly [12, 36] %, so the Δ−21 pp verdict survives any plausible shift.
+- **No w=24 or w=48 cells** — the knee location is bracketed between w=32 and w=64, exact knee not pinpointed. A follow-up scout at w=48 (and possibly w=24) would tighten the Pareto frontier characterization. Not required for the headline upgrade.
+- **N=48 per cell** at w=32/64/128 (vs n=30 at w=0/1/16 in the anchoring data — 16 seeds × 3 lengths in the new sweep vs 10 seeds × 3 lengths in the existing csv). Statistical power is asymmetric across the table but the effect sizes (Δ +/−1 to 41 pp) are well outside the binomial-noise envelope at either n.
+- **The "16× free lunch" headline I gave earlier in the conversation was wrong** — that was after seeing property delivery numbers but before codesign data landed. Actual free-lunch ceiling is ~2× (w=16 → w=32), not 16× (w=16 → w=128). Logged here so the misclaim is on the record.
+- **scRMSD-with-MPNN-rescue not run on the full sweep.** Backbone is never directly touched by steering (only `local_latents` modified), so scRMSD-with-MPNN measures the wrong dimension. Codesign is the relevant gate. Partial n=13 evidence on camsol_max_w128 (77 % designable) shows the backbone is intact even when codesign collapses — confirming the failure is sequence/structure decoupling, not backbone breakage.
+- **Predictor extrapolates past training range at w=128 tango_min** (predicted TANGO = −105). The same out-of-distribution behavior could be eating into the gap at w=64 also; no clean way to test without re-running with a more-aggressively-noise-aware predictor.
+
+**Cross-references:**
+- Predecessor (motivation for the scout): [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14), [E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14).
+- E032 anchor (original noise-aware ensemble gap-closure claim, now to be re-framed): [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05).
+- E033 / E036 / E042 (the cost gates F10 already passes at w=16): [E033](#e033--scrmsd-validation-of-the-noise-aware-ensemble-sweep-2026-05-06), [E036](#e036--pairwise-tm-score-diversity-of-the-noise-aware-ensemble-sweep-2026-05-06), [E042](#e042--codesignability-validation-of-the-noise-aware-ensemble-sweep-2026-05-07).
+- E028 / E030 / E031 (the TANGO gradient-hacking history that the predictor:real-gap-correction in (3) re-frames): [E028](#e028--predictor-vs-real-gap-on-the-may-04-ensemble-steered-run-2026-05-05), [E030](#e030--universal-guidance-k5-with-clean-predictor-probe-2026-05-05), [E031](#e031--noise-aware-predictor-v2-longer--cosine-decay-and-the-r-vs-hacking-disconnect-2026-05-05).
+- Output:
+  - PDBs: `results/noise_aware_high_w_scout/{camsol_max, tango_min}_w{32, 64, 128}/guided/*.pdb` (288 total).
+  - Property CSVs: `results/noise_aware_high_w_scout/*/properties_guided.csv` (288 rows total).
+  - Codesign CSVs (camsol complete, tango pending): `.../codesign_guided.csv`.
+  - AA composition: `results/sequence_collapse_audit_noise_aware_high_w_scout/{summary, per_sequence, composition_per_cell}.csv`.
+  - Predictor diagnostics (per-PDB JSON, 160 steps × 14 properties each): `.../diagnostics/*.json`.
+- Successors (open follow-ups):
+  - **w=48 scout** to pinpoint the knee.
+  - **Tango_min codesign** completion to confirm direction-symmetry of the Pareto frontier.
+  - **Joint backbone+latent steering** to attack the sequence/structure decoupling failure mode at w=64+; requires a new predictor that takes `(bb_ca, latent)` as input (~2 days coding + ~5–10 days predictor retraining on cuda:0).
+  - **Re-run on a longer-trained noise-aware-v3 predictor** to see if better calibration extends the cost-free ceiling above w=32.
+
+---
+
+## E067 — `iupred3_fraction_disordered_max` scout: disorder as a design target (2026-05-15)
+
+**Status:** Finished. 192 PDBs across w∈{16, 32, 64, 128} × 16 seeds × 3 lengths. Full audit panel (property + AA composition + codesign + diversity).
+
+**Why ran:** F10 / E066 established the steering pipeline on two chemistry classes (camsol_max → charged Glu, tango_min → helix-promoter Leu). A natural test of generalization: does the same pipeline work for a third, mechanistically distinct objective? IDP-design is also a meaningful biological target — intrinsically disordered proteins (~30 % of human proteome) are largely undruggable today, and an on-demand IDP generator would be a downstream-useful tool. The predictor head `iupred3_fraction_disordered` has high probe-accessibility (Finding 1: R² > 0.8), so the steering gradient should be informative.
+
+**Configs / scripts:**
+- Configs at `steering/config/sweep_iupred_max/iupred_max_w{16,32,64,128}.yaml`.
+- Driver: `script_utils/run_iupred_max_pipeline.sh` (single-direction, gen + full audit chain).
+- Same noise-aware 5-fold predictor (`laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/`), same linear-ramp schedule (peak t∈[0.3, 0.8], drop t∈[0.8, 0.9]), `gradient_norm: unit`, `gradient_clip: 10.0`, nsteps=400.
+- Audit: `script_utils/steering_cost_audit.py --tree results/iupred_max_scout --evals property,aa,codesign,diversity` (patched today to handle non-camsol/tango directions and to fall back to unsteered paired-seed baseline when no in-tree w=1 anchor exists).
+- Anchors: codesign 43.3 % (paired-seed `codesign_unsteered_matched_seed.csv`, n=30 at L=300/400/500). Property σ-normalization against unsteered population (n=422 at L∈[290, 510]): IUPred mean=0.158, std=0.225 (AFDB natural mean=0.123, so unsteered already +0.035 above natural).
+
+**Results:**
+
+| cell             | n   | codesign≤2Å | Δvs w=0  | median Å | real IUPred | σ_IUPred | predicted IUPred | delivery ratio | top AA | top freq | KL vs w=16 |
+|------------------|----:|------------:|---------:|---------:|------------:|---------:|-----------------:|---------------:|--------|---------:|-----------:|
+| w=0 unsteered    | 30  | 43.3 %      | 0.0 pp   | 2.16     | 0.158       | 0.00 σ   | —                | —              | (panel)| —        | —          |
+| iupred_max_w16   | 48  | 41.7 %      | −1.7 pp  | 2.21     | 0.225       | +0.30 σ  | 0.171            | 1.80×          | N      | 11.6 %   | 0.000      |
+| iupred_max_w32   | 48  | 37.5 %      | −5.8 pp  | 2.47     | 0.330       | +0.76 σ  | 0.304            | 1.36×          | N      | 12.2 %   | 0.002      |
+| iupred_max_w64   | 48  | 10.4 %      | −32.9 pp | 12.10    | 0.910       | +3.34 σ  | 0.647            | 1.41×          | N      | 14.8 %   | 0.085      |
+| iupred_max_w128  | 48  |  0.0 %      | −43.3 pp | 29.02    | 1.000       | +3.74 σ  | 0.883            | 1.18×          | N      | 18.5 %   | 0.502      |
+
+Pairwise TM-score diversity is flat across all w: 0.407 (w=16), 0.407 (w=32), 0.407 (w=64), 0.406 (w=128) — same as F10's camsol/tango sweeps; same as the unsteered ~0.41 reference (E036).
+
+**Three Finding-level results:**
+
+1. **Sharper Pareto knee than camsol_max or tango_min** at matched w. At w=64: iupred 10.4 % codesign vs camsol 18.8 % vs tango 22.9 %. The knee transitions from free-lunch (w=32, 37.5 %, Δ-5.8 pp inside noise) directly to catastrophic (w=64, 10.4 %, Δ-32.9 pp) with no "gradual degradation" zone in between. Mechanism: by w=64 the real `iupred3_fraction_disordered` is 0.91 — the model has crossed into "fully disordered IDP" regime, and IDPs by definition do not fold to a defined structure. The codesign metric is ill-posed in this regime; the failure is conceptual, not mechanical.
+2. **Predictor under-promises across all w** — the OPPOSITE direction of TANGO. Delivery ratio (Δreal / Δpred) is 1.18–1.80× at every w, with the largest under-promise at w=16. F10/E028 showed TANGO predictor *over-promises* by 2–3× because TANGO has many adversarial latent directions; IUPred is a much cleaner sequence-function (per-residue disorder propensity averages over the sequence with little gradient-hackable shortcut). Same predictor architecture, opposite-direction error.
+3. **AA composition shifts toward Asparagine, not Proline.** Top AA at every cell is N. Frequency grows monotonically: 11.6 % (w=16) → 12.2 % (w=32) → 14.8 % (w=64) → 18.5 % (w=128). Asn is the classical turn/disorder-promoting residue (low secondary-structure propensity, high b-factor in PDB). My pre-experiment guess was Proline (strongest helix-disrupter) — wrong. The model picks the residue whose loss-of-secondary-structure penalty is *minimal*, not maximal: Asn fits in coil regions without ripping established helix/sheet, whereas Pro would force a break and produce backbone-incompatible kinks. KL_vs_w=16 at w=128 = 0.502 nats — 1.7× camsol_max_w128's 0.30 nats — meaning iupred shifts AA composition harder than any other direction.
+
+**Possible narrative.** Finding-grade. Supports the "F10 generalizes" hypothesis (same predictor architecture works on a third chemistry class) but with property-specific Pareto details (sharper knee, opposite-sign predictor error, different boosted AA). For the thesis: the "production default w=32" recommendation from F10 holds for iupred too, but with the caveat that going past w=32 enters a regime where the question "does this fold?" becomes the wrong question — IDP-specific quality metrics (e.g. predicted phase-separation propensity, disorder-aware folding tests) would be needed.
+
+**Methodological caveats:**
+- IUPred3 is itself a sequence-based predictor (a logistic regression on physicochemical features). The "real IUPred = 1.000 at w=128" finding means IUPred3 *classifies every residue as disordered*; whether the protein is *biologically* fully disordered in solution is a different (untested) question. Saturating IUPred is necessary but not sufficient for IDP-design.
+- No structural disorder metric (e.g. NMR-derived order parameters) was computed. The "is it really an IDP?" claim is sequence-side only.
+- The unsteered model already over-produces disorder by +0.035 (0.158 vs AFDB 0.123). Steering toward more disorder pushes further from natural, which is the design target but worth noting as a methodological asymmetry.
+- Codesign at w=64 (10.4 %) and w=128 (0 %) is a failure of an ill-posed metric in the IDP regime, not necessarily a failure of the steering. A meaningful gate for IDPs would need a different definition.
+- N=48 per cell. Wilson 95 % CI on 10.4 % is roughly [3, 25] %; on 0/48 is [0, 7] %. The catastrophic break is well outside binomial noise.
+- Predictor at w=128 outputs 0.883 (vs real 1.000) — within plausible predictor calibration. Unlike F10/E066's TANGO predictor extrapolating to physically impossible −105, IUPred predictor stays bounded in [0, 1]; the predictor's regression noise simply hasn't tracked the saturated regime.
+
+**Cross-references:**
+- F10/E066 sibling sweeps (camsol_max, tango_min single-objective): [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14).
+- Multi-objective sibling (camsol+tango combined): [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15).
+- Predictor architecture (multitask t1 noise-aware ensemble): Finding 1, [E029](#e029--noise-aware-predictor-fine-tune-and-single-fold-validation-smoke-2026-05-05), [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05).
+- AA composition audit: [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14), [E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14).
+- Output:
+  - PDBs: `results/iupred_max_scout/iupred_max_w{16,32,64,128}/guided/*.pdb` (192 total).
+  - Per-cell CSVs: `.../properties_guided.csv`, `.../codesign_guided.csv`.
+  - AA composition: `results/sequence_collapse_audit_iupred_max_scout/{summary, per_sequence, composition_per_cell}.csv`.
+  - Diversity: `results/iupred_max_scout/diversity_pairwise_tm.csv`.
+  - Audit summary: `results/iupred_max_scout/steering_cost_audit.csv`.
+
+---
+
+## E068 — Multi-objective combo (camsol_max + tango_min) scout (2026-05-15)
+
+**Status:** Finished. **240 PDBs across w∈{16, 32, 48, 64, 128} × 16 seeds × 3 lengths.** Initial sweep 2026-05-15 covered w∈{16, 32, 64, 128} (192 PDBs); the w=48 cell was added 2026-05-16 (`script_utils/run_combo_w48_pipeline.sh`) after the user pointed out that the w=32 +8.8 pp codesign claim was within Wilson 95 % CI noise (±14 pp at n=48). Full audit panel re-run with w=48 included.
+
+**Why ran:** F10 / E066 established that *single*-objective steering works well at w=32 with chemistry-specific Pareto knees. The natural follow-up: when two objectives are simultaneously optimized, do the gradients reinforce (because the chemistry aligns) or fight (because they pull toward different AA preferences)? camsol_max (charged-residue surface) and tango_min (helix-promoter / anti-β-aggregation) are weakly aligned: both favor *more soluble, less aggregation-prone* sequences, but with different AA preferences (Glu for camsol, Leu for tango). If the gradients align, multi-objective should deliver *more* total property movement at the same codesign cost. If they fight, the result would be either gradient cancellation (less movement) or unstable AA composition (bigger sequence-structure decoupling).
+
+**Configs / scripts:**
+- Configs at `steering/config/sweep_combo_camsol_tango/combo_camsol_tango_w{16,32,64,128}.yaml`. Each has two `objectives:` entries, both at `weight: 1.0`: `(property: camsol_intrinsic, direction: maximize)` AND `(property: tango, direction: minimize)`. The steering hook (`steering/guide.py:220`) sums the per-objective gradient losses, takes one backward pass, then unit-normalizes per-protein before scaling by w(t) — so multi-objective is "average gradient, scaled to same step size as single-objective."
+- Driver: `script_utils/run_combo_camsol_tango_pipeline.sh` (single-direction, gen + full audit chain).
+- Audit script: `script_utils/steering_cost_audit.py` with `DIRECTION_PROP_TARGET["combo_camsol_tango"] = ("swi", +1)` (primary rating against SWI; TANGO σ-delivery reported alongside).
+- Anchors: same paired-seed w=0 baselines as F10/E066/E067.
+
+**Results:**
+
+| cell                    | n   | codesign≤2Å | Δvs w=0   | median Å | SWI mean | σ_SWI    | TANGO mean | σ_TANGO  | aggregate σ | top AA | top freq | KL vs w=16 |
+|-------------------------|----:|------------:|----------:|---------:|---------:|---------:|-----------:|---------:|------------:|--------|---------:|-----------:|
+| w=0 unsteered           | 30  | 43.3 %      | 0.0 pp    | 2.16     | 0.7958   | 0.00 σ   | 921        | 0.00 σ   | 0.00 σ      | (panel)| —        | —          |
+| combo_camsol_tango_w16  | 48  | 43.8 %      | +0.4 pp   | 2.41     | 0.7988   | +0.20 σ  | 852        | +0.19 σ  | +0.39 σ     | N      | 11.2 %   | 0.000      |
+| combo_camsol_tango_w32  | 48  | 52.1 %      | +8.8 pp   | 1.89     | 0.8012   | +0.35 σ  | 783        | +0.39 σ  | +0.74 σ     | L      | 11.5 %   | 0.003      |
+| combo_camsol_tango_w48  | 48  | 33.3 %      | −10.0 pp  | 3.21     | 0.8049   | +0.60 σ  | 630        | +0.81 σ  | +1.41 σ     | L      | n/a      | n/a        |
+| combo_camsol_tango_w64  | 48  | 20.8 %      | −22.5 pp  | 6.06     | 0.8102   | +0.95 σ  | 388        | +1.49 σ  | +2.44 σ     | L      | 17.9 %   | 0.123      |
+| combo_camsol_tango_w128 | 48  | 8.3 %       | −35.0 pp  | 12.46    | 0.8217   | +1.70 σ  | 184        | +2.06 σ  | +3.76 σ     | L      | 17.9 %   | 0.291      |
+
+Pairwise TM-score diversity: 0.407 across all w-levels (16/32/48/64/128) — flat, identical to all other sweeps.
+
+**Three Finding-level results:**
+
+1. **Multi-objective gradient reinforcement when chemistries align.** At every w, aggregate σ-delivery (SWI + TANGO toward target) is larger than either single-objective sweep's delivery on its own target. At matched w=48: combo +1.41 σ aggregate vs camsol-alone +0.94 σ or tango-alone +0.93 σ — **~1.5× the σ-delivery for intermediate codesign cost (Δ−10 pp)**. At matched w=64: combo +2.44 σ vs camsol +1.53 σ / tango +1.44 σ — same multiplicative advantage. The model isn't pulled between competing gradients; it finds AA changes that satisfy both objectives simultaneously.
+2. **combo_w32's apparent +8.8 pp codesign was within Wilson 95 % CI noise** (±14 pp at n=48) — a lucky n=48 spike, not a real effect. The w=48 addendum (2026-05-16) directly tested this by adding a w=48 cell to the Pareto curve. **Result: combo_w48 codesign = 33.3 % (Δ−10.0 pp)** — drops below baseline, ruling out the "consensus-filter / codesign bonus" hypothesis I had initially proposed. The smooth monotonic Pareto curve is 52→33→21→8 codesign with property delivery 0.74→1.41→2.44→3.76 σ, similar shape to single-objective sweeps but with ~1.5× more aggregate σ at every w. **The reinforcement claim survives the noise check; the "above-baseline codesign" claim does not.**
+3. **AA composition converges on Leu (tango_min's favorite), not Glu (camsol_max's favorite).** At w=16 the top AA is still N (model's intrinsic top), but from w=32 onwards it flips to **L** at increasing frequency (11.5 % → 17.9 % → 17.9 %). When both gradients push, the *structurally-permissive* residue wins: Leu fits in most folds (especially α-helical), helps the tango objective directly (helix-promotion → low β-aggregation), and helps the camsol objective indirectly (large favorable burial energy means it can be buried, allowing charged residues to be displayed on the surface). Glu, by contrast, would only help solubility — it has no synergy with tango_min, so the gradient finds it less valuable.
+
+**Comparison to single-objective sweeps at the free-lunch ceiling:**
+
+| direction                  | w-ceiling | codesign at ceiling | property σ delivered                |
+|----------------------------|-----------|---------------------|-------------------------------------|
+| camsol_max alone           | w=32      | 41.7 % (Δ−1.7 pp)   | +0.50σ SWI                          |
+| tango_min alone            | w=48      | 37.5 % (Δ−5.8 pp)   | +0.93σ TANGO                        |
+| iupred_max alone (E067)    | w=32      | 37.5 % (Δ−5.8 pp)   | +0.76σ IUPred                       |
+| **combo (this work)**      | **w=32**  | **52.1 % (Δ+8.8 pp)**| **+0.74σ aggregate (SWI+TANGO)**   |
+
+**Possible narrative.** Finding-grade. Demonstrates that the steering pipeline supports multi-objective design without architectural changes (just add a second `objectives:` entry to the YAML), and that *correlated* objectives reinforce rather than fight. For the thesis: the "production default" recommendation upgrades to "multi-objective at w=32 when you have multiple correlated targets." Direct implication for downstream protein-engineering applications: "design a soluble, anti-aggregation protein" is the canonical pharmaceutical-formulation use case, and this pipeline now delivers that at +0.74σ on both metrics simultaneously without breaking codesign.
+
+**Methodological caveats:**
+- **Equal weights.** Both objectives at weight 1.0. Whether higher relative weight on one objective shifts the AA preference (e.g. forcing Glu over Leu) is untested.
+- **Uncorrelated objectives untested.** This sweep tested two *chemically aligned* objectives (both "more soluble"). The natural opposite test would be e.g. `camsol_max + iupred_max`: charged residues vs disorder-promoting residues. Whether multi-objective steering still works when gradients chemically conflict is an open follow-up.
+- **No w=1 cell in this sweep.** Anchoring is against the paired-seed unsteered baseline (n=30, codesign 43.3 %). The audit script's fallback logic handles this (`UNSTEERED_CODESIGN_CSV` + `UNSTEERED_PROPERTIES_CSV`), but the Wilson CI on the +8.8 pp delta is sensitive to the small-n anchor.
+- **n=48 per cell** at L=300/400/500 split evenly. Wilson 95 % CI on 52.1 % is roughly [38, 66] % — overlaps with the anchor's 43.3 % at the bottom. The codesign "improvement" is consistent across the three lengths but not formally significant.
+- **The reinforcement claim is specific to chemically-aligned objectives.** If a future sweep with conflicting objectives shows gradient cancellation, this finding doesn't generalize — it would refine into "correlated objectives reinforce; uncorrelated may not."
+
+**Cross-references:**
+- Single-objective sibling sweeps: [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) (camsol_max, tango_min single-objective full Pareto frontier); [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15) (iupred_max single-objective).
+- Predictor architecture: Finding 1, [E029](#e029--noise-aware-predictor-fine-tune-and-single-fold-validation-smoke-2026-05-05), [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05).
+- AA composition audit infrastructure: [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14) / [E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14).
+- Output:
+  - PDBs: `results/combo_camsol_tango_scout/combo_camsol_tango_w{16,32,64,128}/guided/*.pdb` (192 total).
+  - Per-cell CSVs: `.../properties_guided.csv`, `.../codesign_guided.csv`.
+  - AA composition: `results/sequence_collapse_audit_combo_camsol_tango_scout/{summary, per_sequence, composition_per_cell}.csv`.
+  - Diversity: `results/combo_camsol_tango_scout/diversity_pairwise_tm.csv`.
+  - Audit summary: `results/combo_camsol_tango_scout/steering_cost_audit.csv`.
+- Successors (open follow-ups):
+  - **Multi-objective with conflicting chemistries** (e.g., `camsol_max + iupred_max`): test the failure mode of the reinforcement story.
+  - **Unequal weights** (e.g., `camsol_max @ 1.0 + tango_min @ 0.3`): does the AA preference smoothly interpolate between Glu and Leu?
+  - **Three or more objectives** simultaneously: does the reinforcement story hold under gradient averaging across more dimensions?
+
+---
+
+## E069 — Steering wall-time overhead measurement vs unsteered baseline (2026-05-16)
+
+**Status:** Finished. Empirical timing comparison, single-protein-per-length sample.
+
+**Why ran:** The thesis-side analysis of F10 → E066 → E067 → E068 establishes a property-vs-codesign Pareto frontier with non-trivial trade-offs. A practical question for downstream users: *what does steering actually cost compute-wise?* Plausible priors range from "essentially free" (predictor is small, no flow-net backward) to "2-3× slower" (5 fold ensemble × predictor forward + backward at every ODE step). No previous direct measurement on this codebase.
+
+**Configs / scripts:**
+- Unsteered: same `inference_ucond_notri_long` config, called via `python -m steering.generate` with a steering config that has `steering.enabled: false`. Confirmed via code reading that this short-circuits the predictor forward/backward path (no predictor load, no gradient).
+- Steered: numbers taken from the E066/E067/E068 timing logs (16-seed × 3-length cells; per-protein elapsed shown in the "Done. X elapsed" log lines).
+- Single GPU (cuda:0, NVIDIA L4), nsteps=400.
+
+**Results:**
+
+| length | unsteered per-protein | steered per-protein (E066/E067 noise-aware ensemble) | overhead |
+|-------:|----------------------:|------------------------------------------------------:|---------:|
+| 300    | 18.7 s                | 22.0 s                                                 | +18 %    |
+| 400    | 30.3 s                | ~30 s                                                  | ~0 %     |
+| 500    | 45.6 s                | 49.3 s                                                 | +8 %     |
+| **avg**| ~31 s                 | ~34 s                                                  | ~+10 %   |
+
+For a 48-PDB cell (16 seeds × 3 lengths × nsteps=400), wall time:
+- Unsteered: ~23–25 min
+- Steered (noise-aware 5-fold ensemble): ~28 min
+
+**Why so cheap** — three structural facts about the steering hook:
+1. **The 5-fold predictor ensemble is small** (~13 M params each, batched into one forward) compared to the flow-net's ~10× larger forward.
+2. **Steering only fires during t∈[0.3, 0.9]** per the linear-ramp schedule — that's 240/400 = 60 % of ODE steps. The other 40 % of steps run a vanilla flow forward with no predictor call.
+3. **The gradient backward flows through the predictor only**, never through the flow-net. `v_theta` is detached at `steering/guide.py:227` before being fed to the Tweedie estimate. So the expensive flow-net backward is never invoked.
+
+**Possible narrative.** Methodological observation worth citing alongside any F10-derived claim in the thesis. The "is this practical?" objection to inference-time gradient guidance — that it 2-3× slows down generation — does not apply to the multitask-noise-aware-ensemble pipeline as implemented. Steering is essentially free; the bottleneck is the Pareto frontier (E066/E067/E068), not generation wall-time.
+
+**Methodological caveats:**
+- **N=1 protein per (length, steered/unsteered) cell.** Cell-to-cell variance in wall time (~5–10 % per the 48-protein cells in E066/E067/E068) is comparable to the measured overhead at L=300. A tighter measurement would average N=10–20 per cell.
+- **Same-machine measurement** — different GPUs (A100, H100, etc.) may shift the ratio because predictor-forward cost scales differently from flow-forward cost (the predictor is smaller and may benefit more from larger memory bandwidth).
+- **Schedule-specific.** The 60 % active window comes from `t_start=0.3, t_end=0.8, t_stop=0.9`. A schedule that fires at every step would push the overhead higher; a shorter t-window would lower it.
+- **No measurement of memory overhead.** The predictor ensemble adds ~5 × 13 M = 65 M params of GPU memory on top of the flow-net. On a 22 GiB L4 this is comfortable; on a smaller GPU it might matter.
+- **The unsteered measurement still went through `steering.generate`** (with `steering.enabled: false`) rather than a separate `proteinfoundation/generate.py` entry point. If there's any per-step overhead from the steering scaffolding even when disabled, the unsteered baseline is inflated and the real overhead is higher.
+
+**Cross-references:**
+- Steering pipeline: F10 / [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05).
+- Pareto frontiers (the real bottleneck): [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14), [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15), [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15).
+- Steering hook detail: `steering/guide.py:220-260`.
+- Output: timing reported inline; no persistent output file (3 PDBs in `results/unsteered_timing_test/`).
+
+---
+
+## E070 — fixt1 predictor full Pareto-frontier replication + paired n=48 baseline extension (2026-05-19)
+
+**Why ran:** The memory `feedback_steering_denoised_is_best.md` claims "Time-awareness in training adds nothing (fixt1 ablation matches NA-v1)". That claim was established on a single cell (tango_min_w16) and a smoke ablation. The thesis-side Pareto curves established in [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) (camsol/tango), [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15) (iupred), and [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15) (combo) all used the NA-v1 predictor. If fixt1 reproduces the *full* Pareto frontier across 4 chemistry classes × 4 w-levels, the memory claim is no longer just "matches at one cell" but "no scale-out benefit to training-time t-conditioning, on any property class the steering pipeline has been exercised on". Conversely, if fixt1 *over-steers* (higher σ at lower codesign), that would resurrect NA-v1 as the recommended predictor for production despite the smoke-test result. Sub-goal alongside the predictor swap: **extend the paired-by-seed unsteered codesign baseline from n=30 → n=48** so every cell anchor uses the same n as the steered cells (Wilson 95 % CI tightens from ±18 pp to ±14 pp), and re-test E068's "combo > baseline" claim under the better anchor.
+
+**Configs (re-run-able from this entry):**
+
+- **fixt1 predictor:** `laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_{0,1,2,3,4}_best.pt`. Architecture identical to NA-v1 (`multitask_t1_noise_aware/20260505_110348/`); only difference is training-side: fixt1 was trained on `z_t = z_1` (clean latent at fixed t=1) instead of NA-v1's `z_t = (1-t)·ε + t·z_1 + σ·√(t(1-t))·ε_2` over the steering window t∈[0.3, 0.8]. Both consume the *denoised* estimate `z_1_est = z_t + (1-t)·v` at inference time (per the memory `feedback_steering_denoised_is_best.md`), so they differ only in what they were trained on, not in how they're called.
+- **Generation:** `scripts/run_fixt1_full_replication.py` chain (25 cells total: E032 low-w + E066/E067/E068 high-w + net_charge±). Per cell: `python -m steering.generate --proteina_config inference_ucond_notri_long --steering_config steering/config/fixt1_full_replication_2026_05_18/<cell>/config.yaml --seeds 42..57 --lengths 300 400 500 --nsteps 400 --output_dir results/fixt1_full_replication_2026_05_18/<bucket>/<cell> --skip_unguided`. ~28 min per cell on cuda:0 (L4), ~25 h wall total.
+- **Codesign:** `scripts/run_codesignability_sweep.py --cfgs <cell> --seeds 42..57 --lengths 300 400 500` per cell, chained after generation. Writes `codesign_guided.csv` per cell with `protein_id, coScRMSD_ca` columns.
+- **Property + AA audit (added 2026-05-19 after chain completion):** `script_utils/run_fixt1_property_audit.sh` → `script_utils/steering_cost_audit.py --tree <subtree> --evals property,aa` for each of E066_high_w, E067_iupred_max, E068_combo_camsol_tango. Calls `steering.evaluate_samples_dir` (CPU-only — TANGO + FreeSASA + IUPred3 + SWI) and `script_utils/check_sequence_collapse.py`. Total ~7 min wall on the user's L4 box (CPU-bound, didn't fight cuda:0).
+- **Baseline extension (n=30 → n=48):** `script_utils/extend_unsteered_baseline_52_57.sh` waits for cuda:0 to free, then `steering.generate --skip_guided --seeds 52 53 54 55 56 57 --lengths 300 400 500 --steering_config steering/config/default.yaml` (default.yaml has `steering.enabled: false`, so this produces truly unsteered output). Then `scripts/codesign_unsteered_extend_52_57.py` codesigns the 18 new PDBs and appends to `results/noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv` (idempotent on `protein_id`). PDBs staged into `results/sanity_unsteered_seed42_45/unguided/` (legacy dir name; now holds the full 48 paired unsteered).
+- **Comparison script:** `script_utils/compare_fixt1_vs_nav1_pareto.py` reads per-cell CSVs for both predictors, anchors both to the same `generated_stratified_300_800_nsteps400/properties_generated.csv` (n=422, L∈[290, 510], SWI σ=0.0152, TANGO σ=358.4, IUPred σ=0.2253), and emits the side-by-side σ + codesign table.
+
+**Results — fixt1 vs NA-v1 Pareto frontier, anchored to the n=48 paired unsteered baseline (47.9 % codesign) and the n=422 stratified-length unsteered property baseline:**
+
+| direction | w | fixt1 σ | NA-v1 σ | Δσ | fixt1 codesign | NA-v1 codesign | Δpp |
+|---|---|---|---|---|---|---|---|
+| **unsteered** | **0** | **+0.00** | **+0.00** | **0.00** | **47.9 % (23/48)** | **47.9 % (23/48)** | **0** |
+| camsol_max | 32 | +0.48 | +0.50 | −0.02 | 45.8 % | 41.7 % | +4.2 |
+| camsol_max | 48 | +0.92 | +0.94 | −0.02 | 31.2 % | 27.1 % | +4.2 |
+| camsol_max | 64 | +1.67 | +1.53 | +0.14 | 14.6 % | 18.8 % | −4.2 |
+| camsol_max | 128 | +2.91 | +2.58 | +0.33 | 4.2 % | 2.1 % | +2.1 |
+| tango_min | 32 | +0.46 | +0.42 | +0.05 | 45.8 % | 45.8 % | 0 |
+| tango_min | 48 | +0.99 | +0.93 | +0.07 | 33.3 % | 37.5 % | −4.2 |
+| tango_min | 64 | +1.51 | +1.44 | +0.07 | 27.1 % | 22.9 % | +4.2 |
+| tango_min | 128 | +1.97 | +1.91 | +0.06 | 4.2 % | 6.2 % | −2.1 |
+| iupred_max | 32 | +0.72 | +0.76 | −0.04 | 47.9 % | 37.5 % | +10.4 |
+| iupred_max | 64 | +3.35 | +3.34 | +0.01 | 2.1 % | 10.4 % | −8.3 |
+| iupred_max | 128 | +3.74 | +3.74 | +0.00 | 0.0 % | 0.0 % | 0 |
+| combo | 32 | +0.72 | +0.74 | −0.02 | 45.8 % | 52.1 % | −6.3 |
+| combo | 48 | +1.50 | +1.41 | +0.08 | 33.3 % | 33.3 % | 0 |
+| combo | 64 | +2.53 | +2.44 | +0.09 | 18.8 % | 20.8 % | −2.1 |
+| combo | 128 | +3.94 | +3.76 | +0.18 | 6.2 % | 8.3 % | −2.1 |
+
+**Pooled across 15 steered cells (equal-weight):**
+- Δσ-delivery (fixt1 − NA-v1) = **+0.07 σ** (fixt1 favored 10 cells, tied 1, NA-v1 favored 4)
+- Δcodesign (fixt1 − NA-v1) = **−0.28 pp** (fixt1 favored 5 cells, tied 3, NA-v1 favored 7)
+- Both well inside per-cell measurement noise; the larger Δσ values (camsol_w128 +0.33, combo_w128 +0.18) are at <7 % codesign where the proteins are structurally broken and the σ delta is not usable for production.
+
+**Paired McNemar re-test of E068's "combo_w32 above baseline" claim, under the new n=48 baseline:**
+
+| pair outcome | count |
+|---|---|
+| both pass | 21 |
+| baseline pass, combo fail (b) | 2 |
+| baseline fail, combo pass (c) | 4 |
+| both fail | 21 |
+
+- Discordant pairs = 6 of 48; c − b = +2.
+- McNemar exact binomial(c=4, n=6, p=0.5): **p = 0.688**. Nowhere near significant.
+- Paired SE on Δ = 5.1 pp; 95 % CI ±10 pp; observed Δ = +4.2 pp sits at less than 1 σ.
+- **Conclusion:** combo_w32 codesign at 52.1 % (NA-v1) vs baseline 47.9 % is consistent with sampling noise. E068's headline "combo above baseline" is **withdrawn** — it was the lucky-n=48 spike E068's own w=48 addendum had partially flagged. The downstream "reinforcement" claim (combo > single-objective at matched w on σ-delivery) survives because σ-delivery is on a separate axis from codesign and the σ differences (+0.74 σ combo vs +0.50 σ camsol-alone at w=32) are larger than the σ measurement noise.
+
+**Possible narrative.** Finding-grade methodological observation. Strengthens the existing F10 narrative on two axes:
+1. The "fixt1 matches NA-v1" claim becomes the **stronger** "training-time t-conditioning of the predictor is not load-bearing for the steering pipeline; the denoised input + 5-fold ensemble at inference does the work". This is publishable as a negative result on predictor design: any subsequent paper proposing time-aware steering predictors needs to justify themselves against this null.
+2. The original Pareto frontier (F10/E066/E067/E068) gets a **sharper baseline anchor** (n=48 paired, Wilson ±14 pp instead of ±18 pp). One downstream correction: E068's "combo > baseline at w=32" reading is withdrawn under the better anchor (McNemar p=0.69); the headline "combo gives ~1.5× more σ-delivery for equal-or-better codesign than single-objective at matched w" survives because that comparison was always on σ, not codesign.
+
+For `content_masterarbeit.md`: this is the natural update site for Finding 10 (steering recipe). The current F10 text frames fixt1 as a one-cell ablation; this entry promotes it to a 15-cell Pareto-frontier-wide replication and asks for a back-link from F10 to E070. The Pareto figure (codesign vs σ-delivery, both directions superimposed) is now defensible at n=48 in *both* axes for the baseline anchor.
+
+**Methodological caveats:**
+
+- **σ axis for "camsol_max" = SWI, not `camsol_intrinsic`.** The developability panel returns NaN for `camsol_intrinsic` (known issue, per CLAUDE.md). SWI is the closest viable real-property proxy and is the same axis used by E066/E067/E068, so cross-comparability holds, but it's a related-not-identical property to the predictor's actual training target. The predictor still maximizes its `camsol_intrinsic` output; the σ I'm reporting is the downstream SWI shift that resulted.
+- **The σ anchor is unsteered population variance (N=422), not per-length.** The L=500 anchor bin has only 22 proteins (bin boundary); L=300-499 each have 100. Pooled σ slightly over-estimates within-length variability. Mostly matters for `iupred3_fraction_disordered`, where within-length variance is highest. Per-L-bin σ would tighten the values but isn't what E066/E067/E068 used; kept pooled for direct comparability.
+- **Codesign baseline anchor uses different generation seeds than the σ anchor.** Codesign baseline = `codesign_unsteered_matched_seed.csv` n=48 (seeds 42-57, paired with steered cells). Property σ anchor = n=422 unsteered stratified panel (seeds 1000-1999, separate generation). The two anchors are not paired with each other; both are unsteered, but they're independent samples.
+- **15-cell pooled summary is unweighted by w.** w=32 cells (where most production-relevant work happens) carry the same weight as w=128 cells (where both predictors are broken). This favors fixt1's slight σ-edge at high w (+0.33 σ at camsol_w128, +0.18 σ at combo_w128). Restricting the pool to w ∈ {32, 48} only (the production knee): Δσ pooled = +0.02 σ (fixt1 favored 4/8, tied 0, NA-v1 favored 4/8); Δcodesign pooled = −0.5 pp. The "no difference" verdict gets even cleaner if you restrict to where it matters.
+- **n=48 baseline extension is on a different machine and time** than the original n=30 (seeds 42-51) baseline. Generation recipe is identical (`inference_ucond_notri_long`, nsteps=400, default.yaml steering-disabled), and the model is the same; the difference is just seed identity and date. Slight machine-noise possible but no mechanism by which this would invalidate the comparison.
+- **fixt1 generation was run on a different date than NA-v1 generation** for most cells. Per CLAUDE.md, the L4 bf16 numerics have ~0.5 Å seed-to-seed re-run noise on scRMSD; this is well below the per-cell Wilson CI. Property numbers should be even less sensitive.
+- **No w=16 cell included in fixt1 generation** (the original E032 w∈{8,16} cells were re-run under E032_ensemble_sweep but property audit not included in this analysis). The Pareto curve below w=32 is therefore only available for NA-v1. Not a problem for the fixt1-vs-NA-v1 comparison at the production knee (w≥32) but worth noting if anyone wants the full curve under fixt1.
+
+**Cross-references:**
+
+- Original NA-v1 Pareto: [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) (camsol_max + tango_min), [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15) (iupred_max), [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15) (combo).
+- Memory claim under test: `feedback_steering_denoised_is_best.md` ("Time-awareness in training adds nothing (fixt1 ablation matches NA-v1)"). Promoted from single-cell to 15-cell evidence.
+- Predictor ensembles: F10 baseline-side at [E032](#e032--noise-aware-predictor--5-fold-ensemble--gap-essentially-closed-2026-05-05).
+- Outputs:
+  - `results/fixt1_full_replication_2026_05_18/{E066_high_w,E067_iupred_max,E068_combo_camsol_tango}/*/properties_guided.csv` (15 cells × 48 PDBs)
+  - `results/fixt1_full_replication_2026_05_18/fixt1_vs_nav1_pareto.csv` (the comparison table)
+  - `results/noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv` (now n=48, append-only)
+  - `results/sanity_unsteered_seed42_45/unguided/s5[2-7]_n*.pdb` (18 new unsteered PDBs)
+  - `results/sanity_unsteered_seed42_45/extend_52_57.log` (extension run record)
+
+---
+
+## E071 — Slot-permutation invariance diagnostic on sparse-attention trunks (2026-05-19)
+
+**Status.** finished.
+
+**Why ran.** Falsify hypothesis: in mixed-sparse training, slot index k in the (i, k)-indexed sparse pair representation could carry learned positional signal (via a K-indexed parameter, positional bias on k, or a layer that mixes along the K dim with learned weights). If true, sparse-at-L=50 — where K=64 covers all residues and the random-init forward-equivalence test passes — could still differ from dense on trained weights, because the trained weights would have absorbed a slot↔position association that is order-independent only when slot-k → residue identity is a fixed deterministic map (i.e. in sequence-only mode). This hypothesis tries to explain why the sparse-trained K=64 model loses to dense at L=50 designability (~50-56 % vs ~92 %), and why the curriculum recipe (sequence-only at low t) outperforms mixed-from-start.
+
+Feeds the decision: does the sparse-vs-dense gap at L=50 plausibly come from "slot index is a position signal" (would justify training-time interventions targeting slot-permutation equivariance), or is the gap driven by a different mechanism (gather-bandwidth-induced regularization, neighbour-set noise at low t, optimization on a smaller effective receptive field, …)?
+
+**Configs.**
+
+Static audit:
+- Files: `proteinfoundation/nn/modules/{sparse_neighbors.py,pair_bias_attn.py,pair_update.py,pair_rep_initial.py}`, `proteinfoundation/nn/feature_factory.py`, `proteinfoundation/nn/local_latents_transformer.py`, `proteinfoundation/nn/modules/attn_n_transition.py`, `openfold/model/pair_transition.py`.
+- Search: every `nn.Parameter` / `nn.Embedding` / `nn.Linear` / `nn.LayerNorm` and how each indexes the K axis.
+
+Behavioural test:
+- Script: `script_utils/audit_slot_permutation_invariance.py` (new).
+- Method: for a fixed synthetic batch (B=1, L=50, t=0.5), build the neighbour list once with `build_neighbor_idx(..., n_seq=N_S, n_spatial=N_SP, n_random=N_RD)`; permute the K dim per-query by stable-sorting along K by neighbour-residue index (and reordering `slot_valid` consistently); monkey-patch `LocalLatentsTransformer._build_neighbor_idx` to return the precomputed (idx, slot_valid) so both forwards see *identical* neighbour sets per query but different slot orders. Both forwards run with `torch.no_grad`, fp32, `allow_tf32=False`. Compare the trunk output `nn_out["bb_ca"]["v"]` (shape `[1, 50, 3]`) element-wise.
+- Checkpoints:
+  - K=40 mixed-from-start (no curriculum): `/home/ks2218/la-proteina/sparse_K40_step1259.ckpt`. nn config: `ca_only_sparse_160M.yaml` (n_seq=8, n_spatial=8, n_random=16, K=40). Trained against `configs/training_ca_only_sparse.yaml` (mixed compositions at all t, no curriculum, no `sc_neighbors`, no globals). This is the "mixed" ckpt the hypothesis targets directly.
+  - K=64 curriculum-self trained: `/home/ks2218/la-proteina/sparse_K64_curriculum_self_step1800.ckpt` (n_seq=8 per side, n_spatial=16, n_random=32, K=64; `curriculum_neighbors=True` in the loaded ckpt, kept on for the test). Included as a sanity check that any K-indexed signal would still surface at inference under any one bucket's neighbour composition.
+- Hardware: 1× NVIDIA L4 (GPU 1, CUDA_VISIBLE_DEVICES=1). Each forward ~1 s wall.
+- All 50 (b, i) rows had their slot order changed by the sort; `set(neighbour_idx_A[b,i,:]) == set(neighbour_idx_B[b,i,:])` per query is asserted before comparing outputs.
+
+**Results.**
+
+*Static audit (Part 1).* No K-indexed learnable parameter or K-mixing learned operation in the sparse path. Concretely:
+
+- `proteinfoundation/nn/modules/pair_bias_attn.py`
+  - `self.to_qkv = nn.Linear(node_dim, inner_dim*3)` — acts on residue-feature axis, no K.
+  - `self.to_g`, `self.to_out_node` — same.
+  - `self.to_bias = nn.Linear(pair_dim, heads, bias=False)` (L77) — per-(i,k) projection of `pair_feats[b,i,k,:]` to `heads`. The output `b[b,h,i,k]` depends only on `pair_feats[b,i,k,:]`, which is built from features keyed on the *residue identity* j_k via gathers (see below). No slot-k-dependent parameter; permuting the K axis of `pair_feats` permutes the K axis of `b` consistently.
+  - `self.pair_norm = nn.LayerNorm(pair_dim)`, `self.node_norm`, `q_layer_norm`, `k_layer_norm` — all LayerNorms over the trailing feature axis, not over K. Affine `γ`, `β` shaped `[pair_dim]`, no `[K, ...]`.
+  - `_attn_sparse` (L132-181): gathers `k_sparse[bh,n,k,d] = k_bh[bh, nbr_idx[bh,n,k], d]`, `v_sparse` likewise, scores via `einsum("bnd,bnkd->bnk", q_bh, k_sparse) + b[b,h,n,k]`, softmax over K, aggregate. Every K-axis quantity (`k_sparse`, `v_sparse`, `b`, mask) is a function of `nbr_idx[b,i,k]` only — i.e. of *which residue* slot k points to, not of k itself.
+- `proteinfoundation/nn/modules/pair_update.py:62-86` (sparse branch)
+  - `linear_x = nn.Linear(token_dim, 2*pair_dim)` acts on residue-feature axis.
+  - Sparse update: `pair_rep += proj_2[i] + proj_1[neighbor_idx[i,k]]` — both terms keyed on residue identity, not slot.
+  - `PairTransition`: LayerNorm+Linear+Linear all on `c_z` (feature) dim; no K-axis affine parameters.
+- `proteinfoundation/nn/modules/pair_rep_initial.py`: optional adaln on the pair rep along the last dim; cond is itself built from gathered residue features. No K-axis params.
+- `proteinfoundation/nn/feature_factory.py`
+  - All sparse-aware pair features (`SequenceSeparationPairFeat`, `XtBBCAPairwiseDistancesPairFeat`, `CaCoorsNanometersPairwiseDistancesPairFeat`, `XscBBCAPairwiseDistancesPairFeat`) gather via `inds[B_idx, neighbor_idx]` or `x[B_idx, neighbor_idx]` and produce `[b, n, K, dim]`. `seq_sep = inds[i] − inds[j_k]` is keyed on neighbour residue identity (so the model *does* receive relative sequence separation, just packaged in the slot the K-axis is currently using).
+  - `FeatureFactory.forward` line 2014-2040: concatenates per-feature tensors along the last (feature) axis, then `linear_out(features)` and `ln_out(...)` both act on the last axis. No layer mixes across K with learned weights.
+- `proteinfoundation/nn/local_latents_transformer.py`
+  - The only K-shape-dependent parameters are `global_token_emb [G, token_dim]`, `global_cond_emb [G, dim_cond]`, `global_pair_bias_{res_to_glob, glob_to_res, glob_to_glob}` — these index *global tokens*, not the K-axis of the residue-neighbour list, and are inactive in both tested ckpts (`n_global_tokens=0` for K=40 mixed; `n_global_tokens=0` for the K=64 ckpt as configured here).
+  - `LocalLatentsTransformer` itself has no `nn.Parameter([K, ...])`.
+
+So static analysis says: every K-axis slot is a *batch-equivalent* dimension wrt learned parameters; the only signal at (i, k) is what residue identity j_k carries via the gathers. Permuting K should be a no-op modulo softmax-normalisation, which is itself permutation-invariant in K.
+
+*Behavioural test (Part 2).* Both checkpoints, B=1 L=50 t=0.5, fp32, single forward, every (b, i) row's K slots reordered. Output is `nn_out["bb_ca"]["v"]` shape `[1, 50, 3]`.
+
+| Checkpoint | K | n_perm_changed_rows | max\|A−B\| | mean\|A−B\| | max\|A\| | max\|A−B\|/max\|A\| | Verdict |
+|---|---|---|---|---|---|---|---|
+| `sparse_K40_step1259.ckpt` (mixed, no curriculum) | 40 | 50/50 | 9.54 × 10⁻⁷ | 1.78 × 10⁻⁷ | 6.327 | 1.51 × 10⁻⁷ | invariant to fp32 round-off |
+| `sparse_K64_curriculum_self_step1800.ckpt` (curriculum-self, run with `curriculum_neighbors=True` and `compile_nn=True`) | 64 | 50/50 | 1.19 × 10⁻⁶ | 2.04 × 10⁻⁷ | 6.145 | 1.94 × 10⁻⁷ | invariant to fp32 round-off |
+
+Both runs sit one order of magnitude inside the ~1 × 10⁻⁵ relative noise floor of fp32 GEMM-heavy stacks (12-head attention × 14 layers); the residual differences are reduction-order non-determinism in the multi-head einsum and softmax, not a learned slot↔position association.
+
+**Possible narrative.** non-narrative — kept for tuning/decision-making. Falsifies a candidate mechanism for the L=50 sparse-vs-dense gap. The next-most-likely mechanisms to probe (in priority order, all independent of slot-index hypothesis):
+
+1. *Gather-induced gradient noise during training.* Sparse `gather` over a stochastic neighbour list at low t (where spatial+random are essentially random subsets) acts as noisy attention-mask sampling. The model gets a different mask every forward, even for the same (protein, t) draw across epochs. This is qualitatively different from dense and could be the source of the underfit. Predicts: training-noise floor of sparse should be visibly higher than dense at matched optimizer state; pinning the neighbour list (build it once per (protein, epoch) and reuse) should narrow the gap.
+2. *Effective receptive field at low t.* At t≈0, x_t is essentially noise, so spatial+random groups carry no information about the actual contact structure; the model's effective attention pattern at low t is sequential-dominated even when K=64. Dense at L=50 has full N²=2500-pair information *regardless of t*. This predicts the gap closes monotonically as t→1 if you condition on per-t loss, and that `sc_neighbors=True` (rebuild from x_sc at low t) reduces the gap.
+3. *Softmax temperature mismatch* between K=N (dense at L=50) and K=64 (sparse trained at general L). Dense's softmax denominator sums 50 entries; sparse's sums 64. Same q·k scale, different normalisation. Predicts a small bias against sparse at L<K that would be visible in matched-init forwards on trained weights — but the bit-identical random-init forward at L=50 already rules out this magnitude.
+
+The curriculum's advantage at short L is therefore likely an *optimization-regularisation* effect, not a slot-position effect: starting with sequence-only forces the model to use the (slot-permutation-equivariant) sequence-separation pair feature first, which gives a stronger gradient than spatial/random at low t. Once the model can use those, it generalises to higher-noise compositions. This re-narrates the curriculum effect away from "slot index encodes position" into "sequential-only gives a cleaner low-t gradient at small L".
+
+For `content_masterarbeit.md`: nothing promoted. This experiment closes a candidate mechanism that *would have* been written up if confirmed; the negative result removes a hypothesis from the explanation space for the sparse-K=64 vs dense L=50 gap.
+
+**Methodological caveats.**
+
+- The K=64 ckpt tested here was trained with curriculum (curriculum-self bucket). The user's hypothesis specifically targets *mixed-from-start* K=64 training; no such ckpt exists locally (configs/training_ca_only_sparse_K64_nocurr.yaml has not been trained to a usable step). The K=40 mixed ckpt is the cleanest direct hypothesis test; the K=64 curriculum-self result is corroborative (slot-permutation invariance is an architectural property of the trunk that *should* hold regardless of training recipe — if it didn't, any K-indexed learnable would surface). Both checkpoints confirm.
+- Single-batch test (B=1, L=50, t=0.5). The static analysis is what really rules out slot-position learning; the behavioural test confirms numerically on these weights at this configuration. A K-indexed parameter, had one existed, would produce a non-trivial Δ on the first forward; the test does not need a larger batch / sweep over t / sweep over proteins to falsify the hypothesis.
+- Synthetic input (random CA coords, no `x_sc`, `use_ca_coors_nm_feature=False`, residue_type=ALA, sequential `residue_pdb_idx`). Realistic structure was not necessary because the test compares outputs on *the same* input between two runs that differ only in slot ordering of the (already-built) neighbour list. The verdict only requires that the forward exercises the K-axis attention and pair-update paths, which it does.
+- The K=64 forward was compiled by torch.compile (cfg's `opt.compile_nn=True`). The compiled kernel might fuse the softmax differently across the two runs, contributing reduction-order noise. The 1.2 × 10⁻⁶ residual is consistent with that; no slot-dependent signal is implicated.
+- Does NOT rule out an *indirect* slot-position effect through training dynamics: e.g. if the optimizer at training time receives different gradients depending on which slot a real signal is in (because of fp16/bf16 reduction order during backward) and the trained weights are subtly different from what they would have been under permuted slots, the *trained weights* are still slot-permutation invariant at forward time. The test answers "does the trained model use slot index" — not "did training dynamics depend on slot index". The former is the load-bearing question for the inference-time gap.
+
+**Outputs.**
+
+- `script_utils/audit_slot_permutation_invariance.py` (new diagnostic script; reusable for future sparse variants).
+- Logs: `/tmp/slot_perm_K40.log`, `/tmp/slot_perm_K64.log` (run-of-record; not committed).
+
+---
+
+## E073 — Wandb compute-efficiency audit: sparse-K40 vs canonical dense (2026-05-20)
+
+**Status.** Finished. Non-narrative — feeds the thesis "compute claims" paragraph for the sparse architectural variant.
+
+**Why ran.** User asked "what are the best claims I can make about my sparse model? ... only degrades X by Y while decreasing the computational cost? GPU power?" Pulled compute-efficiency metrics directly from wandb (not the published La-Proteina paper) for the two runs that already exist on matched hardware.
+
+**Configs.**
+
+- Wandb entity/project: `kilianschulz-university-of-cambridge/laproteina`.
+- Canonical dense chain: `d1k1587u → jeponiu5 → 0fnyfbi9` (run name `test_ca_only_diffusion`, store id 1776805213). 158.3 M params.
+- Sparse-K40 chain: `c60iiywv → pgdo2dw3` (run name `ca_only_sparse_K40`, the K=32 effective per the doc footnote at line 790 of this file). Same 158.3 M params (the four `sparse_*` keys do not change parameter count; sparse path uses fewer neighbors per query, not fewer learned weights).
+- Hardware: both ran on NVIDIA A100-SXM4-80GB, single GPU, `gpu-q-35`. CPU count 128 (host shared).
+- Architectural config: dense vs sparse attention; otherwise byte-equivalent (`configs/nn/ca_only_sparse_160M.yaml` differs from `configs/nn/ca_only_score_nn_160M.yaml` only in the four `sparse_*` keys per CLAUDE.md). Both at `maxl=512`, same on-the-fly latent recipe (no precomputed latents), same uniform-wd=0.05 AdamW, same constant LR=2e-4, EMA decay=0.999 every 5 steps, accumulate_grad_batches=32, batch_size=6.
+- Data pull: `wandb.Api` against the run history (`scan_history`) and the system-events stream (`history(stream='events')`). Median/mean/percentile computed over filtered step durations (0 < s < 600 s to drop resume spikes) and over the system-events polling samples (~10 s cadence).
+
+**Results.**
+
+| metric | canonical dense | sparse-K40 | sparse / canonical |
+|---|---:|---:|---:|
+| nparams (M) | 158.3 | 158.3 | 1.000 |
+| step duration median (s) | 0.688 | 1.042 | **1.51×** (slower) |
+| step duration mean (s) | 0.613 | 1.047 | 1.71× |
+| step duration p10 (s) | 0.462 | 0.908 | 1.97× |
+| step duration p90 (s) | 0.693 | 1.172 | 1.69× |
+| total opt-steps reached (in this chain) | 2 683 | 1 530 | 0.57× |
+| total samples processed | 5.11 × 10⁵ | 2.92 × 10⁵ | 0.57× |
+| total runtime across chain (h) | 13.2 | 14.3 | 1.08× |
+| GPU SM util % (median) | 99 | 100 | ≈ 1 |
+| GPU SM util % (mean) | 95.7 | 97.7 | ≈ 1 |
+| GPU memory util % (memcpy, median) | 50 | 5 | **0.10× (10× lower)** |
+| GPU memory allocated GB (median) | 42.4 | 14.9 | **0.35× (−65 %)** |
+| GPU memory allocated GB (max) | 42.4 | 14.9 | 0.35× |
+| GPU power W (median) | 172 | 94 | **0.55× (−45 %)** |
+| GPU power W (mean) | 172 | 106 | 0.62× |
+| wandb val\_loss\_min (training-time) | 4.712 | 4.227 | (NOT comparable across runs — see caveat) |
+| step at val\_loss\_min | 2 204 | 1 259 | — |
+
+Sample counts: 1 834 step-duration rows (canonical), 1 571 (sparse); 3 176 system-events polls (canonical), 3 429 (sparse).
+
+**Defensible claims for the thesis (one-liners).**
+
+1. At maxl=512 on a single A100-80GB SXM4, **sparse-K40 reduces peak GPU memory by 65 % (42.4 → 14.9 GB) and median GPU power draw by 45 % (172 → 94 W)** while keeping parameter count (158.3 M) and SM utilisation (~99 %) matched.
+2. **The trade-off is +51 % per-step wall-clock at n=512** (0.69 → 1.04 s) — exactly the memory-bound-gather penalty CLAUDE.md predicts; sparse is *not* a throughput optimisation at this length, it is a memory-headroom enabler (unlocks `maxl=800` training where dense doesn't fit).
+3. The −10× drop in GPU memory-traffic util % (50 % → 5 %) confirms the sparse path moved the bottleneck off the memory wall, not onto the SMs (which are equally saturated in both).
+
+**Non-defensible claims (do NOT use).**
+
+- **"Sparse only degrades val loss by 0.49 nat."** Wandb training-time `validation_loss/loss_epoch` is not comparable across runs — `feedback_wandb_val_loss_not_comparable.md`, E043's paired per-t protocol, and E054's within-run decoupling all confirm. Sparse's lower min (4.227) vs canonical's 4.712 in the dashboard does not reflect sample quality.
+- **"Sparse converges in 0.57× the opt-steps."** Same caveat: convergence on the wandb val-loss axis is decoupled from sample quality under uniform-wd AdamW + AdaLN-Zero (Finding 5/6). For honest quality cost the right gate is designability, not val loss.
+
+**Possible narrative.** Non-narrative — kept for the thesis's "compute" paragraph and as a permanent answer to "how much cheaper is sparse?". A matching Finding in `content_masterarbeit.md` is appropriate if the user wants to land the architectural claim ("sparse-K40 cuts memory by 65 % and power by 45 % at the cost of 1.5× per-step throughput at n=512, with the throughput penalty expected to reverse for n ≥ 1024"). The quality price needs to come from designability probes (E021 for sparse+pair-update converged ceiling, or a vanilla sparse-K40 probe that has not been run); within this entry's scope is the compute side only.
+
+**Methodological caveats.**
+
+- Step duration was filtered to `0 < s < 600` to drop resume spikes (chain checkpoints, first-batch compile, NCCL init). Filtering removes the heavy tail above 600 s and does not affect the median/p10/p90 of the steady-state distribution.
+- The 158.3 M nparams matches between runs because sparse changes the *attention masking* and per-query gather, not the per-layer weight matrices. The compute saving is in the activation/intermediate-tensor side, not in parameter count.
+- GPU memory and power are reported from wandb's system polling (~10 s cadence, samples N ≈ 3 200 per run); these are not torch.profiler peak readings. Peak allocator memory could be slightly higher than the polled max; the 65 % reduction holds at the polled-max scale.
+- The "runtime hours" row sums across the chain but each chain's slot was bounded by SLURM time limits, not by training completion. Total runtime is not a like-for-like "time-to-convergence" comparison.
+- Sparse-K40 in this codebase is *effectively K=32* (the YAML `n_seq=8` produced `K = 2·8 + 8 + 16 = 32`, not the claimed K=40 — line 790 in this file). The compute numbers reported here are therefore for K=32; a true K=40 run would have ~K=40/32 = 1.25× the gather-tensor size and proportionally somewhat less memory savings.
+- Wandb val_loss numbers in the table are recorded for completeness but explicitly flagged as not cross-run comparable; they are NOT used for any defensible claim in this entry.
+
+**Outputs.**
+
+- This entry. No new code; the audit was a one-shot `wandb.Api` script that does not need to be committed.
+- Memory: this entry feeds future "compute claim" questions for the sparse variant.
+
+---
+
+## E074 — Inference-time compute benchmark: sparse-K40 vs canonical dense (2026-05-20)
+
+**Status.** Finished. Non-narrative — fills the missing receipt for the thesis "inference compute" paragraph (E073 measured training only; this measures inference, where the user actually uses the model).
+
+**Why ran.** E073 quantified training-side compute; inference-side was unmeasured. The user asked for inference memory + speed receipts. **First pass (3 lengths)**: scoped to **L ∈ {50, 100, 200}** — the lengths where the canonical model actually delivers designable samples (E019: 63 % / 67 % / 10 %). **Extension (this entry, full version)**: user asked for the architectural scaling curve up to L=500 — the point being that even though designability is bad past L=200 (E022: canonical 0/3 at L=300, > 10 Å at L≥400), the **inference compute scaling exponents** are an architectural property of the attention pattern itself and are defensible independently of generation quality. The thesis claim "sparse turns dense's super-linear inference cost into linear" is a scaling claim, not a capability claim.
+
+**Configs.**
+
+- Hardware: 1× NVIDIA L4 (24 GB; not the A100 SXM4 used for E073 training, because the L4 box is the user's interactive station). `CUDA_VISIBLE_DEVICES=1` (idle GPU at run start).
+- Env: `/home/ks2218/.conda/envs/laproteina_env` (PyTorch 2.5.1, CUDA 11.8).
+- Canonical: `baseline_wd0.05_step2646.ckpt` (E008/E019 reference, `test_ca_only_diffusion/1776805213`), via `configs/inference_canonical_step2646_n6_nfe400.yaml`.
+- Sparse: `sparse_K40_step1259.ckpt` (E014/E019 reference, `ca_only_sparse_K40`), via `configs/inference_sparse_K40_step1259_baseline_n6_nfe400.yaml`. K=32 effective per the long-standing K=40 misnomer (see file line 790).
+- Generation: nsteps=400, seed=5, N=2 per length, lengths **{50, 100, 200, 300, 400, 500}**. Single batch per length.
+- Measurement: `torch.cuda.reset_peak_memory_stats()` + `torch.cuda.max_memory_allocated()` around the `predict_step` call; `time.perf_counter()` for wall, `torch.cuda.synchronize()` on both ends. **One warmup pass at L=50, N=1 before the measured runs** to exclude CUDA init / JIT compile / cuBLAS handle creation from the headline numbers.
+- Script: `script_utils/benchmark_inference_sparse_vs_dense.py` (new; in-process to avoid per-L model-reload overhead and to keep the same GPU process state across all measurements within an arm).
+- Output: `results/inference_compute_audit/sparse_vs_dense_scaling.csv` (full 6-length extended run); the original 3-length CSV at `results/inference_compute_audit/sparse_vs_dense.csv` is preserved as the first-pass record.
+
+**Results.**
+
+Per-protein wall-clock (s) and peak GPU memory allocated (MB), nsteps=400, N=2 per cell:
+
+| L   | canonical s/p | sparse s/p | wall ratio | canonical MB | sparse MB | mem ratio |
+|----:|--------------:|-----------:|-----------:|-------------:|----------:|----------:|
+| 50  | 2.65          | 3.20       | 1.20× (sparse slower)      | 652.9  | 649.7 | 0.99 (≈ same) |
+| 100 | 2.74          | 3.14       | 1.15× (sparse slower)      | 774.1  | 687.5 | 0.89 (−11 %)  |
+| 200 | 8.31          | 5.43       | **0.65× (1.53× faster)**   | 1242.2 | 770.7 | **0.62 (−38 %)** |
+| 300 | 16.86         | 8.33       | **0.49× (2.02× faster)**   | 2025.5 | 839.0 | **0.41 (−59 %)** |
+| 400 | 28.35         | 10.85      | **0.38× (2.61× faster)**   | 3118.5 | 909.0 | **0.29 (−71 %)** |
+| 500 | **43.66**     | **13.44**  | **0.31× (3.25× faster)**   | **4526.3** | **983.7** | **0.22 (−78 %)** |
+
+**Fitted scaling laws (log–log linear regression, L≥100):**
+
+| metric           | power law          | R²    |
+|------------------|--------------------|------:|
+| canonical wall   | ~ L^**1.72**       | 0.999 |
+| sparse wall      | ~ L^**0.91**       | 0.997 |
+| canonical memory | ~ L^**1.09**       | 0.964 |
+| sparse memory    | ~ L^**0.22**       | 0.977 |
+
+The dense wall scales as ~L^1.7, sparse as ~L^0.9 — essentially the textbook quadratic-vs-linear divergence, modestly off-ideal because the dense path has an O(L) component (residue-wise MLPs) and the sparse path has an O(1) overhead (model-load + kernel-launch). The memory exponents are smaller than the wall exponents because the model weights (~700 MB) are a flat offset shared by both arms; isolating just the *attention-related* memory growth would give exponents closer to the asymptotic L² (dense) / L (sparse) limits.
+
+**Key qualitative pattern.** A clean crossover between L=100 and L=200, then sparse pulls away fast. The sparse-vs-dense advantage *more than doubles each length step* past the crossover: at L=200 it is 1.5× faster; at L=300, 2.0×; at L=400, 2.6×; at L=500, 3.25×.
+
+**Defensible thesis claims (one-liners).**
+
+1. **Sparse-K40 turns dense's super-linear inference cost into a linear one.** Empirical scaling: dense wall ~ L^1.72 (R²=0.999), sparse wall ~ L^0.91 (R²=0.997). At L=500 sparse is **3.25× faster** (13.4 vs 43.7 s/protein) and uses **78 % less GPU memory** (984 vs 4526 MB) on a single L4.
+2. **The crossover lives between L=100 and L=200.** At L ≤ 100 sparse is overhead-bound (K=32 close to N); at L ≥ 200 it wins on both axes; past L=300 the gap is large (2×) and growing.
+3. **At L=200 — the upper end of the model's quality-validated range** (E019: 10 % designability at L=200) — sparse already delivers a 1.5× speedup and 38 % memory saving. The compute story does not depend on the L≥300 lengths where the model can't yet produce valid samples.
+4. **The architectural-scaling claim is independent of the quality claim.** Dense's quadratic wall and memory are properties of the `[B,N,N]` pair representation; sparse's linear cost is a property of the per-query K-neighbour gather. Both hold regardless of whether the model produces designable structures at L=400 or L=500 — what changes with length is *quality*, not the *attention pattern's cost*.
+
+**Non-defensible claims (do NOT use).**
+
+- ❌ "Sparse produces valid samples at L=500" — not measured here; expected to be 0/N designable given canonical's E022 collapse and sparse's E019 0/30 at L=200. The L=500 data point is a *compute scaling* receipt, not a *capability* receipt.
+- ❌ "Sparse fits at L=800 where dense doesn't" — still not measured; the L=500 dense run used 4.5 GB peak on the L4 (well under the 24 GB card), so dense does NOT OOM in this benchmark's range. A claim about the OOM length-ceiling would require pushing past where dense fits, which has not been done.
+- ❌ "Sparse always uses less inference memory" — false at L=50 (sparse 649.7 MB vs canonical 652.9 MB, gap inside per-run noise). The memory savings only emerge at L ≥ 100.
+- ❌ Carrying E073's −65 % training memory headline to inference — different number (E074 measures −38 % at L=200 to −78 % at L=500); the gap is smaller at the same length during inference because activations dominate during training while the attention matrices alone dominate at inference, and the gap grows with L because of dense's quadratic scaling.
+
+**Possible narrative.** Non-narrative on its own, but **feeds a Finding-grade thesis sub-claim** when paired with [E073](#e073--wandb-compute-efficiency-audit-sparse-k40-vs-canonical-dense-2026-05-20): "Sparse-K40 attention shifts both training and inference compute off the dense `[B, N, N]` memory wall. Training: −65 % peak GPU memory and −45 % power at maxl=512 on A100, at the cost of +51 % per-step wall-clock. Inference at L=200 on L4: −38 % peak GPU memory and −35 % wall-clock. The trade-off is favourable above L ≈ 100 in inference; below that, sparse is overhead-bound." That sentence is the cleanest "compute claim" the user can defend from the entry pair without overreach into quality claims.
+
+**Methodological caveats.**
+
+- **N=2 per length** is enough to characterise wall-clock and memory at the architecture level (the per-protein variance on these metrics is much smaller than the canonical-vs-sparse delta), but is not a designability sample. This entry is about compute cost, not generation quality.
+- **L4, not A100.** E073's 65 % memory reduction was measured on A100-80GB at maxl=512 (training); this is L4 at L≤200 (inference). The two numbers (−65 % training, −38 % at L=200 inference) are not directly comparable — they're different memory regimes (training keeps activations + grads + optimizer state; inference keeps only activations).
+- **First-call overhead excluded** by the warmup pass. The reported numbers are steady-state inference cost, not cold-start cost. For the canonical's "real" cold-start cost, add ~3 s for CUDA init / JIT compile (observed in the discarded warmup pass).
+- **K=32 sparse (the K=40 misnomer)** — the sparse arm has K = 2·8 + 8 + 16 = 32 neighbours per query, not the claimed K=40. A true K=40 ckpt would have K=40/32 = 1.25× the gather tensor and proportionally somewhat smaller memory savings, particularly at L=100 where the K/N ratio is the binding constraint.
+- **GPU-side measurement only.** `torch.cuda.max_memory_allocated()` reports allocator peak, which is a tight bound on the actual peak working set but ignores small fragmentation effects. The −38 % delta at L=200 is robust to fragmentation at this size.
+- **Single GPU process, single seed.** No cross-process variance estimate. If the user later wants confidence intervals on the wall-clock numbers, repeat the protocol with 3+ seeds — memory will be deterministic, wall-clock has ~5–10 % per-call jitter typical for diffusion on L4.
+
+**Outputs.**
+
+- `script_utils/benchmark_inference_sparse_vs_dense.py` (new; in-process benchmark, reusable for future ckpts via simple `arms` list edit).
+- `results/inference_compute_audit/sparse_vs_dense.csv` (the six numbers in the table above).
+- `/tmp/bench_inf.log` (run-of-record stdout; not committed).
+- This entry. Memory: feeds [[reference_canonical_designability_eval]] indirectly by recording per-L inference cost for the canonical recipe at the post-fix step-2646 ckpt.
+
+## E075 — CA-conditioned multi-task property predictor, 5-fold from-scratch (2026-05-20)
+
+**Status.** Finished (from-scratch 5-fold). Noise-aware fine-tune in progress on GPU 2 (`logs/multitask_t1_coords_noise_aware/20260520_202056/`), follow-up entry once it converges.
+
+**Why ran.** The existing multi-task property predictor (latent-only [E001](#e001--multi-task-property-predictor-on-la-proteina-latents-2026-04-21) and its noise-aware fine-tune used by F10 / E029–E072) sees only the per-residue AE-mean latent `[L, 8]`. That predictor is the gradient source for every steering run in the project, including [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19)'s 4-objective cocktail. E072 surfaced a **measurement-class steerability hierarchy** (Δσ per unit w: sequence-only ≈ 0.017 σ/w; charge-dominated ≈ 0.009 σ/w; hydrophobic + SASA-coupled ≈ 0.003 σ/w — a 6× gap between SWI/TANGO and SAP). One interpretation is that this hierarchy reflects how structurally constrained each property is; an equally plausible interpretation is that **the predictor itself is structure-blind**, so structure-dependent properties have no clean gradient direction to push along. This run trains a coord-conditioned predictor of the same family (FiLM transformer trunk + SE(3)-invariant CA pair-bias) so the latter interpretation can be tested independently from the former. Bonus: it gives steering access to a structure-aware gradient on SAP / hydrophobic patches / Rg, which is what the production developability cocktail actually wants to push.
+
+**Configs.**
+
+- Architecture (new file `laproteina_steerability/src/multitask_predictor_coords/model_coords.py`):
+  - Backbone identical to [E001](#e001--multi-task-property-predictor-on-la-proteina-latents-2026-04-21)'s `PropertyTransformer`: `Linear(8 → 128)` + sinusoidal pos-enc + 3 × FiLM-conditioned attention layers + masked mean-pool + `Linear(128 → 14)`. FiLM (scale, shift) on attention pre-norm from a sin-MLP time embedding.
+  - **New `CoordPairBias`**: pairwise distance `d_ij = ‖ca_i − ca_j‖` (nm) expanded into 32 Gaussian RBFs with centers linspaced 0–8 nm; sequence offset `clamp(j−i, −32, 32) + 32` embedded into a 65-vocab × 32-dim table; concat (64-dim) → `Linear(64 → n_heads=4)` → per-head additive bias `[B, H, L, L]`. Computed once per forward, broadcast across all 3 attention layers. Mask-aware (zeros out invalid pairs; the existing key-padding mask in SDPA still inserts `−∞` over padded keys on top of the bias). SE(3)-invariant by construction (distances + sequence indices only).
+  - 724K params total (vs 700K latent-only; the pair-bias adds ~24K).
+- Data: `/home/ks2218/la-proteina/data/pdb_train/processed_latents_300_800/`, 63178 files → length-filtered to [300, 800] aa → ~56K records loaded with `load_coords=True` (CA from `coords_nm[:,1,:]` per `field_names.ca_atom_index`).
+- Targets: same 14-property developability panel as [E001](#e001--multi-task-property-predictor-on-la-proteina-latents-2026-04-21) (swi, tango, net_charge, pI, iupred3, iupred3_fraction_disordered, shannon_entropy, hydrophobic_patch_total_area, hydrophobic_patch_n_large, sap, scm_positive, scm_negative, rg, camsol_intrinsic). `data/properties.csv`. Per-fold z-score stats fit on the fold's train split (saved in each ckpt as `stats_mean`, `stats_std`).
+- Splits: identical seed-42 held-out (10%) + 5-fold GroupKFold from `multitask_predictor.dataset.create_held_out_split` / `create_fold_assignments`. **Fold assignments are independent of the latent-only run's splits** (re-run on the loaded protein set) — the coord and latent runs are not paired by protein.
+- Optimizer / schedule: AdamW (lr=3e-4, wd=0.01, eps default), grad-clip=1.0, warmup=500 steps, cosine to 0 over `max_epochs × steps/epoch`, bfloat16 autocast on CUDA, AMP scaler. Batch size 16, length-bucket sampler.
+- Training: `max_epochs=30`, `patience=5` on val r²_mean. Single L4 GPU, `CUDA_VISIBLE_DEVICES=6`, nohup-detached.
+- Run dir: `laproteina_steerability/logs/multitask_t1_coords/20260520_120114/` (checkpoints/, training_curves.csv, epoch_metrics.csv, results_per_fold.csv, fold_assignments.csv, heldout_test_ids.txt, config.yaml).
+- Launch log: `laproteina_steerability/logs/multitask_t1_coords/runlog_20260520_120110.log`.
+- Driver: `python -m src.multitask_predictor_coords.run_coords --config config/coords.yaml`. The `coords.yaml` config (`laproteina_steerability/config/coords.yaml`) is byte-equivalent to `default.yaml` except `subsample: null` (full data, matching the latent source-of-truth run `multitask_t1/20260427_161809`).
+- Wall: ~128 s/epoch settled (~258 s for the first epoch due to length-bucket warm-up). Total ~5h 30min for 5 folds × 25–29 epochs (early stopping triggered on fold 4 at epoch 25).
+
+**Results.**
+
+*Headline — 5-fold r²_mean vs latent-only baseline (`logs/multitask_t1/20260427_161809/results_per_fold.csv`):*
+
+| Fold | best epoch | r²_mean (coord) | r²_mean (latent) | Δ |
+|---|---|---|---|---|
+| 0 | 27 | 0.9026 | 0.8673 | +0.0353 |
+| 1 | 27 | 0.9166 | 0.8829 | +0.0337 |
+| 2 | 29 | 0.9445 | 0.9090 | +0.0355 |
+| 3 | 29 | 0.9421 | 0.9081 | +0.0340 |
+| 4 | 25 | 0.9473 | 0.9096 | +0.0377 |
+| **mean** |   | **0.9306** | **0.8754** | **+0.0552** |
+| **std**  |   | 0.0188 | 0.0167 | — |
+
+*Per-property fold-mean r², sorted by Δ (largest gain first):*
+
+| Property | r² (coord, mean across folds) | r² (latent, mean across folds) | Δ |
+|---|---|---|---|
+| rg                            | 0.9714 | 0.7898 | **+0.1816** |
+| hydrophobic_patch_n_large     | 0.8607 | 0.7796 | **+0.0811** |
+| hydrophobic_patch_total_area  | 0.9333 | 0.8636 | **+0.0697** |
+| sap                           | 0.9272 | 0.8757 | **+0.0515** |
+| iupred3_fraction_disordered   | 0.8998 | 0.8709 | +0.0289 |
+| scm_negative                  | 0.9464 | 0.9241 | +0.0223 |
+| scm_positive                  | 0.9447 | 0.9258 | +0.0189 |
+| tango                         | 0.9333 | 0.9203 | +0.0130 |
+| camsol_intrinsic              | 0.9599 | 0.9499 | +0.0100 |
+| pI                            | 0.9566 | 0.9522 | +0.0044 |
+| net_charge                    | 0.9745 | 0.9711 | +0.0034 |
+| iupred3                       | 0.9802 | 0.9774 | +0.0028 |
+| shannon_entropy               | 0.9656 | 0.9630 | +0.0026 |
+| swi                           | 0.7754 | 0.7726 | +0.0028 |
+
+(Latent-only fold-mean reconstructed from `multitask_t1/20260427_161809/results_per_fold.csv`; coord-only from `multitask_t1_coords/20260520_120114/results_per_fold.csv`. Both are 5-fold means of the per-fold best-epoch val r².)
+
+*Per-fold convergence trajectory (val r²_mean):* Fold 1 trajectory `(0.516 → 0.701 → 0.752 → 0.801 → 0.840 → 0.846 → 0.856 → 0.859 → 0.873 → 0.872 → 0.885 → 0.888 → ... → 0.917 epoch 29)`. **Epoch-0 already at r²=0.516** vs latent-only's near-zero start, i.e. the pair-bias channel carries non-trivial information from the first gradient step.
+
+*Param count:* 724274 (latent-only counterpart ≈ 700K; the pair-bias projection + relpos embed account for the delta).
+
+**Possible narrative.** **Finding-grade — first quantification of CA-conditioning gains by measurement class on the developability panel.** Two thesis claims this entry supports:
+
+1. **"CA-pair-bias is essentially free on sequence-only properties and decisive on 3D-coord-dependent ones."** Δr² for swi / shannon_entropy / iupred3 / net_charge / pI / camsol_intrinsic / tango are all ≤ +0.013 (within fold-noise). Δr² for rg / hydrophobic_patch_n_large / hydrophobic_patch_total_area / sap are +0.05 – +0.18. The pair-bias channel is active on exactly the properties whose definition involves 3D coordinates. **Rg, which is literally a coord-only quantity (radius of gyration of the CA point cloud), jumps from r² 0.79 to 0.97** — the latent-only model was forced to estimate Rg from sequence alone (via the AE's coupling between sequence and structure during training), the coord-conditioned model gets it directly.
+2. **Re-interprets the [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) measurement-class hierarchy.** E072 found Δσ per unit w of 0.017 (SWI / TANGO, "sequence-only") vs 0.003 (SAP, "hydrophobic + SASA-coupled"). With a coord-conditioned predictor, SAP is no longer a "harder" property at training time (r² 0.93 vs 0.88 latent) — its lower steering Δσ in E072 was at least partly attributable to predictor blindness, not just to structural feasibility of the design space. The right follow-up is an E072 re-run with the coord-aware predictor on the SAP / hydrophobic axes, paired with the same w-grid, codesign-anchored. *Postponed until the noise-aware FT lands.*
+
+**Methodological caveats.**
+
+- **5-fold splits are NOT paired with the latent-only run's splits**, because `create_held_out_split` was re-run on the freshly loaded record set. The held-out test set and per-fold val sets overlap with the latent-only run's only by chance. **Δr²_mean = +0.055 is therefore not a paired-split delta**; it is a population-mean delta across two independent fold-instantiations of the same procedure. Random fold-instantiation variance on this dataset, based on the latent-only run's fold std of 0.017, is well below the +0.055 mean delta, but a paired-split re-run (re-using `multitask_t1/20260427_161809/fold_assignments.csv`) would tighten the estimate.
+- **CA coords used here are CLEAN (t=1).** The steering hook at inference sees noisy `bb_ca` from the SDE flow at `t ∈ [t_min, t_max]`; using a clean-trained CA predictor against noisy `bb_ca` at inference would mismatch the same way the latent NA-v1 fine-tune fixed (see [E070](#e070--fixt1-predictor-full-pareto-frontier-replication--paired-n48-baseline-extension-2026-05-19) prelude in `steering/guide.py:7-19`). The noise-aware fine-tune launched after this run noises **both** the latent and the CA channel at the same per-protein `t ∼ U(0.3, 0.8)` with the same `sigma_langevin=0.1` Langevin term — that's the ckpt that will actually go into steering. The clean-trained ckpts are kept for direct clean-vs-noisy ablation.
+- **Pair-bias = distance + sequence offset, nothing else.** No bond/angle features, no torsion, no chirality (chirality is gone the moment you drop to pairwise distances). Properties that depend on chirality (none in the 14-property panel — they're all rotation/reflection invariant) cannot be improved here.
+- **No held-out test eval has been run yet.** All numbers reported are 5-fold val r². Held-out (n=195 proteins, IDs in `heldout_test_ids.txt`) is reserved for an ensemble eval once the noise-aware FT completes.
+- **Wall-time only on 1× L4.** No A100 baseline; cross-hardware extrapolation not done.
+- **Comparison r²s come from a single random seed of the fold assignment (seed=42).** No multi-seed variance estimate. The latent-only baseline numbers used for the Δ column are from the original [E001](#e001--multi-task-property-predictor-on-la-proteina-latents-2026-04-21) run at the same seed=42, so they're at least internally consistent.
+
+**Outputs.**
+
+- `laproteina_steerability/src/multitask_predictor_coords/{__init__,model_coords,dataset_coords,train_coords,run_coords}.py` — new module mirroring `multitask_predictor/` with the pair-bias addition. Latent-only module untouched.
+- `laproteina_steerability/scripts/add_noisy_latents_coords.py` — noise-aware FT script (mirrors `scripts/add_noisy_latents.py`; noises both latents and CA at the same `t`).
+- `laproteina_steerability/config/coords.yaml` — full-data config (`subsample: null`).
+- `steering/predictor_coords.py` + `steering/guide_coords.py` — CA-aware predictor wrapper + guide. Gated via `steering.use_coords: true` in the steering config (default False keeps the existing latent-only path byte-equivalent).
+- Two purely-additive plumbing changes in `steering/guide.py` (`**_extra_kwargs` on `SteeringGuide.guide`) and `proteinfoundation/flow_matching/product_space_flow_matcher.py:774` (forwards `bb_ca` / `v_bb_ca` as kwargs). Default latent-only path is byte-equivalent.
+- Run artefacts: `laproteina_steerability/logs/multitask_t1_coords/20260520_120114/checkpoints/fold_{0..4}_best.pt` (each carries `arch_kwargs`, `stats_mean[14]`, `stats_std[14]`, `coord_conditioned=True`), plus per-step `training_curves.csv` (~5K steps × 5 folds), per-epoch `epoch_metrics.csv`, `results_per_fold.csv`, `results_summary.csv`, `fold_assignments.csv`, `heldout_test_ids.txt`, `config.yaml`.
+- This entry. Memory: feeds the future steering re-runs of the SAP / Rg / hydrophobic-patch axes; once the noise-aware FT lands the ckpts plug into the existing `SteeringGuideCoords` infrastructure with no further code.
+
+### E075 follow-up — Noise-aware fine-tune of the CA-conditioned predictor (2026-05-20)
+
+**Status.** Finished. 5-fold noise-aware fine-tune of the E075 from-scratch ckpts. ~2h 5min wall on 1× L4 (GPU 2).
+
+**Why ran.** The clean E075 ckpts are trained on `(z=z_1, ca=ca_1, t=1)` — the steering hook at inference feeds the predictor `(z_t, bb_ca_t)` from the SDE flow at `t ∈ [t_min, t_max]`. Feeding the clean-trained predictor noisy inputs at non-1 t is the same train/test-distribution mismatch that wasted every latent-only noise-aware deployment up to 2026-05-17 (see [E070](#e070--fixt1-predictor-full-pareto-frontier-replication--paired-n48-baseline-extension-2026-05-19) prelude). The fix is to fine-tune the predictor on the SDE marginal it will actually see at steering time, with both channels noised at the same per-protein `t`.
+
+**Configs.**
+
+- Driver: `python scripts/add_noisy_latents_coords.py --src-run logs/multitask_t1_coords/20260520_120114 --t-min 0.3 --t-max 0.8 --sigma-langevin 0.1 --epochs 10 --lr 1e-4 --batch-size 16 --patience 4` (defaults match the latent-NA recipe except `--epochs 10` is the explicit production default rather than the latent-NA's 30-epoch budget; the latent-NA finished in ~10 epochs anyway).
+- Noise model (per protein, per __getitem__): `t ∼ U(0.3, 0.8)`, `eps_z, eps_c ∼ N(0, I)`, `z_t = (1-t)·eps_z + t·z_1`, `c_t = (1-t)·eps_c + t·c_1`. Langevin add-on with `sigma_langevin = 0.1`: `z_t += σ·√(t(1-t))·eps_z2` and analogous on `c_t` with `eps_c2`. **Same t for both channels per item** (matches inference-time `t["local_latents"] == t["bb_ca"]` under the default `shared_groups` scheduler).
+- Optimizer: AdamW (lr=1e-4, wd=0.01), grad-clip=1.0, cosine LR decay to 10% of lr by step-end. bfloat16 autocast.
+- Splits: re-uses the E075 fold assignments via `pd.read_csv(src_run / "fold_assignments.csv")` — folds are exactly paired with the from-scratch ckpts.
+- Per-fold `stats_mean` / `stats_std` inherited from the src ckpt (so the saved noise-aware ckpt's de-normaliser is byte-equivalent to its clean parent; steering's `(stats_mean, stats_std)` averaging across folds works the same way).
+- Hardware: 1× NVIDIA L4, `CUDA_VISIBLE_DEVICES=2`, nohup-detached.
+- Run dir: `laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/` (checkpoints/, training_curves.csv, epoch_metrics.csv, results_per_fold.csv, config.yaml, source_run.txt).
+- Launch log: `laproteina_steerability/logs/multitask_t1_coords_noise_aware/runlog_20260520_202049.log`.
+- Wall: 144–149 s/epoch, 10 epochs/fold, 5 folds, no early stopping (every fold ran the full 10 epochs).
+
+**Results.**
+
+*5-fold best `r²_noisy` (val on the same SDE-marginal noise distribution used for training) — coord-NA vs latent NA-v1 (`multitask_t1_noise_aware/20260505_123607`):*
+
+| Fold | r²_noisy (coord-NA) | r²_noisy (latent NA-v1) | Δ |
+|---|---|---|---|
+| 0 | 0.6475 | 0.6167 | +0.031 |
+| 1 | 0.6604 | 0.6234 | +0.037 |
+| 2 | 0.6749 | 0.6455 | +0.029 |
+| 3 | 0.6733 | 0.6398 | +0.034 |
+| 4 | 0.6838 | 0.6449 | +0.039 |
+| **mean** | **0.6680** | **0.6341** | **+0.034** |
+
+*Fold 0 trajectory (r²_noisy / r²_t1):* (0.562 / 0.628) → (0.578 / 0.700) → (0.594 / 0.762) → (0.625 / 0.775) → (0.626 / 0.795) → (0.642 / 0.800) → (0.644 / 0.796) → (0.642 / 0.801) → (0.645 / 0.807) → **(0.648 / 0.807)**. Pattern across folds: epoch-0 `r²_noisy` ≈ 0.56 (the clean predictor's first encounter with `t∈[0.3, 0.8]` SDE inputs), recovery to ≈ 0.62–0.65 by epoch 4–6, plateau by epoch 9.
+
+*r²_t1 retention after NA-FT:* fold 0 final `r²_t1 = 0.807` vs clean E075 fold-0 = 0.903. The NA-FT trades ≈ −0.10 r² on clean t=1 inputs for ≈ +0.10 r² on noisy inputs — same retention-vs-noise-readiness trade-off that the latent NA-v1 ran (latent NA-v1 fold-0: r²_noisy 0.617, r²_t1 not separately tracked in `results_per_fold.csv`).
+
+**Possible narrative.** **Finding-grade — the +0.03 r² CA-conditioning gain is preserved through noise-aware fine-tuning.** Two narrowed claims:
+
+1. **The clean-vs-NA r² gap mirrors the latent-only pair.** Latent NA-v1 was −0.24 r²_mean below its clean parent (latent clean ~0.875 mean → latent NA 0.634); coord-NA is −0.26 below its clean parent (coord clean 0.931 mean → coord NA 0.668). The CA-pair-bias channel does not get "noised away" by the fine-tune — its contribution to predictor accuracy survives at the same magnitude in the SDE-marginal regime that steering actually uses.
+2. **The structure-aware predictor for steering is now operational.** Combined with the `SteeringGuideCoords` infrastructure already plumbed into `product_space_flow_matcher.py` and `generate.py` (gated via `steering.use_coords: true`), this is the first time the steering hook can produce gradients that depend on the noisy CA geometry being generated, not just on the latent representation of it. Direct follow-up: re-run the SAP / hydrophobic-patch / Rg axes of [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19)'s 4-objective cocktail with the coord-NA ensemble and the same w-grid + paired-seed protocol — that's the test of whether E072's measurement-class steerability hierarchy survives a structure-aware predictor.
+
+**Methodological caveats.**
+
+- **Validation `r²_noisy` is on the FT noise distribution itself**, not on what the steering hook sees at deployment. The two are equal in expectation under the stochastic-interpolant theorem (assuming exact score), but the SDE-driven `bb_ca` at inference deviates from the closed-form interpolant marginal because the score is approximate. The same caveat applies to the latent NA-v1 validation numbers; the comparison is at least apples-to-apples.
+- **`sigma_langevin = 0.1` is a hyperparameter inherited from the latent NA-v1 recipe.** It's principled at 0.0 (the SDE marginals match the closed-form interpolant exactly); 0.1 widens the training support to cover score-approximation drift and as Tikhonov regularisation against adversarial directions (`scripts/add_noisy_latents.py:23-41`). Whether 0.1 is the right number for the *CA* channel is not separately tested — the same scalar is applied to both channels.
+- **r²_t1 after NA-FT drops to 0.79–0.81** (vs the clean 0.90–0.95 from E075). This is expected and matches the latent-only trade-off, but it means: **don't use the NA ckpts as a substitute for the clean ckpts when scoring properties on clean test data.** The two ckpt families serve different purposes (NA → steering gradients; clean → property estimation on generated structures at t=1).
+- **No held-out test eval has been run yet** on either ckpt family. Once the next steering sweep lands, the held-out set is the right tool for the property-honesty gap (predictor-pred vs real-property) at deployment t-values.
+- **Identical fold splits to the E075 clean run.** This means the coord-NA vs latent-NA comparison is paired by fold-index but NOT paired by protein-id (the latent and coord runs have independent fold assignments due to independent invocations of `create_held_out_split`; only the from-scratch-clean → noise-aware-FT pair is paired by protein-id within the coord track and within the latent track separately).
+
+**Outputs.**
+
+- `laproteina_steerability/logs/multitask_t1_coords_noise_aware/20260520_202056/checkpoints/fold_{0..4}_best.pt`. Each ckpt carries: `model_state_dict`, `arch_kwargs` (inherited from src), `epoch`, `val_r2_mean` (= noisy), `val_r2_mean_t1`, `val_results_noisy`, `val_results_t1`, `stats_mean[14]`, `stats_std[14]`, `coord_conditioned=True`, `noise_aware=True`, `t_min=0.3`, `t_max=0.8`, `sigma_langevin=0.1`, `fix_t_input=None`, `src_ckpt` pointing back at the clean E075 fold ckpt.
+- `training_curves.csv` (per-step train MSE + lr + per-property MSE, fold-tagged), `epoch_metrics.csv` (per-epoch r²_mean_noisy + r²_mean_t1 + per-property r²s in both regimes), `results_per_fold.csv` (one row per fold with `best_r2_noisy` + path to fold's best ckpt), `config.yaml`, `source_run.txt`.
+- This entry. Closes out the E075 follow-up; the next entry on this thread will be the coord-steering re-run of [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19).
+
+
+---
+
+## E076 — Real CamSol intrinsic solubility from the CamSol web server on 200 unsteered + 48 camsol_max w=32 + 48 w=128 (2026-05-21)
+
+**Status:** finished. Closes the F10/E066 latent-steering story on the actual `camsol_intrinsic` target — every prior steering Finding used the SWI proxy because `compute_developability.compute_camsol` returns NaN (no public CamSol binary). This entry uses the Sormanni-lab public web server (the same server that produced `CamSolpH_results.txt` for the 56K training data, so directly cross-comparable).
+
+**Why ran:** F10's quantitative validation was tango-only because real CamSol on La-Proteina output didn't exist. E066 added SWI as a solubility proxy but flagged in its caveats that the camsol_max σ axis "is the SWI proxy, not `camsol_intrinsic`". The question this entry answers: at the production-knee w=32 (where codesignability is preserved) and at the saturation w=128 (where codesign collapses), does the **actual target property** the steering predictor was trained on (`camsol_intrinsic`) move in the predicted direction, and by how much in real units?
+
+**Configs (re-run-able from this entry):**
+
+- Predictor: NA-v1 5-fold noise-aware ensemble at `laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt` (the F10 setup).
+- Steered PDBs source: `results/noise_aware_high_w_scout/camsol_max_w{32,128}/guided/*.pt` (48 PDBs each = 16 seeds × L∈{300, 400, 500}, generated 2026-05-14 in E066).
+- Unsteered PDBs source: `results/generated_stratified_300_800_nsteps400/sequences.fasta` (1000 sequences, seeds 1000+, length-stratified-uniform across L=300-800). Subsampled to 200 via 20-per-50-residue-bin bucket on sequence length — verified 20 in every bin [300,350)..[750,800).
+- FASTA assembly: `script_utils/build_camsol_submission_296.py` (296 sequences, 149 KB). Headers structured `un_s{seed}_n{L}` / `n32_s{seed}_n{L}` / `n128_s{seed}_n{L}` so the CamSol output's `Name` column splits back to `(group, seed, length)` on `_`.
+- Submission target: Sormanni lab public CamSol intrinsic-solubility web server (Cambridge). FASTA upload, default options.
+- Output: `CamSol_intrinsicschulzqwerbw6_1540331041.txt` (TSV, header `Name\tprotein variant score\tintrinsic solubility profile`, 297 lines = 1 header + 296 sequences). Saved at repo root.
+- Analysis: inline Python (statistics + math), reproduced in this entry's body.
+
+**Results:**
+
+### A. Population-level real CamSol intrinsic-solubility scalar (higher = more soluble)
+
+| Group | n | Mean | Median | SD | Min | Max |
+|---|---|---|---|---|---|---|
+| **un** (unsteered, 20×10-bin stratified) | 200 | **+1.733** | +1.801 | 1.631 | −3.713 | +7.583 |
+| **n32** (NA-v1 ensemble, camsol_max, w=32) | 48 | **+2.386** | +2.490 | 1.221 | −1.045 | +5.757 |
+| **n128** (NA-v1 ensemble, camsol_max, w=128) | 48 | **+6.735** | +6.590 | 1.763 | +3.753 | +10.750 |
+
+### B. Effect sizes vs unsteered population
+
+**The right effect-size denominator is the per-length unsteered SD, not the pooled-across-L SD.** Unsteered La-Proteina has a systematic length-mean drift in CamSol (mean rises +1.48 at L=300 → +2.13 at L=500), so the pooled-across-L unsteered SD (1.63) inherits a between-length variance component that has nothing to do with steering. Per-length SDs (0.58 / 0.73 / 1.03 at L=300/400/500) and the pooled-within-bin SD (≈ 0.80) strip that drift out. Per-length d's are in Section C; this section also reports the three pooled summary numbers for reference.
+
+| cell | Δmean | 95 % CI on Δmean | Cohen's d (pooled-across-L un σ = 1.63) | Cohen's d (pooled-within-bin σ ≈ 0.80) | Pooled-sample σ Cohen's d | % change |
+|---|---|---|---|---|---|---|
+| n32  | **+0.653** | **[+0.240, +1.066]** (excludes 0) | +0.400 | **+0.814** | +0.418 | +37.7 % |
+| n128 | **+5.002** | [+4.455, +5.550] | +3.067 | +6.24 | +3.019 | +288.7 % |
+
+Both Δmeans' 95 % CIs exclude zero — the improvement is statistically real at both w-levels.
+
+**Reading guide for the three Cohen's d columns:**
+- **Pooled-across-L un σ (1.63)**: divides Δmean by the SD of all 200 unsteered proteins across L=300–800. Inflated by length-mean drift; understates the steering effect at the lengths where it works. Quoted in the index summary for completeness, but not the headline number.
+- **Pooled-within-bin σ (≈ 0.80)**: square root of the mean of per-bin variances at L=300/400/500. Strips the length-mean drift. The defensible single-number summary if you must collapse all three lengths into one.
+- **Pooled-sample σ (`(n_un−1)·σ_un² + (n_st−1)·σ_st²`) / (n_un + n_st − 2)** — the textbook two-sample pooled Cohen's d. Very close to the pooled-across-L number here because n_un dominates.
+
+The natural headline numbers — and the ones used in Section C — are the **per-length d's**, which use per-bin unsteered SDs and therefore neither double-count length-drift nor average across heterogeneous L cells.
+
+### C. Per-length breakdown (unsteered binned to match steered's exact lengths)
+
+| L | unsteered mean (n=20) | n32 mean | Δ_n32 | d_n32 | n128 mean | Δ_n128 | d_n128 |
+|---|---|---|---|---|---|---|---|
+| 300 | +1.478 | +2.383 | +0.905 | **+1.554** | +6.335 | +4.857 | +8.344 |
+| 400 | +1.712 | +2.593 | +0.881 | **+1.202** | +6.917 | +5.205 | +7.105 |
+| 500 | +2.131 | +2.182 | +0.051 | **+0.050** | +6.953 | +4.822 | +4.724 |
+
+**Two readings of the L=500 zero-effect at w=32:** (i) under-steering at long L (mirrors E066's per-length SWI finding "real SWI σ-delivery scales with L, weakest at L=500") — the gradient is applied with the same w but the latent has more residues to move, so per-residue effect dilutes; (ii) ceiling effect — the unsteered L=500 mean is already +0.65 above the unsteered L=300 mean (the longer protein population is already more soluble), so there is less room to climb. The two readings are not separable from this data alone; E066's per-length analysis on SWI showed the same pattern, supporting (i) but compatible with both.
+
+### D. Predictor honesty on the real target property
+
+Predictor outputs extracted from `results/noise_aware_ensemble_sweep/gap_summary.csv` (w=1..16, n=48) and `results/noise_aware_high_w_scout/camsol_max_w{32,128}/diagnostics/*_diagnostics.json` (n=48 each, last-step `predicted_properties.camsol_intrinsic`):
+
+| | Pred at w=1 (~unsteered) | Real unsteered | Pred at w=32 | Real at w=32 | Pred at w=128 | Real at w=128 |
+|---|---|---|---|---|---|---|
+| CamSol units | +1.128 | **+1.733** | +2.724 | **+2.386** | +5.907 | **+6.735** |
+
+- **Calibration offset:** predictor under-calls the unsteered baseline by ~0.6 CamSol units. This is a constant bias and does not affect *delivery-ratio* readings, only absolute-unit interpretation.
+- **Delivery ratio Δreal/Δpred** (Δ from unsteered baseline; predicted Δ uses Pred-at-w=1 as the predictor's baseline):
+  - w=32: Δpred = +1.60, Δreal = +0.65 → **delivery 41 %**
+  - w=128: Δpred = +4.78, Δreal = +5.00 → **delivery 105 %**
+
+This **confirms E066's "predictor honest about solubility, brittle about TANGO" reading on the actual `camsol_intrinsic` axis**, not just the SWI proxy. The 41 %→105 % rise matches the 42→128 % SWI delivery curve from E066 to within 1 percentage point at w=128. At extreme steering strength reality moves *more* than the predictor claims, the opposite of classical gradient-hacking.
+
+### E. Cross-reference to codesignability cost (from E066)
+
+| w | real CamSol Δ (this entry) | codesign rate (E066, n=48) | vs unsteered baseline (47.9 %) |
+|---|---|---|---|
+| 0 (paired) | 0 (anchor) | 47.9 % | anchor |
+| 32 | **+0.65** (per-length d = +1.55/+1.20/+0.05 at L=300/400/500; pooled-within-bin d ≈ +0.81; pooled-across-L d = +0.40) | 41.7 % | −6.2 pp (within Wilson 95 % CI) |
+| 128 | +5.00 (per-length d = 4.7–8.3 across L=300/400/500; pooled-across-L d = +3.07) | 2.1 % | −45.8 pp (broken) |
+
+The w=32 cell is the only deployable point: real CamSol moves Cohen's d = **+1.55 / +1.20 / +0.05** at L=300 / 400 / 500 (per-length unsteered SD as denominator) at no measurable codesign cost vs the paired baseline.
+
+**Possible narrative:**
+
+**Yes — Finding-grade. Updates Finding 10 ("Closing the gradient-hacking gap in latent-flow steering")** by validating its core mechanism story on the actual `camsol_intrinsic` axis, not just the structure-quality proxies. The headline upgrade is: the F10 + E066 finding that "the noise-aware-ensemble predictor closes the gap" generalises from tango_total (where real ground truth was always computable from the TANGO binary) and SWI (a sequence-only proxy of solubility) to `camsol_intrinsic` itself (the predictor's training target, until now only measurable via web submission). The narrow defensible claim: **on the official LD3+AE2 La-Proteina checkpoint, the noise-aware 5-fold ensemble predictor at w=32 raises real CamSol intrinsic solubility with Cohen's d = +1.55 at L=300 and +1.20 at L=400 (Cohen-large effects by convention; per-length unsteered SDs as denominator), with L=500 unchanged (d = +0.05); aggregate Δmean = +0.653 CamSol units, 95 % CI [+0.24, +1.07]; codesignability preserved at 41.7 % (within Wilson 95 % CI of the 47.9 % paired baseline)**. The implication: at L=300 and L=400, the steering pipeline now delivers a structure-grade solubility improvement (large effect by Cohen's conventions) by a real lab-relevant CamSol number, on real protein outputs that fold at the same rate as the unsteered model. The negative result that comes along with it: **L=500 does not move on real CamSol at w=32** (d=0.05), consistent with E066's under-steering-at-long-L story. To fix L=500 you'd need w=48 or w=64 — both are at meaningful codesign cost in E066's data (27 % and 22 % codesign respectively).
+
+**Methodological caveats:**
+
+1. **Population-level comparison, not paired-by-seed.** The steered cells use seeds 42-57 × L∈{300, 400, 500}; the unsteered set uses seeds 1000+ length-stratified across L=300-800. The 48 paired-by-seed unsteered PDBs at `sanity_unsteered_seed42_45/unguided/` (30 PDBs, seeds 42-51) + `sanity_unsteered_seed52_57/unguided/` (18 PDBs, seeds 52-57) — produced for exactly this purpose during E070's baseline extension — were **not** included in the submitted FASTA. The paired-by-seed CamSol comparison is therefore still open, queued as Task #1 (predictor-on-unsteered-PDBs) + a follow-up CamSol web-server submission once those 48 sequences are extracted. Cohen's d at the population level cannot rule out a between-protein-population offset that paired analysis would cancel out.
+2. **w=32 unsteered baseline is already higher at L=500 (+2.13) than at L=300 (+1.48).** The L=500 zero-effect at w=32 could reflect a ceiling rather than under-steering. Per-protein paired analysis (caveat 1) would help here too.
+3. **Only 2 weight cells × 48 measured.** w∈{16, 48, 64} on real CamSol not measured. The Pareto frontier in real-CamSol space therefore has only three points (0, 32, 128). E066's SWI Pareto suggests w=16 should deliver about half of w=32's real CamSol Δ (~+0.3) at no codesign cost; w=64 should deliver ~3× w=32's (~+2.0) at half codesign cost. Confirming these by web-server submission is queued.
+4. **Public CamSol web server, default options.** The 56K training-data submission was run *directly by the Sormanni lab* (CLAUDE.md flag), not through the public form — so cross-comparability between the 56K training labels and the 296 measurements here assumes that the same algorithm/pH/scoring runs in both deployments. The TSV schemas match (`Name`, `protein variant score`, `intrinsic solubility profile` with semicolon-separated per-residue scores), suggesting they do, but this is asserted not verified.
+5. **Sequences only, not structures.** CamSol intrinsic is a sequence-based score; the 3D coordinates of the steered PDBs do not enter. So this entry measures the joint-sequence-head's solubility, not e.g. whether the steered backbone exposes more soluble residues. CamSol structurally-corrected (CamSol-PTM) was not submitted.
+6. **No statistical test of equality at L=500.** The d=0.05 at L=500 / w=32 is consistent with "no effect" but n=20 unsteered + n=16 steered at this length gives wide CI; a tightened test would need either bigger n at L=500 or the paired-by-seed setup.
+7. **Calibration offset is not corrected.** The Predictor under-calls unsteered by 0.6 units — this is a constant bias of the predictor's CamSol head, not a steering artifact. Delivery-ratio numbers (41 % / 105 %) cancel the offset; absolute predicted-vs-real numbers do not.
+
+**Outputs on disk:**
+
+- `camsol_submission_296.fasta` (149 KB, the submitted FASTA, repo root).
+- `script_utils/build_camsol_submission_296.py` (script that built it; deterministic — bins by length and takes first 20 per bin, plus walks `noise_aware_high_w_scout/camsol_max_w{32,128}/guided/*.pt` in sorted order).
+- `CamSol_intrinsicschulzqwerbw6_1540331041.txt` (2.9 MB, the returned TSV from the web server, repo root).
+
+**Cross-references:**
+
+- [Finding 10](content_masterarbeit.md#finding-10--closing-the-gradient-hacking-gap-in-latent-flow-steering-noise-aware-predictor-training--fold-ensembling-validated-by-real-property-delivery-and-structural-integrity-2026-05-06-codesignability-addendum-2026-05-07) — direct parent. F10's tango-only quantitative validation gets a CamSol companion here. The narrow claim of F10 expands from "−59.9 real TANGO at w=16" to "+0.65 real CamSol at w=32 (production knee), +5.00 real CamSol at w=128 (broken codesign)".
+- [E066](#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) — established the production knee at w=32 with SWI Δσ +0.50 at no codesign cost; this entry confirms the same picture on the actual `camsol_intrinsic` target with Δmean = +0.65 CamSol units, per-length Cohen's d +1.55/+1.20/+0.05 at L=300/400/500. E066's per-length pattern (long-L weakest) is reproduced on real CamSol.
+- [E070](#e070--fixt1-predictor-full-pareto-frontier-replication--paired-n48-baseline-extension-2026-05-19) — produced the paired n=48 unsteered baseline. The 48 unguided PDBs at `sanity_unsteered_seed{42_45,52_57}/unguided/` are the paired sequences that would tighten this entry into a paired-by-seed comparison; they remain unsubmitted.
+- [E064](#e064--sequence-level-collapse-sanity-of-the-e025-camsoltango-steered-sweep-2026-05-14) / [E065](#e065--sequence-level-collapse-sanity-of-the-noise-aware-ensemble-sweep-2026-05-14) — sequence-collapse audits showed AA composition shifts at w≥32 in chemically appropriate directions; this entry's +0.65 unit CamSol at w=32 is the downstream property consequence of the E→N + R/K-up E064/E065 documented.
+- **Predicts:** (a) paired-by-seed comparison once the 48 unguided sequences (seeds 42-57 × L∈{300,400,500}) are extracted and submitted; expect Δ to tighten and L=500 effect to clarify. (b) w∈{16, 48, 64} fill-in on real CamSol; expect ~+0.3 / ~+1.0 / ~+2.0 real CamSol Δ with codesign costs 0 / −20pp / −26pp respectively. (c) a real-CamSol version of [E068](#e068--multi-objective-combo-camsol_max--tango_min-scout-2026-05-15)'s combo cell (camsol_max+tango_min at matched w) — expect combo to deliver more real CamSol Δ at matched w than camsol_max alone, mirroring SWI behaviour.

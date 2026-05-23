@@ -1,0 +1,25 @@
+# fix_t_input=1 predictor (fold 2), single fold, legacy Tweedie-at-t=1 path.
+# Companion to tango_min_w32_v1_fold2_legacy.yaml (NA-v1 fold 2, gap -247).
+# Tests whether time-awareness (NA-v1) vs fixed-t=1-training (fixt1) changes
+# the steering gap when the predictor saw noisy z_t in training.
+steering:
+  enabled: true
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_2_best.pt
+  # feed_z_t_directly absent → default False → legacy Tweedie path
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

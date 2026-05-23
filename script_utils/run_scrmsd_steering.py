@@ -78,13 +78,17 @@ def main():
     ap.add_argument("--csv-suffix", type=str, default="",
                     help="Optional suffix on the per-config CSV filename — useful if "
                          "you want to keep multiple sweeps separate (e.g. _L300, _L400).")
+    ap.add_argument("--cfgs", type=str, nargs="+", default=None,
+                    help="Override the hardcoded CFGS list (e.g. for high-w scout cells).")
     args = ap.parse_args()
+
+    cfgs = args.cfgs if args.cfgs else CFGS
 
     tmp_root = _ROOT / "tmp" / "scrmsd_steering"
     tmp_root.mkdir(parents=True, exist_ok=True)
 
     pdb_set: list[tuple[str, Path]] = []  # (cfg, pdb_path)
-    for cfg in CFGS:
+    for cfg in cfgs:
         guided_dir = OUT_BASE / cfg / "guided"
         if not guided_dir.exists():
             logger.warning("Missing %s, skipping", guided_dir)

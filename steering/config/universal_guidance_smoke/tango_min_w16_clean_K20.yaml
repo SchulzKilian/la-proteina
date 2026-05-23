@@ -1,0 +1,42 @@
+# Universal-guidance K=20 probe — same setup as tango_min_w16_clean_K5.yaml,
+# only `denoising_steps` raised from 5 → 20. Tests whether 4× more denoising
+# steps reverses E030's K=5 negative direction or confirms the
+# "longer-Jacobian-amplifies-hacking" mechanism story when the predictor
+# is gradient-hackable to begin with. Direct K-axis ablation row alongside
+# E028 (K=1) and E030 (K=5).
+steering:
+  enabled: true
+  checkpoint:
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_0_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_1_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_2_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_3_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_4_best.pt
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 16.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  # NOTE: smoothing intentionally OFF for K=20.
+  # 1) E048 audit showed clean+ens with smoothing (E028 gap −203.5) ≈ clean+ens
+  #    no-smoothing (gap −203.9) — smoothing contributes ~zero on top of ensembling.
+  # 2) K_smooth=4 × K_d=20 = 80 inner predictor calls per outer step blows
+  #    the L4 22 GB budget; K_smooth=1 × K_d=20 = 20 inner calls fits.
+  # 3) Total predictor calls per outer step = 20, identical to E030's K=5 setup
+  #    (K_smooth=4 × K_d=5 = 20). So this re-allocates the same compute budget
+  #    from the smoothing axis to the denoising axis.
+
+  denoising_steps: 20
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

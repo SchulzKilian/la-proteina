@@ -1,0 +1,44 @@
+# Universal-guidance K=10 probe — clean ensemble, no smoothing.
+#
+# Position in the K-axis ablation:
+#   K=1   -> E028 (clean ens5 + sigma=0.1 K_smooth=4 smoothing), gap = -203
+#   K=5   -> E030 (clean ens5 + sigma=0.1 K_smooth=4 smoothing), gap = -302
+#   K=10  -> this cell                                            gap = ?
+#   K=20  -> attempted, OOM on L4 (22 GB inner-loop activation budget)
+#
+# Smoothing intentionally OFF (vs E028/E030 which both had K_smooth=4):
+#   1) The E048 audit established that smoothing contributes ~zero on top of
+#      ensembling (clean+ens+smooth gap -203.5 vs clean+ens no-smooth -203.9
+#      at the same w=16, L=300, n=4 cell). Removing it does not change the
+#      "clean predictor + UG K-axis" comparison in any measurable way.
+#   2) K_smooth=4 x K_d=10 = 40 inner predictor calls per outer step would
+#      OOM on L4. K_smooth=1 x K_d=10 = 10 inner calls fits.
+#   3) For a clean K-axis ablation against E028 (K=1) and E030 (K=5), the
+#      smoothing-off baseline is the apples-to-apples cell.
+steering:
+  enabled: true
+  checkpoint:
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_0_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_1_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_2_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_3_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1/20260427_161809/checkpoints/fold_4_best.pt
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 16.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  denoising_steps: 10
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

@@ -1,0 +1,31 @@
+# fix_t_input=1 predictor 5-fold ensemble, legacy Tweedie-at-t=1 path.
+# This is the DEPLOYMENT-ANALOG cell — direct comparator to F10/E032 (NA-v1
+# ensemble legacy, gap +3.8 at w=16 / -117 at w=32 today). If gap ≈ -117,
+# time-awareness wasn't doing anything in F10's recipe. If gap >> -117,
+# time-awareness was the key.
+steering:
+  enabled: true
+  checkpoint:
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_0_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_1_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_2_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_3_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_4_best.pt
+  # feed_z_t_directly absent → default False → legacy Tweedie path
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

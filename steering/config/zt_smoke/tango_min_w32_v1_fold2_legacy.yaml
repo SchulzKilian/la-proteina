@@ -1,0 +1,25 @@
+# Contaminated path (legacy x_1_est + t=1.0) at w=32, single fold (fold 2).
+# Companion to tango_min_w32_v1_zt.yaml — same fold/predictor/w, just the
+# legacy Tweedie input instead of feed_z_t_directly. Tests whether the
+# F10 "+3.8 gap" recipe actually generalises past w=16.
+steering:
+  enabled: true
+  checkpoint: /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_2_best.pt
+  # feed_z_t_directly absent → default False → legacy Tweedie path
+
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

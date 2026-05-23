@@ -1,0 +1,26 @@
+# Integral-matched constant: same total steering force as baseline linear_ramp
+# but applied as a flat constant over the same t-window [0.3, 0.9].
+# Baseline integral over [0.3, 0.9] = 11.2 (linear ramp 0→32 over [0.3,0.8] + hold 32 over [0.8,0.9]).
+# w_eff = 11.2 / 0.6 ≈ 18.67. Isolates shape only (linear vs constant) at matched integral.
+steering:
+  enabled: true
+  checkpoint:
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_0_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_1_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_2_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_3_best.pt
+    - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_4_best.pt
+  objectives:
+    - property: tango
+      direction: minimize
+      weight: 1.0
+  schedule:
+    type: constant
+    w_max: 18.67
+    t_start: 0.3
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true
+  denoising_steps: 1

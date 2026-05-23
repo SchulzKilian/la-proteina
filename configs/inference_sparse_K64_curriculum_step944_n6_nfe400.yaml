@@ -1,0 +1,38 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_curriculum_step944_n6_nfe400
+config_name: inference_sparse_K64_curriculum_step944_n6_nfe400
+
+# E047 — first inference probe of the K=64 + curriculum-trained ckpt
+# (`ca_only_sparse_K64_curriculum_self`, ep=9 step=944, best_val).
+# This is a NEW architecture: K=64 sparse with the t-bucketed neighbor
+# reallocation curriculum BAKED INTO TRAINING (E044/E045 era was K=40
+# inference-only). Training composition (and high-t bucket): 16 sequential +
+# 16 spatial + 32 random = 64. Curriculum schedule:
+#   t < 0.33      → (n_seq=32, n_sp=0,  n_rd=0)  = 64  (sequential-only)
+#   0.33 ≤ t<0.66 → (n_seq=16, n_sp=8,  n_rd=24) = 64  (interpolate)
+#   t ≥ 0.66      → (n_seq=8,  n_sp=16, n_rd=32) = 64  (SALAD canonical)
+# Self-inclusion is automatic at HEAD (sparse_neighbors.py no longer excludes
+# self via the `eye` mask) and matches what training saw. No sc_neighbors
+# (Fix C2) — that was a different run.
+#
+# curriculum_neighbors=True is auto-replayed from the saved hyperparameters
+# (cfg_exp.training.curriculum_neighbors → plumbed to LocalLatentsTransformer
+# via proteina.py:128 _sc_neighbors_kwargs). Keeping the YAML flag below is
+# defensively explicit — visible in the resolved config dump.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000009_000000000944.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    curriculum_neighbors: True
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

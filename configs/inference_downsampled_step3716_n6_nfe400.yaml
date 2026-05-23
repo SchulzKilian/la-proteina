@@ -1,0 +1,23 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_downsampled_step3716_n6_nfe400
+config_name: inference_downsampled_step3716_n6_nfe400
+
+# Canonical N=6 designability probe on the most recent downsampled ckpt
+# (epoch 36, opt step 3716). Same protocol as inference_downsampled_step2961.yaml
+# / inference_downsampled_step2331_n6_nfe400.yaml. nsteps=400 (HARD RULE).
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000036_000000003716.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

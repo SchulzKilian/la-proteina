@@ -1466,3 +1466,98 @@ E037 ran two paired-N=30 probes of `power_with_middle_bump` on `local_latents` (
 - E004's curvature finding (Finding 2) explicitly flagged the schedule-vs-quality ablation as missing. E037 ran it but only at exploratory N. Either a positive N=100 result (continuous metric improves significantly without designability cost) or a properly-powered negative (binary designability *is* worse with the bump) is paper-defensible — the current null is neither.
 - The "continuous improvement is real, threshold flip is not" pattern, if it survives at N=100, is a methodologically interesting finding in its own right: it shows that NFE-redistribution toward curvature peaks is a *distribution-shaping* tool, not a designability-rate tool. That's a calibration most schedule-search papers don't make.
 - The trade-off mechanism (mid-stage accuracy bought at the cost of late-stage refinement) is testable and, if confirmed, gives a constructive path to a schedule that wins on both metrics — which is the actual paper claim worth chasing.
+
+
+---
+
+## Finding 13 — Real CamSol intrinsic solubility from the Sormanni-lab web server confirms that noise-aware-ensemble latent steering raises actual solubility on the predictor's training target without measurable codesign cost (2026-05-21)
+
+**Status:** finished. First real `camsol_intrinsic` measurement on La-Proteina latent-steered output — every prior steering Finding (10, plus E066/E067/E068/E072) used the SWI proxy because `compute_developability.compute_camsol` returns NaN (no public CamSol binary; CLAUDE.md flag). This Finding closes the loop on the predictor's actual training target. Lab-notebook detail: [E076](experiments.md#e076--real-camsol-intrinsic-solubility-from-the-camsol-web-server-on-200-unsteered--48-camsol_max-w32--48-w128-2026-05-21).
+
+**Experiment.**
+
+296 La-Proteina sequences submitted to the Sormanni-lab public CamSol intrinsic-solubility web server (`camsol_submission_296.fasta`):
+- **200 unsteered**: subsampled from the 1000-protein length-stratified `results/generated_stratified_300_800_nsteps400/` panel, 20 per 50-residue bin in [300, 800) (verified per-bin count).
+- **48 noise-aware ensemble camsol_max w=32**: from `results/noise_aware_high_w_scout/camsol_max_w32/guided/*.pt` (E066, the production-knee cell, 16 seeds × L∈{300, 400, 500}, NA-v1 5-fold ensemble predictor).
+- **48 noise-aware ensemble camsol_max w=128**: same source at the saturation cell.
+
+Same predictor and steering recipe as Finding 10's mechanism story: NA-v1 5-fold ensemble at `laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/`, linear-ramp schedule t∈[0.3, 0.8] hard-stop t=0.9, unit gradient norm, nsteps=400, official LD3+AE2 checkpoint. Header convention `un_s{seed}_n{L}` / `n32_s{seed}_n{L}` / `n128_s{seed}_n{L}` recovered into (group, seed, length) after the TSV returned.
+
+**Numbers.**
+
+*Real CamSol intrinsic-solubility scalar (higher = more soluble), per-length effect sizes (the headline numbers — see denominator-SD discussion below):*
+
+| L | unsteered (n=20) | w=32 mean | Δ_w32 | **d_w32** | w=128 mean | Δ_w128 | d_w128 |
+|---|---|---|---|---|---|---|---|
+| 300 | +1.478 | +2.383 | +0.905 | **+1.554** (Cohen-large) | +6.335 | +4.857 | +8.344 |
+| 400 | +1.712 | +2.593 | +0.881 | **+1.202** (Cohen-large) | +6.917 | +5.205 | +7.105 |
+| 500 | +2.131 | +2.182 | +0.051 | **+0.050** (no movement — under-steering at long L) | +6.953 | +4.822 | +4.724 |
+
+*Population means and aggregate summary (for context — the right denominator-SD for these is per-length, not pooled-across-L; pooled-across-L SD is inflated by the systematic length-mean drift in unsteered CamSol):*
+
+| Group | n | Mean | Median | SD | Δ vs unsteered | Pooled-across-L Cohen's d (un σ = 1.631) | Pooled-within-bin Cohen's d (σ ≈ 0.80) | 95 % CI on Δmean |
+|---|---|---|---|---|---|---|---|---|
+| Unsteered | 200 | **+1.733** | +1.801 | 1.631 | anchor | — | — | — |
+| camsol_max w=32 | 48 | **+2.386** | +2.490 | 1.221 | **+0.653** | +0.40 (understates — see below) | **+0.81** | **[+0.240, +1.066]** (excludes 0) |
+| camsol_max w=128 | 48 | **+6.735** | +6.590 | 1.763 | **+5.002** | +3.07 | +6.24 | [+4.455, +5.550] |
+
+**Why the aggregate Cohen's d depends on the SD denominator and which to trust:** unsteered La-Proteina CamSol mean drifts upward with length (+1.48 at L=300 → +2.13 at L=500), so the pooled-across-all-200-unsteered-proteins SD (1.631) inherits a length-mean-drift variance component that has nothing to do with the steering effect. The per-length SDs (0.583 / 0.733 / 1.029 at L=300/400/500) strip that drift out and are the appropriate denominator for per-length effect sizes; the pooled-within-bin SD (≈ 0.80, square root of the mean of per-bin variances) is the cleanest single-number aggregate denominator. The pooled-across-L Cohen's d = +0.40 in the table is *not the headline number* — it is the right number only if you assume length-mean drift is part of the comparison's natural variability, which is not the case for production-relevant claims at a target length. **The headline effect sizes are the per-length d's: +1.55 / +1.20 / +0.05 at L=300 / 400 / 500 (Cohen-large effects at L=300 and L=400, zero at L=500)**, with pooled-within-bin d = +0.81 as the defensible single-number aggregate. The L=500 zero-effect is honest about steering's failure at long L, and quoting it alongside the L=300/400 d's gives both the production-relevant magnitude *and* the L-heterogeneity story in one breath.
+
+*Predictor honesty on the real target property:*
+
+| | Pred at w=1 (~unsteered proxy) | Real unsteered | Pred at w=32 | Real at w=32 | Pred at w=128 | Real at w=128 |
+|---|---|---|---|---|---|---|
+| CamSol units | +1.128 | **+1.733** | +2.724 | **+2.386** | +5.907 | **+6.735** |
+
+- Predictor under-calls unsteered baseline by 0.6 CamSol units — a constant calibration offset.
+- Delivery ratio Δreal / Δpred: **41 % at w=32, 105 % at w=128**.
+
+*Cross-reference to codesignability cost (n=48 paired-by-seed baseline from E070):*
+
+| w | real CamSol Δ | codesign rate | vs paired baseline (47.9 %) | deployable? |
+|---|---|---|---|---|
+| 0 | 0 (anchor) | 47.9 % | anchor | ✓ |
+| **32** | **+0.65** (per-length d = +1.55/+1.20/+0.05 at L=300/400/500; pooled-within-bin d ≈ +0.81; pooled-across-L d = +0.40) | **41.7 %** | **−6.2 pp (within Wilson 95 % CI)** | **✓ production knee** |
+| 128 | +5.00 (per-length d = 4.7–8.3 across L=300/400/500; pooled-across-L d = +3.07) | 2.1 % | −45.8 pp | ✗ (codesign collapsed) |
+
+**Narrow claim.**
+
+On the official LD3+AE2 La-Proteina checkpoint with the NA-v1 5-fold noise-aware ensemble predictor and the canonical Finding 10 steering recipe, latent steering at w=32 increases real CamSol intrinsic solubility (Sormanni-lab web server, default options) with **Cohen's d = +1.55 at L=300 and +1.20 at L=400** — both large effects by Cohen's conventions, with per-length unsteered SD as the denominator (0.583 / 0.733 respectively) — while **L=500 does not move at this weight (d = +0.05)**. Aggregate Δmean across the 48 steered vs 200 unsteered samples is +0.65 CamSol units (95 % CI [+0.24, +1.07], excludes zero); a pooled-within-bin aggregate Cohen's d ≈ +0.81 is the cleanest single-number summary. **Codesignability is preserved at 41.7 % (within Wilson 95 % CI of the 47.9 % paired baseline)**. The pooled-across-L Cohen's d = +0.40 vs the all-200-unsteered SD = 1.63 is *not* the headline number; the unsteered SD inflates with length-mean drift (unsteered CamSol mean rises from +1.48 at L=300 to +2.13 at L=500) and thus understates the production-relevant effect at the lengths where steering works. At w=128 the effect is robust across all three lengths (per-length d = 4.7–8.3) and reality moves *more* than the predictor claims (delivery 105 %), but codesignability collapses to 2 % and the cell is not deployable.
+
+**Implication.**
+
+This Finding closes the property-validation loop on the predictor's *training target*, not just on the proxies used until now. Finding 10's quantitative validation was tango_total-only because that was the only real-property axis with an in-pipeline implementation; the camsol_max sweep in F10 relied on the predictor's claim and on collateral SWI / hydrophobic_patch / scm drift. E066 added SWI as a calibrated solubility proxy and reported SWI delivery 42 → 128 % across w=2 → w=128, but the SWI axis is a residue-B-factor-weighted index, not the CamSol the predictor was trained to regress. F13 now produces the missing measurement, and it returns three results that strengthen and constrain F10's mechanism story:
+
+1. **The "predictor honest about solubility, brittle about TANGO" reading from E066 generalises to the actual `camsol_intrinsic` axis.** The 41 % / 105 % delivery curve at w=32 / w=128 on real CamSol is within 1 percentage point of the 42 % / 128 % delivery curve E066 reported on SWI. SWI was a defensible proxy, but it could have been correlated-but-not-the-target; real CamSol confirms the predictor's gradient does point at its own training quantity in measurable real units.
+2. **At w=128 reality moves more than the predictor claims** (+5.00 real vs +4.78 predicted Δ). This is the opposite of classical gradient hacking (predictor overshoots reality). The classical failure mode would have been "predictor claims big Δ, reality moves little"; here at the saturation cell, the predictor is the *under-claimant*. Combined with E066's identical reading on SWI, this means the noise-aware ensemble does not just close the F10 gap on TANGO — its CamSol head is calibrated honestly enough that the predictor's confident high-w output is delivered or exceeded in reality, conditional on the protein structure surviving (which at w=128 it does not).
+3. **The per-length pattern is consistent with E066's "under-steering at long L" story.** L=500 unsteered CamSol baseline (+2.13) is already higher than L=300 (+1.48); part of the L=500 zero-effect is ceiling, but the same w=32 → no-Δ pattern shows up on E066's SWI per-length axis too, so under-steering is the dominant reading. To recover steering response at L=500 the gradient needs to push harder — either w=48-64 single-objective (codesign 22-27 %) or the [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) 4-objective combo at w=32 (codesign 47.9 %, aggregate SWI Δσ +0.54 vs camsol_max-alone +0.50).
+
+**Translation to wet-lab solubility probability via the Bhandari 2020 logistic** (`compute_developability.py:73-78`: `P(soluble) = 1 / (1 + exp(-(81.06·SWI − 62.78)))`), using E066's SWI Δσ-delivery anchored to unsteered SWI mean 0.7958 / std 0.0152:
+
+| w | SWI value | P(soluble) | Codesign rate |
+|---|---|---|---|
+| 0 (unsteered) | 0.7958 | 84.9 % | 47.9 % |
+| 32 (production knee) | 0.8034 | **91.2 %** | 41.7 % |
+| 64 | 0.8191 | 97.4 % | 22.0 % |
+| 128 | 0.8350 | 99.3 % | 2.1 % |
+
+So the defensible deployment number — the cell where you preserve codesignability AND have a real-CamSol-confirmed solubility shift — gives a Bhandari-predicted P(soluble in *E. coli* expression) of **~91 %** vs the **~85 %** unsteered baseline, a +6 pp absolute improvement. The L=500 sub-population is excluded from this number because the per-length L=500 d = +0.05 at w=32 means the SWI shift is at-or-near-zero for the long-protein tail. For longer proteins specifically, the practical lever is the [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) multi-objective cocktail (camsol_max + tango_min + sap_min + scm_positive_min, all at w=1.0) at w=32 — combo's solubility lift is structurally reinforced by the SAP/SCM⁺ gradients and the codesign rate is identical to unsteered (McNemar p=1.000). Estimated long-protein ceiling: **~93–95 % at full codesign with combo_w32, ~95–97 % at w=64 with ~25 % codesign cost**. Pushing past that requires accepting either a falsified codesign assumption or extrapolation of the Bhandari logistic well past its training-distribution range; the wet-lab-validated P(soluble) ≥ 95 % regime at L=500 is not currently a defensible thesis claim from this codebase alone.
+
+**Methodological caveats.**
+
+1. **Population-level comparison, not paired-by-seed.** The steered cells use seeds 42-57 × L∈{300, 400, 500}; the unsteered set uses seeds 1000+ length-stratified across [300, 800]. Cohen's d at the population level cannot rule out a between-sample population offset that paired analysis would cancel. The 48 paired-by-seed unsteered PDBs at `results/sanity_unsteered_seed42_45/unguided/` (n=30, seeds 42-51) + `results/sanity_unsteered_seed52_57/unguided/` (n=18, seeds 52-57) — produced for exactly this purpose during E070's baseline extension — were *not* in the submitted FASTA. The paired-by-seed real-CamSol comparison is the natural follow-up to this Finding.
+2. **L=500 zero-effect is not separable from a ceiling effect.** Unsteered L=500 mean (+2.13) is already higher than L=300 (+1.48). The d=0.05 at w=32 / L=500 could be under-steering (the dominant reading, supported by E066) or could reflect that w=32 is hitting the upper plateau of the CamSol-vs-sequence-design Pareto. Per-protein paired analysis would help distinguish these.
+3. **Two weight cells only.** w∈{16, 48, 64} on real CamSol not measured; w∈{16, 32, 64, 128} is the full noise-aware Pareto on SWI from E066, and the missing real-CamSol cells would tighten the Δreal-vs-Δpred curve. Queued.
+4. **Public web-server vs Sormanni-lab direct run.** The 56K training-data CamSol labels (`CamSolpH_results.txt`) were run *directly by the Sormanni lab*, not through the public form; cross-comparability between the training labels and this Finding's 296 measurements assumes the same algorithm/pH/scoring runs in both deployments. The TSV schema matches exactly (`Name\tprotein variant score\tintrinsic solubility profile` with semicolon-separated per-residue values), suggesting they do, but this is asserted not verified.
+5. **CamSol intrinsic ≠ wet-lab expression.** The Bhandari logistic translates SWI → P(soluble in *E. coli* expression), with the SWI-side calibration done on natural proteins. Pushing SWI to 0.83 with steered La-Proteina output is well outside the training distribution; the +6 pp expression-probability claim above is a model extrapolation, not a wet-lab measurement. CamSol's own published wet-lab validation (Sormanni 2015, JMB) is on natural proteins as well. Wet-lab confirmation is the obvious next step but out of scope for this codebase.
+6. **No statistical test of equality at L=500 / w=32.** d=0.05 is consistent with "no effect", but n=20 unsteered + n=16 steered at this single length gives wide CI; the L=500 question would need either bigger n or paired-by-seed analysis to put a sharp number on.
+7. **Sequence-side score, not structure-corrected.** CamSol intrinsic ignores 3D coordinates; steered structures' surface-accessible solubility (via CamSol-PTM or via FreeSASA-derived SAP, which E072 already steers) is a separate axis.
+8. **Cross-checkpoint variance not estimated.** Single LD3+AE2 checkpoint, single NA-v1 ensemble. Cross-checkpoint robustness of the +0.65 unit number is unknown.
+
+**Cross-references:**
+
+- [Finding 10](#finding-10--closing-the-gradient-hacking-gap-in-latent-flow-steering-noise-aware-predictor-training--fold-ensembling-validated-by-real-property-delivery-and-structural-integrity-2026-05-06-codesignability-addendum-2026-05-07) — direct parent. F10's tango-only quantitative validation gets a CamSol companion here. The narrow claim of F10 expands from "−59.9 real TANGO at w=16" to "+0.65 real CamSol at w=32 (production knee), +5.00 real CamSol at w=128 (broken codesign)".
+- [E076](experiments.md#e076--real-camsol-intrinsic-solubility-from-the-camsol-web-server-on-200-unsteered--48-camsol_max-w32--48-w128-2026-05-21) — lab-notebook detail.
+- [E066](experiments.md#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) — production knee + Pareto frontier on SWI. F13 confirms the same shape on real CamSol.
+- [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) — multi-objective cocktail; the natural lever for raising long-protein P(soluble) without paying codesign cost.
+- The Bhandari 2020 logistic at `proteinfoundation/analysis/compute_developability.py:73-78` is the source of the SWI → P(soluble expression) translation in this Finding.

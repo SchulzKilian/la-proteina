@@ -1,0 +1,60 @@
+# Config for the CA-conditioned multi-task property predictor.
+# Identical to config/default.yaml except subsample is null (use all proteins),
+# matching the source-of-truth latent run logs/multitask_t1/20260427_161809.
+
+seed: 42
+log_level: INFO
+
+data:
+  latent_dir: "/home/ks2218/la-proteina/data/pdb_train/processed_latents_300_800"
+  file_format: "pt"
+  field_names:
+    latents: "mean"
+    ca_coords: "coords_nm"
+    ca_atom_index: 1
+    protein_id: "id"
+  subsample: null
+  length_range: [300, 800]
+
+outputs:
+  base_dir: "outputs"
+  figures_dir: "outputs/figures"
+  tables_dir: "outputs/tables"
+  cache_dir: "outputs/cache"
+  figure_dpi: 300
+  figure_formats: ["png", "pdf"]
+
+part2:
+  property_file: "data/properties.csv"
+
+  property_granularity:
+    swi: "protein"
+    tango: "protein"
+    net_charge: "protein"
+    pI: "protein"
+    iupred3: "protein"
+    iupred3_fraction_disordered: "protein"
+    shannon_entropy: "protein"
+    hydrophobic_patch_total_area: "protein"
+    hydrophobic_patch_n_large: "protein"
+    sap: "protein"
+    scm_positive: "protein"
+    scm_negative: "protein"
+    rg: "protein"
+    camsol_intrinsic: "protein"
+
+  property_names:
+    - swi
+    - tango
+    - net_charge
+    - pI
+    - iupred3
+    - iupred3_fraction_disordered
+    - shannon_entropy
+    - hydrophobic_patch_total_area
+    - hydrophobic_patch_n_large
+    - sap
+    - scm_positive
+    - scm_negative
+    - rg
+    - camsol_intrinsic

@@ -1,4 +1,23 @@
-"""Core guidance logic: SteeringGuide class."""
+"""Core guidance logic: SteeringGuide class.
+
+======================================================================
+CRITICAL CONFIG NOTE — READ BEFORE EVERY NEW STEERING SWEEP
+======================================================================
+When using a NOISE-AWARE predictor (anything under
+`laproteina_steerability/logs/multitask_t1_noise_aware/`), you MUST set
+`feed_z_t_directly: true` in the steering YAML. The default (False) is the
+LEGACY clean-predictor path: it feeds the predictor the Tweedie-denoised
+estimate `x1_est = z_t + (1-t)*v` with t=1.0. A noise-aware predictor was
+TRAINED on raw noisy z_t at real t∈[0.3, 0.8] — feeding it the denoised
+estimate with t=1 is a train/test distribution mismatch that defeats the
+whole point of noise-aware training.
+
+This mistake silently invalidated every production noise-aware run up to
+2026-05-17 (F10 / E029 / E032 / E033 / E036 / E042 / E066 / E067 / E068 /
+E069). See E070 in experiments.md for the re-run that establishes the
+correct deployment numbers.
+======================================================================
+"""
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -107,6 +126,7 @@ class SteeringGuide:
         t_scalar: float,
         mask: torch.Tensor,
         flow_step_fn=None,
+        **_extra_kwargs,
     ) -> tuple[torch.Tensor, Optional[dict]]:
         """Compute guidance gradient to add to the velocity field.
 
