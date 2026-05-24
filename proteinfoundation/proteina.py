@@ -130,6 +130,26 @@ class Proteina(L.LightningModule):
             "curriculum_mid_t_split": cfg_exp.training.get("curriculum_mid_t_split", (16, 8, 24)),
             "curriculum_high_t_split": cfg_exp.training.get("curriculum_high_t_split", (8, 16, 32)),
         }
+        # Stochastic-K: per-batch coin flip between canonical K (deployment K)
+        # and K=full (covers every residue → sparse path numerically equivalent
+        # to dense; see tests/test_sparse_dense_equivalence.py). Training-only;
+        # validation always uses canonical K so val loss stays comparable across
+        # runs. Mutex with curriculum_neighbors — both rebuild the K-set per
+        # batch, mixing them confounds the intervention.
+        _stochastic_k_cfg = cfg_exp.training.get("stochastic_k", None)
+        if _stochastic_k_cfg is not None and _stochastic_k_cfg.get("enabled", False):
+            assert not _sc_neighbors_kwargs["curriculum_neighbors"], (
+                "training.stochastic_k.enabled and training.curriculum_neighbors are "
+                "mutually exclusive — pick one. Both rewrite the per-batch (n_seq, "
+                "n_spatial, n_random) triple and combining them is not a clean intervention."
+            )
+            _sc_neighbors_kwargs["stochastic_k_enabled"] = True
+            _sc_neighbors_kwargs["stochastic_k_p_full"] = float(
+                _stochastic_k_cfg.get("p_full", 0.3)
+            )
+        else:
+            _sc_neighbors_kwargs["stochastic_k_enabled"] = False
+            _sc_neighbors_kwargs["stochastic_k_p_full"] = 0.0
         if cfg_exp.nn.name == "local_latents_transformer":
             self.nn = LocalLatentsTransformer(
                 **cfg_exp.nn, latent_dim=self.latent_dim, **_sc_neighbors_kwargs
@@ -526,6 +546,27 @@ class Proteina(L.LightningModule):
                 self.update_n_log_flops(bs, n)
                 self.update_n_log_nsamples_processed(bs)
                 self.log_nparams()
+
+                # Stochastic-K trace. Mean of `train/sparse_k_full` over a
+                # window gives the empirical p_full; `train/sparse_k` gives
+                # the actual K used per step. self.nn may be a torch.compile
+                # OptimizedModule wrapping the real NN — both expose
+                # `_last_sampled_k` via attribute forwarding.
+                if getattr(self.nn, "stochastic_k_enabled", False):
+                    k_used = int(getattr(self.nn, "_last_sampled_k", 0))
+                    k_full = bool(getattr(self.nn, "_last_sampled_full", False))
+                    self.log(
+                        "train/sparse_k", float(k_used),
+                        on_step=True, on_epoch=False, prog_bar=False,
+                        logger=True, batch_size=bs, sync_dist=False,
+                        add_dataloader_idx=False,
+                    )
+                    self.log(
+                        "train/sparse_k_full", float(k_full),
+                        on_step=True, on_epoch=False, prog_bar=False,
+                        logger=True, batch_size=bs, sync_dist=False,
+                        add_dataloader_idx=False,
+                    )
 
             return train_loss
         

@@ -1,0 +1,112 @@
+# Sparse K=64 + stochastic-K training schedule.
+#
+# Per training batch, sample a coin flip: with prob `stochastic_k.p_full`
+# the forward uses K=full (n_seq=ceil(N/2) per side, n_spatial=n_random=0
+# → 2*n_seq covers every residue → sparse path is numerically equivalent
+# to dense, see tests/test_sparse_dense_equivalence.py). Otherwise the
+# forward uses canonical K=64 (the deployment K). Validation always uses
+# canonical K so val loss stays comparable to fixed-K baselines.
+#
+# Motivation: E078 showed a K=40 curriculum checkpoint evaluated with
+# non-curriculum inference reached L=50 designability competitive with
+# dense (N=6 caveat). Hypothesis: mixing dense-equivalent batches into
+# sparse training produces shared parameters that generalize better at
+# inference. Single-axis intervention — no other changes vs canonical
+# sparse K=64 baseline.
+#
+# RECIPE: locked to canonical OLD recipe (wd=0.05, constant LR=2e-4).
+# Mutex with curriculum_neighbors (enforced in proteina.py).
+run_name_: ca_only_sparse_K64_stochastic_p030
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_K64_curriculum_160M  # K=64 NN config; curriculum stays OFF below
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  # Stochastic-K: per training batch, sample K=full with this probability.
+  # 0.3 is a starting guess motivated by E078; tune after first results.
+  # Mutex with curriculum_neighbors — combining the two confounds the
+  # intervention (both rewrite the per-batch K composition).
+  curriculum_neighbors: False
+  stochastic_k:
+    enabled: True
+    p_full: 0.3
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block.
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  # torch.compile graph-breaks gracefully on the python-side K sampler
+  # (mutation of self._last_sampled_k); fullgraph=False is already the
+  # default in proteina.py. Leave compile off for the smoke run — turn
+  # on once the schedule is validated.
+  compile_nn: False
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

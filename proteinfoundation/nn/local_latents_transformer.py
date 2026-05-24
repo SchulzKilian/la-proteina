@@ -164,6 +164,32 @@ class LocalLatentsTransformer(torch.nn.Module):
             kwargs.get("curriculum_high_t_split", (8, 16, 32))
         )
 
+        # Stochastic-K: per training batch, with probability `p_full` swap the
+        # canonical (n_seq, n_spatial, n_random) for a "full" composition where
+        # 2*n_seq >= N — every query's K-set covers every real residue and the
+        # sparse path becomes numerically equivalent to dense (see
+        # tests/test_sparse_dense_equivalence.py). Training-only by design:
+        # validation always sees the canonical K so val loss stays comparable
+        # across runs and measures the deployment metric. Mutex with
+        # curriculum_neighbors (enforced in proteina.py).
+        # The single tracked output is `self._last_sampled_k` (int, the K of
+        # the most recent forward, including non-stochastic forwards) — read by
+        # proteina.training_step to log the distribution to wandb.
+        self.stochastic_k_enabled = bool(kwargs.get("stochastic_k_enabled", False))
+        self.stochastic_k_p_full = float(kwargs.get("stochastic_k_p_full", 0.3))
+        if self.stochastic_k_enabled:
+            assert not self.curriculum_neighbors, (
+                "stochastic_k_enabled and curriculum_neighbors are mutually exclusive."
+            )
+            assert 0.0 <= self.stochastic_k_p_full <= 1.0, (
+                f"stochastic_k_p_full must be in [0, 1], got {self.stochastic_k_p_full}."
+            )
+        # Tracked for logging. Non-tensor so torch.compile won't try to trace
+        # it into the graph; mutation triggers a graph break under fullgraph=False
+        # (already the project default) and is read from python after forward().
+        self._last_sampled_k = 2 * self.n_seq_neighbors + self.n_spatial_neighbors + self.n_random_neighbors
+        self._last_sampled_full = False
+
         # BigBird-style learnable global tokens appended at indices [N, N+G).
         # Each query (residue or global) always attends to all G globals via
         # fixed slots [K_canonical, K_canonical+G) in its K-set. Globals query
@@ -259,7 +285,33 @@ class LocalLatentsTransformer(torch.nn.Module):
         n_seq = self.n_seq_neighbors
         n_sp = self.n_spatial_neighbors
         n_rd = self.n_random_neighbors
+
+        # Stochastic-K (training-only, mutex with curriculum_neighbors).
+        # Per forward pass: with prob p_full, swap to a full-coverage split
+        # (n_seq = ceil(N/2) per side, n_spatial = n_random = 0). With
+        # self-inclusion, k_seq = min(2*n_seq, N) = N → every query covers all
+        # real residues → sparse path is numerically equivalent to dense.
+        # `self.training` is the standard nn.Module flag (False during
+        # Lightning's val loop), so validation always takes the canonical
+        # branch below. K=full forwards take more memory (K ~ N rather than
+        # K=64); the existing OOM guard in proteina.training_step covers it.
+        if self.stochastic_k_enabled and self.training:
+            B, N, _ = ca_coors.shape
+            use_full = bool(torch.rand((), device=ca_coors.device).item()
+                            < self.stochastic_k_p_full)
+            if use_full:
+                n_seq = (N + 1) // 2  # 2*n_seq >= N → k_seq=N covers all
+                n_sp = 0
+                n_rd = 0
+            self._last_sampled_k = 2 * n_seq + n_sp + n_rd
+            self._last_sampled_full = use_full
+            return build_neighbor_idx(
+                ca_coors, mask, n_seq=n_seq, n_spatial=n_sp, n_random=n_rd,
+            )
+
         if not (self.curriculum_neighbors and t is not None):
+            self._last_sampled_k = 2 * n_seq + n_sp + n_rd
+            self._last_sampled_full = False
             return build_neighbor_idx(
                 ca_coors,
                 mask,
