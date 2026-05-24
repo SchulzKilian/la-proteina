@@ -1,0 +1,13 @@
+device: cuda:0
+lengths:
+- 300
+- 400
+- 500
+nsteps: 400
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+steering:
+  device: cuda:0
+  enabled: false
+steering_config: /tmp/no_steering.yaml

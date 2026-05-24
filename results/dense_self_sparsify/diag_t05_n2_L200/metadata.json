@@ -1,0 +1,34 @@
+{
+  "label": "diag_t05_n2_L200",
+  "dense_ckpt": "/home/ks2218/la-proteina/best_val_00000026_000000002646.ckpt",
+  "K": 64,
+  "nsteps": 400,
+  "n_samples": 2,
+  "lengths": [
+    200
+  ],
+  "strategy": "per_layer_head_topK_every_step",
+  "seed": 5,
+  "samples": [
+    {
+      "arm": "hybrid",
+      "L": 200,
+      "sample_idx": 0,
+      "seed_base": 102,
+      "seed": 102,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/diag_t05_n2_L200/hybrid/L200/sample_0.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 200,
+      "sample_idx": 1,
+      "seed_base": 102,
+      "seed": 102,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/diag_t05_n2_L200/hybrid/L200/sample_1.pdb"
+    }
+  ]
+}

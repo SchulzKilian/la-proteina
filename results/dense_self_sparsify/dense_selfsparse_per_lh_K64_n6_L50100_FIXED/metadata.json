@@ -1,0 +1,207 @@
+{
+  "label": "dense_selfsparse_per_lh_K64_n6_L50100_FIXED",
+  "dense_ckpt": "/home/ks2218/la-proteina/best_val_00000026_000000002646.ckpt",
+  "K": 64,
+  "nsteps": 400,
+  "n_samples": 6,
+  "lengths": [
+    50,
+    100
+  ],
+  "strategy": "per_layer_head_topK_every_step",
+  "seed": 5,
+  "samples": [
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 0,
+      "seed": 5,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L50/sample_0.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 1,
+      "seed": 5,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L50/sample_1.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 2,
+      "seed": 5,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L50/sample_2.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 3,
+      "seed": 5,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L50/sample_3.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 4,
+      "seed": 5,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L50/sample_4.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 5,
+      "seed": 5,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L50/sample_5.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 0,
+      "seed": 5,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L50/sample_0.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 1,
+      "seed": 5,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L50/sample_1.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 2,
+      "seed": 5,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L50/sample_2.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 3,
+      "seed": 5,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L50/sample_3.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 4,
+      "seed": 5,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L50/sample_4.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 5,
+      "seed": 5,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L50/sample_5.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 0,
+      "seed": 6,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L100/sample_0.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 1,
+      "seed": 6,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L100/sample_1.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 2,
+      "seed": 6,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L100/sample_2.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 3,
+      "seed": 6,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L100/sample_3.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 4,
+      "seed": 6,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L100/sample_4.pdb"
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 5,
+      "seed": 6,
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/baseline/L100/sample_5.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 0,
+      "seed": 6,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L100/sample_0.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 1,
+      "seed": 6,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L100/sample_1.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 2,
+      "seed": 6,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L100/sample_2.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 3,
+      "seed": 6,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L100/sample_3.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 4,
+      "seed": 6,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L100/sample_4.pdb"
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 5,
+      "seed": 6,
+      "K": 64,
+      "strategy": "per_layer_head_topK_every_step",
+      "path": "results/dense_self_sparsify/dense_selfsparse_per_lh_K64_n6_L50100_FIXED/hybrid/L100/sample_5.pdb"
+    }
+  ]
+}

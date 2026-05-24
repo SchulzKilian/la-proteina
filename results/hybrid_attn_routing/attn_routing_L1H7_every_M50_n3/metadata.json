@@ -1,0 +1,200 @@
+{
+  "label": "attn_routing_L1H7_every_M50_n3",
+  "dense_ckpt": "/home/ks2218/la-proteina/best_val_00000026_000000002646.ckpt",
+  "sparse_ckpt": "/home/ks2218/la-proteina/sparse_K64_curriculum_self_step1800.ckpt",
+  "K": 64,
+  "nsteps": 400,
+  "n_samples": 3,
+  "lengths": [
+    50,
+    100,
+    200
+  ],
+  "routing_strategy": "every_M",
+  "M_steps": 50,
+  "target_layer": 1,
+  "target_head": 7,
+  "seed": 5,
+  "samples": [
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 0,
+      "seed": 55,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L50/sample_0.pdb",
+      "wall_s": 10.365367889404297
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 0,
+      "seed": 55,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L50/sample_0.pdb",
+      "wall_s": 7.537060499191284
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 1,
+      "seed": 1055,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L50/sample_1.pdb",
+      "wall_s": 7.47037935256958
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 1,
+      "seed": 1055,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L50/sample_1.pdb",
+      "wall_s": 7.36946702003479
+    },
+    {
+      "arm": "baseline",
+      "L": 50,
+      "sample_idx": 2,
+      "seed": 2055,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L50/sample_2.pdb",
+      "wall_s": 7.498645305633545
+    },
+    {
+      "arm": "hybrid",
+      "L": 50,
+      "sample_idx": 2,
+      "seed": 2055,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L50/sample_2.pdb",
+      "wall_s": 7.385936498641968
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 0,
+      "seed": 105,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L100/sample_0.pdb",
+      "wall_s": 11.458753108978271
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 0,
+      "seed": 105,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L100/sample_0.pdb",
+      "wall_s": 11.381160020828247
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 1,
+      "seed": 1105,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L100/sample_1.pdb",
+      "wall_s": 11.482349157333374
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 1,
+      "seed": 1105,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L100/sample_1.pdb",
+      "wall_s": 11.41788363456726
+    },
+    {
+      "arm": "baseline",
+      "L": 100,
+      "sample_idx": 2,
+      "seed": 2105,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L100/sample_2.pdb",
+      "wall_s": 11.518727779388428
+    },
+    {
+      "arm": "hybrid",
+      "L": 100,
+      "sample_idx": 2,
+      "seed": 2105,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L100/sample_2.pdb",
+      "wall_s": 11.47538709640503
+    },
+    {
+      "arm": "baseline",
+      "L": 200,
+      "sample_idx": 0,
+      "seed": 205,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L200/sample_0.pdb",
+      "wall_s": 21.18402099609375
+    },
+    {
+      "arm": "hybrid",
+      "L": 200,
+      "sample_idx": 0,
+      "seed": 205,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L200/sample_0.pdb",
+      "wall_s": 21.296509504318237
+    },
+    {
+      "arm": "baseline",
+      "L": 200,
+      "sample_idx": 1,
+      "seed": 1205,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L200/sample_1.pdb",
+      "wall_s": 21.289528846740723
+    },
+    {
+      "arm": "hybrid",
+      "L": 200,
+      "sample_idx": 1,
+      "seed": 1205,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L200/sample_1.pdb",
+      "wall_s": 21.34724497795105
+    },
+    {
+      "arm": "baseline",
+      "L": 200,
+      "sample_idx": 2,
+      "seed": 2205,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/baseline/L200/sample_2.pdb",
+      "wall_s": 21.292569398880005
+    },
+    {
+      "arm": "hybrid",
+      "L": 200,
+      "sample_idx": 2,
+      "seed": 2205,
+      "routing_strategy": "every_M",
+      "K": 64,
+      "target_layer": 1,
+      "target_head": 7,
+      "path": "results/hybrid_attn_routing/attn_routing_L1H7_every_M50_n3/hybrid/L200/sample_2.pdb",
+      "wall_s": 21.39567470550537
+    }
+  ]
+}

@@ -127,6 +127,8 @@ class Proteina(L.LightningModule):
             "sc_neighbors_t_threshold": cfg_exp.training.get("sc_neighbors_t_threshold", 0.4),
             "curriculum_neighbors": cfg_exp.training.get("curriculum_neighbors", False),
             "curriculum_low_t_split": cfg_exp.training.get("curriculum_low_t_split", (32, 0, 0)),
+            "curriculum_mid_t_split": cfg_exp.training.get("curriculum_mid_t_split", (16, 8, 24)),
+            "curriculum_high_t_split": cfg_exp.training.get("curriculum_high_t_split", (8, 16, 32)),
         }
         if cfg_exp.nn.name == "local_latents_transformer":
             self.nn = LocalLatentsTransformer(

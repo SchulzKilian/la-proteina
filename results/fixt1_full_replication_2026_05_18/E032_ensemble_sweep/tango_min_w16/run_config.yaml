@@ -1,0 +1,49 @@
+device: cuda:0
+lengths:
+- 300
+- 400
+- 500
+nsteps: 400
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+- 43
+- 44
+- 45
+- 46
+- 47
+- 48
+- 49
+- 50
+- 51
+- 52
+- 53
+- 54
+- 55
+- 56
+- 57
+steering:
+  channel: local_latents
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_0_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_1_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_2_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_3_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware_fixt1/20260517_103256/checkpoints/fold_4_best.pt
+  denoising_steps: 1
+  device: cuda:0
+  enabled: true
+  gradient_clip: 10.0
+  gradient_norm: unit
+  log_diagnostics: true
+  objectives:
+  - direction: minimize
+    property: tango
+    weight: 1.0
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    t_stop: 0.9
+    type: linear_ramp
+    w_max: 16.0
+steering_config: steering/config/fixt1_full_replication_2026_05_18/E032_ensemble_sweep/tango_min_w16.yaml

@@ -1,0 +1,2 @@
+cell,direction,w,n_seqs,mean_shannon,mean_max_aa_freq,top_aa,top_aa_freq,mean_longest_run,mean_low_complexity_frac,mean_unique_3mer_frac,kl_vs_natural,kl_vs_unsteered,kl_vs_w1,flags
+coords_na_tango_w32,coords_na_tango,32,48,3.468775905913032,0.20160416666666667,L,0.1278125,4.791666666666667,0.1731041666666667,0.6276708494405037,0.11881972002531072,0.020910065816398385,0.0,ok

@@ -1,0 +1,33 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_curriculum_self_step1133_NOCURRIC_n6_nfe400
+config_name: inference_sparse_K40_curriculum_self_step1133_NOCURRIC_n6_nfe400
+
+# Sibling of `inference_sparse_K40_curriculum_self_step1133_n6_nfe400.yaml`
+# with the trained-in curriculum forced OFF at inference. Uses the static
+# K=40 neighbor split (n_seq=8 per side, n_spatial=8, n_random=16) at all t.
+#
+# DISTRIBUTION-SHIFT CAVEAT (per generate.py:243-254): the ckpt was trained
+# against the curriculum schedule (20,0,0)/(14,4,8)/(8,8,16), so at low t the
+# model never saw plain (8,8,16) during training — q/k/v projections and
+# pair-bias are calibrated for the schedule. This is the "what does the
+# trained model do when you swap to the plain-K=40 inference path?" probe,
+# not a clean curriculum-vs-no-curriculum architectural comparison.
+#
+# Same recipe as the curriculum-ON probe: N=6 × L∈{50,100,200} × nsteps=400,
+# seed=5 (from inference_base.yaml). Paired-by-noise vs E077.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_curriculum_self_step1133.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    curriculum_neighbors: false
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

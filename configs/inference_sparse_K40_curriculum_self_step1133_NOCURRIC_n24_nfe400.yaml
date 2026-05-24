@@ -1,0 +1,30 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_curriculum_self_step1133_NOCURRIC_n24_nfe400
+config_name: inference_sparse_K40_curriculum_self_step1133_NOCURRIC_n24_nfe400
+
+# N=24 × L∈{50,100,200} × nsteps=400 extension of E078 (N=6 curric-OFF).
+# Same ckpt (`sparse_K40_curriculum_self_step1133.ckpt`), same seed=5
+# (inherited from inference_base.yaml). Curriculum forced OFF at inference
+# via generation.args.curriculum_neighbors=false — static K=40 split
+# (n_seq=8 per side, n_spatial=8, n_random=16) at all t.
+#
+# Distribution-shift caveat carries over from E078: the ckpt was trained
+# against the curriculum schedule (20,0,0)/(14,4,8)/(8,8,16), so feeding
+# plain (8,8,16) at low t is foreign to the trained weights. Output dir
+# distinct from E078 so the original 6-sample probe is preserved.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_curriculum_self_step1133.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    curriculum_neighbors: false
+  dataset:
+    nsamples: 24
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

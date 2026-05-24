@@ -1,0 +1,34 @@
+device: cuda:0
+lengths:
+- 300
+- 400
+- 500
+nsteps: 400
+proteina_config: inference_ucond_notri_long
+seeds:
+- 52
+- 53
+- 54
+- 55
+- 56
+- 57
+steering:
+  channel: local_latents
+  checkpoint: null
+  device: cuda:0
+  enabled: false
+  gradient_clip: 10.0
+  gradient_norm: unit
+  log_diagnostics: true
+  method: reconstruction
+  objectives:
+  - direction: maximize
+    property: net_charge
+    target_value: null
+    weight: 1.0
+  schedule:
+    t_end: 1.0
+    t_start: 0.3
+    type: linear_ramp
+    w_max: 2.0
+steering_config: /home/ks2218/la-proteina/steering/config/default.yaml

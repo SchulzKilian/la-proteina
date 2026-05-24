@@ -150,10 +150,18 @@ class LocalLatentsTransformer(torch.nn.Module):
         # — the SALAD-canonical curriculum's harshest bucket. Setting this to
         # (16, 8, 24) keeps some spatial+random capacity at low t (useful if
         # the low-t bucket is suspected of bottlenecking long-range information
-        # at small N — see investigation 2026-05-11). Must sum to K=64 with
-        # 2*n_seq + n_sp + n_rd; an assert below enforces this.
+        # at small N — see investigation 2026-05-11). All three splits must sum
+        # to K = 2*n_seq + n_sp + n_rd; an assert below enforces this.
         self.curriculum_low_t_split = tuple(
             kwargs.get("curriculum_low_t_split", (32, 0, 0))
+        )
+        # Mid/high-t bucket splits. Defaults match the SALAD-canonical K=64
+        # schedule; the K=40-cousin training run uses (14, 4, 8) / (8, 8, 16).
+        self.curriculum_mid_t_split = tuple(
+            kwargs.get("curriculum_mid_t_split", (16, 8, 24))
+        )
+        self.curriculum_high_t_split = tuple(
+            kwargs.get("curriculum_high_t_split", (8, 16, 32))
         )
 
         # BigBird-style learnable global tokens appended at indices [N, N+G).
@@ -234,10 +242,15 @@ class LocalLatentsTransformer(torch.nn.Module):
         When `self.curriculum_neighbors` is True and `t` is provided, each
         protein in the batch picks a (n_seq, n_spatial, n_random) triple from
         a 3-bucket schedule keyed on its own t. Total K is held constant at
-        K=64 across all regimes:
-            t < 0.33      → (32, 0, 0)   = 64  (sequential-only)
-            0.33 ≤ t<0.66 → (16, 8, 24)  = 64  (interpolate)
-            t ≥ 0.66      → (8, 16, 32)  = 64  (SALAD canonical composition)
+        K = 2*n_seq + n_sp + n_rd across all regimes. Default schedule (K=64,
+        SALAD-canonical):
+            t < 0.33      → (32, 0, 0)   (sequential-only)
+            0.33 ≤ t<0.66 → (16, 8, 24)  (interpolate)
+            t ≥ 0.66      → (8, 16, 32)  (SALAD canonical composition)
+        K=40 cousin schedule (set via cfg_exp.training.curriculum_*_t_split):
+            t < 0.33      → (20, 0, 0)
+            0.33 ≤ t<0.66 → (14, 4, 8)
+            t ≥ 0.66      → (8, 8, 16)
         Implementation: group the batch by bucket and call build_neighbor_idx
         once per non-empty bucket, then scatter results back. Proteins in
         different buckets within the same batch are supported (training); when
@@ -257,24 +270,24 @@ class LocalLatentsTransformer(torch.nn.Module):
 
         B, N, _ = ca_coors.shape
         K = 2 * n_seq + n_sp + n_rd
-        assert K == 64, (
-            f"curriculum_neighbors schedule is K=64; static config has K={K}. "
-            "Set n_seq_neighbors=8, n_spatial_neighbors=16, n_random_neighbors=32."
-        )
         device = ca_coors.device
         out_idx = torch.zeros(B, N, K, dtype=torch.long, device=device)
         out_valid = torch.zeros(B, N, K, dtype=torch.bool, device=device)
 
-        # 3-bucket schedule. (n_seq_per_side, n_spatial, n_random); 2*n_seq + n_sp + n_rd = 64.
-        low_n_s, low_n_sp, low_n_rd = self.curriculum_low_t_split
-        assert 2 * low_n_s + low_n_sp + low_n_rd == 64, (
-            f"curriculum_low_t_split={self.curriculum_low_t_split} must sum to "
-            f"2*n_seq + n_sp + n_rd = 64; got {2*low_n_s + low_n_sp + low_n_rd}."
-        )
+        # 3-bucket schedule. (n_seq_per_side, n_spatial, n_random) must sum to
+        # K = 2*n_seq + n_sp + n_rd across all three buckets so out_idx fits.
+        low_split = self.curriculum_low_t_split
+        mid_split = self.curriculum_mid_t_split
+        high_split = self.curriculum_high_t_split
+        for name, sp in (("low", low_split), ("mid", mid_split), ("high", high_split)):
+            assert 2 * sp[0] + sp[1] + sp[2] == K, (
+                f"curriculum_{name}_t_split={sp} must sum to "
+                f"2*n_seq + n_sp + n_rd = {K}; got {2*sp[0] + sp[1] + sp[2]}."
+            )
         buckets = [
-            ((-float("inf"), 0.33), (low_n_s, low_n_sp, low_n_rd)),
-            ((0.33,         0.66), (16, 8, 24)),
-            ((0.66, float("inf")), (8, 16, 32)),
+            ((-float("inf"), 0.33), low_split),
+            ((0.33,         0.66), mid_split),
+            ((0.66, float("inf")), high_split),
         ]
         t_cpu = t.detach().to(torch.float32)
         for (lo, hi), (n_s, n_sp_b, n_rd_b) in buckets:
