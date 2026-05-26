@@ -1,0 +1,35 @@
+# Base inference config for the layer-selective sparse-inference diagnostic.
+# Each cell of the sweep is an auto-generated child config that inherits from
+# this file and sets layer_sparse_mask + K + L per-cell. Common bits:
+#   - dense baseline ckpt (E019, step 2646)
+#   - nsteps=400 (CLAUDE.md hard rule, inherited from inference_base.yaml)
+#   - seed=5 (paired-by-noise across cells; same seed as the §11 / canonical probes)
+#   - force_sparse_attention_on=true so the dense-trained ckpt builds the
+#     neighbor list at inference. Bit-identical to current behavior when
+#     layer_sparse_mask is null AND all layers route dense (the all_dense control).
+#
+# This config does NOT specify layer_sparse_mask / K / L / nsamples — they MUST
+# be set in the per-cell child config (`inference_layer_sel_cell_*.yaml`).
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_layer_sel_base
+
+# Dense baseline ckpt — the E019 / Finding-7 anchor at 87 % / 87 % / 53 %
+# designable at L=50 / 100 / 200 with N=30.
+ckpt_path: ./store/test_ca_only_diffusion/1776805213/checkpoints
+ckpt_name: best_val_00000026_000000002646.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    # Per-layer routing toggles (overridden per-cell). Defaults here yield
+    # the bit-identical all-dense behavior (sparse attention enabled but
+    # the mask routes every layer dense); the per-cell config replaces these.
+    force_sparse_attention_on: true
+    layer_sparse_mask: null
+    n_seq_neighbors_override: 16
+    n_spatial_neighbors_override: 32
+    n_random_neighbors_override: 64

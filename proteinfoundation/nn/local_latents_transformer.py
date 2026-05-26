@@ -301,6 +301,17 @@ class LocalLatentsTransformer(torch.nn.Module):
             torch.nn.Linear(self.token_dim, 3, bias=False),
         )
 
+        # Inference-only diagnostic hook: per-layer sparse/dense routing.
+        # When None (default), behavior is bit-identical to the pre-existing
+        # forward path. When set to a list of `nlayers` bools, each layer i
+        # uses the sparse attention path iff layer_sparse_mask[i] is True.
+        # Requires sparse_attention=True at construction so the neighbor list
+        # is built; mutex with use_downsampling, n_global_tokens>0, router-sparse,
+        # and update_pair_repr=True. Set after construction by the diagnostic
+        # script — not plumbed through hydra.
+        self.layer_sparse_mask = None
+        self._layer_mask_logged = False
+
     def attach_router(self, router: torch.nn.Module):
         """Register a frozen router as a submodule for Move-2 router-sparse
         attention. The router is held under self._router (registered via
@@ -832,6 +843,40 @@ class LocalLatentsTransformer(torch.nn.Module):
                         pair_rep = self.pair_update_layers[i](
                             seqs, pair_rep, mask, neighbor_idx=None, slot_valid=None
                         )
+        elif self.layer_sparse_mask is not None:
+            # Per-layer sparse/dense routing (inference-only diagnostic).
+            # `pair_rep` above was built sparse (since sparse_attention=True is
+            # required by the asserts below); we additionally build the dense
+            # pair_rep from the same `pair_repr_builder` module.
+            assert self.sparse_attention, "layer_sparse_mask requires sparse_attention=True"
+            assert len(self.layer_sparse_mask) == self.nlayers, (
+                f"layer_sparse_mask must have len {self.nlayers}, "
+                f"got {len(self.layer_sparse_mask)}"
+            )
+            assert not self.use_downsampling, "layer_sparse_mask + downsampling not supported"
+            assert self.n_global_tokens == 0, "layer_sparse_mask + BigBird globals not supported"
+            assert not self.update_pair_repr, (
+                "layer_sparse_mask + update_pair_repr not supported "
+                "(dense baseline has update_pair_repr=False; diagnostic targets that)"
+            )
+            pair_rep_sparse = pair_rep
+            pair_rep_dense = self.pair_repr_builder(
+                input, neighbor_idx=None, slot_valid=None,
+            )
+            if not self._layer_mask_logged:
+                print("[layer_sparse_mask] per-layer attention mode:")
+                for li, s in enumerate(self.layer_sparse_mask):
+                    print(f"  layer {li:2d}: {'sparse' if s else 'dense'}")
+                self._layer_mask_logged = True
+            for i in range(self.nlayers):
+                use_sparse_i = bool(self.layer_sparse_mask[i])
+                seqs = self.transformer_layers[i](
+                    seqs,
+                    pair_rep_sparse if use_sparse_i else pair_rep_dense,
+                    c, mask,
+                    neighbor_idx=neighbor_idx if use_sparse_i else None,
+                    slot_valid=slot_valid if use_sparse_i else None,
+                )
         else:
             for i in range(self.nlayers):
                 seqs = self.transformer_layers[i](

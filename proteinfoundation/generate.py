@@ -300,6 +300,38 @@ def load_ckpt_n_configure_inference(cfg: Dict) -> Proteina:
             f"(trained at K=40)."
         )
 
+    # Per-layer sparse/dense routing (inference-only diagnostic; see
+    # script_utils/test_layer_selective_sparse_inference.py). When
+    # cfg.generation.args.layer_sparse_mask is a list of nlayers bools,
+    # each layer i uses sparse attention iff mask[i] is True. Required
+    # companion flag `force_sparse_attention_on=True` turns sparse_attention
+    # on post-load when the ckpt was dense-trained — no parameter changes,
+    # just enables the neighbor list at forward time.
+    layer_mask = cfg.generation.args.get("layer_sparse_mask", None)
+    force_sparse_on = cfg.generation.args.get("force_sparse_attention_on", False)
+    if force_sparse_on:
+        if not getattr(model.nn, "sparse_attention", False):
+            logger.info("[layer_sparse_mask] forcing model.nn.sparse_attention=True "
+                        "(was False from ckpt) — diagnostic on dense-trained weights.")
+            model.nn.sparse_attention = True
+    if layer_mask is not None:
+        layer_mask_list = [bool(x) for x in list(layer_mask)]
+        expected_len = getattr(model.nn, "nlayers", None)
+        assert expected_len is None or len(layer_mask_list) == expected_len, (
+            f"layer_sparse_mask len {len(layer_mask_list)} != nlayers {expected_len}"
+        )
+        assert getattr(model.nn, "sparse_attention", False), (
+            "layer_sparse_mask requires sparse_attention=True. "
+            "Set force_sparse_attention_on=True for a dense-trained ckpt."
+        )
+        model.nn.layer_sparse_mask = layer_mask_list
+        n_sparse = sum(layer_mask_list)
+        logger.info(
+            f"[layer_sparse_mask] per-layer routing ON: "
+            f"{n_sparse}/{len(layer_mask_list)} sparse, "
+            f"{len(layer_mask_list)-n_sparse} dense. Mask: {layer_mask_list}"
+        )
+
     return model
 
 

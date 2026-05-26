@@ -1,0 +1,65 @@
+# Sparse-attention "dense match" sanity arm.
+#
+# Goal: prove (or disprove) that the sparse-attention code path is numerically
+# equivalent to dense when every query is allowed to attend to every residue.
+# At maxl=512, n_seq=256 → k_seq = min(2*n_seq, N) = N for any N≤512, so each
+# query's neighbor list contains every valid residue exactly once (self lands
+# in slot 0 of the sequential group via seq_dist[i,i]=0). Spatial and random
+# groups are zero-sized → no padding overhead beyond the sequential cap.
+#
+# Differences vs `ca_only_sparse_160M.yaml`: ONLY the three sparse_*_neighbors
+# values. Everything else (depth/width/feats/pair config) is byte-equivalent
+# to the baseline NN config so the comparison stays clean.
+#
+# Hypothesis: if this arm matches the dense baseline within noise, the sparse
+# implementation is correct and the K=40 quality gap is genuinely about
+# coverage. If it does NOT match, the sparse path itself has a bug (gather,
+# masking, attention computation, slot_valid handling, or the rebuilt-each-
+# forward neighbor list).
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Match baseline: no pair update, no triangular multiplication, no downsampling.
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# DENSE-MATCH sparse arm. K_seq = min(2*256, N) = N, K_sp = K_rnd = 0.
+# Every query attends to every valid residue. Pair-rep tensor is
+# [b, n, K=512, pair_dim] when N=maxl=512; at shorter N the cap shrinks
+# automatically and the padding slots get masked via slot_valid.
+sparse_attention: true
+n_seq_neighbors: 256     # 2*256 = 512 sequential cap → equals N at maxl=512
+n_spatial_neighbors: 0
+n_random_neighbors: 0
