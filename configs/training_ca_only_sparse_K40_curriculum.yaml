@@ -1,0 +1,113 @@
+# K=40 sparse-attention variant + 3-bucket curriculum + self-inclusion.
+#
+# Architecture is the canonical K=40 (8/8/16) — reuses ca_only_sparse_160M.yaml
+# directly (no new NN config; the static composition already matches the
+# high-t bucket of the curriculum below).
+#
+# RECIPE: locked to the canonical OLD recipe (wd=0.05, constant LR=2e-4).
+# Same recipe as ca_only_sparse_K40 and ca_only_sparse_K64_curriculum_self —
+# the only deltas vs ca_only_sparse_K40 are the three `curriculum_*` flags.
+# Self-inclusion in the neighbor list is on automatically since commit
+# fbcc1ec (2026-05-08); no separate flag.
+#
+# Schedule (hard curriculum, K=40 analogue of the K=64 SALAD-canonical one):
+#   t < 0.33      : (n_seq=20, n_sp=0,  n_rd=0)  = 40  (sequential-only)
+#   0.33 ≤ t<0.66 : (n_seq=14, n_sp=4,  n_rd=8)  = 40  (interpolate)
+#   t ≥ 0.66      : (n_seq=8,  n_sp=8,  n_rd=16) = 40  (matches static K=40)
+# K stays 40 throughout; only the (n_seq, n_spatial, n_random) split shifts.
+run_name_: ca_only_sparse_K40_curriculum_self
+
+hardware:
+  ncpus_per_task_train_: 24
+  ncpus_per_task_prepro_: 24
+  accelerator: gpu
+  ngpus_per_node_: 1
+  nnodes_: 1
+
+defaults:
+  - dataset: pdb/pdb_train_ucond
+  - nn: ca_only_sparse_160M          # static K=40 architecture
+  - generation: validation_local_latents
+  - _self_
+
+pretrain_ckpt_path:
+
+product_flowmatcher:
+  bb_ca:
+    zero_com_noise: True
+    guidance_enabled: True
+    dim: 3
+
+loss:
+  t_distribution:
+    bb_ca:
+      name: mix_unif_beta
+      p1: 1.9
+      p2: 1.0
+      p3: 0.02
+    shared_groups:
+
+force_precision_f32: False
+
+dataset:
+  datamodule:
+    dataselector:
+      worst_resolution: 2.0
+
+training:
+  n_recycle: 0
+  motif_conditioning: False
+  self_cond: True
+  p_folding_n_inv_folding_iters: 0.0
+  use_precomputed_latents: False
+  # K=40 curriculum. Total K=40 is fixed by the NN architecture; the per-bucket
+  # (n_seq, n_spatial, n_random) splits are reallocated as a function of
+  # per-protein t. Each split must satisfy 2*n_seq + n_sp + n_rd == 40
+  # (asserted in LocalLatentsTransformer._build_neighbor_idx).
+  curriculum_neighbors: True
+  curriculum_low_t_split:  [20, 0, 0]    # t<0.33    — sequential-only
+  curriculum_mid_t_split:  [14, 4, 8]    # 0.33≤t<.66 — interpolate
+  curriculum_high_t_split: [8,  8, 16]   # t≥0.66    — matches static K=40
+
+lora:
+  r: null
+  lora_alpha: 32.0
+  lora_dropout: 0.0
+  train_bias: none
+
+# OLD recipe — DO NOT change wd or add a scheduler block.
+# Constant LR=2e-4 by omitting `scheduler:`. See proteina.py — sched_cfg=None
+# → returns optimizer alone (no LR schedule).
+opt:
+  lr: 0.0002
+  max_epochs: 10000000
+  accumulate_grad_batches: 32
+  skip_nan_grad: False
+  grad_and_weight_analysis: False
+  dist_strategy: auto
+  val_check_interval: 2000
+  weight_decay: 0.05
+  # compile_nn deliberately OFF: keep wall-clock characteristic of the K=40
+  # rerun close to the original K=40 training (which didn't use compile).
+  # K=40 doesn't have the same gather-bandwidth pressure as K=64, where
+  # compile was on to recover some of the per-step disadvantage. Flip to
+  # True later if throughput becomes the bottleneck.
+
+log:
+  wandb_project: laproteina
+  log_wandb: True
+  log_every_n_steps: 1
+  checkpoint: True
+  checkpoint_every_n_steps: 10000
+  last_ckpt_every_n_steps: 500
+
+seed: 42
+
+ema:
+  decay: 0.999
+  validate_original_weights: False
+  every_n_steps: 5
+  cpu_offload: False
+
+single: False
+nolog: False

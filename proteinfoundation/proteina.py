@@ -159,6 +159,34 @@ class Proteina(L.LightningModule):
         else:
             raise IOError(f"Wrong nn selected for CAFlow {cfg_exp.nn.name}")
 
+        # Move-2: load + attach the frozen router for router-supplied K-set
+        # attention. Triggered by both cfg_exp.nn.router_sparse_K (controls the
+        # trunk's layer type) and cfg_exp.router.ckpt_path (controls which
+        # router weights to load). They must agree — both set, or both absent.
+        router_K = cfg_exp.nn.get("router_sparse_K", None)
+        router_cfg = cfg_exp.get("router", None)
+        if router_K is not None:
+            assert router_cfg is not None and router_cfg.get("ckpt_path", None) is not None, (
+                f"cfg.nn.router_sparse_K={router_K} requires cfg.router.ckpt_path to be set."
+            )
+            from script_utils.load_frozen_router import load_frozen_router
+            ckpt_path = router_cfg.ckpt_path
+            logger.info(f"[Move-2] loading frozen router from {ckpt_path}")
+            router = load_frozen_router(ckpt_path, map_location="cpu")
+            # The router runs in fp32 (its native saved dtype). Keep it fp32 here;
+            # device placement happens when Lightning calls .to(device).
+            self.nn.attach_router(router)
+            n_router_params = sum(p.numel() for p in router.parameters())
+            logger.info(
+                f"[Move-2] router attached: {n_router_params:,} frozen params "
+                f"({n_router_params * 4 / 1e6:.1f} MB in fp32)."
+            )
+        elif router_cfg is not None and router_cfg.get("ckpt_path", None) is not None:
+            raise ValueError(
+                "cfg.router.ckpt_path is set but cfg.nn.router_sparse_K is not. "
+                "Set cfg.nn.router_sparse_K=64 to enable router-sparse attention."
+            )
+
         # Optional torch.compile of the trunk. fullgraph=False so the per-bucket
         # Python loop in _build_neighbor_idx (curriculum path) graph-breaks
         # cleanly without erroring; mode="reduce-overhead" is the steady-state

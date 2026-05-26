@@ -11,6 +11,9 @@ from proteinfoundation.nn.modules.seq_transition_af3 import Transition
 from proteinfoundation.nn.modules.pair_rep_initial import PairReprBuilder
 from proteinfoundation.nn.modules.downsampling import DownsampleBlock, UpsampleBlock
 from proteinfoundation.nn.modules.sparse_neighbors import build_neighbor_idx
+from proteinfoundation.nn.modules.pair_bias_attn_sparse import (
+    MultiheadAttnAndTransitionRouterSparse,
+)
 
 
 def get_atom_mask(device: torch.device = None):
@@ -78,23 +81,66 @@ class LocalLatentsTransformer(torch.nn.Module):
             **kwargs,
         )
 
+        # Move-2 router-supplied sparse attention. Set router_sparse_K>0 to
+        # restrict every attention layer to a K-set produced externally by a
+        # frozen router. The router itself is attached via .attach_router(...)
+        # after construction (so it doesn't go through hydra's instantiate).
+        # When router_sparse_K is None, this is a bit-identical no-op.
+        self._router_sparse_K = kwargs.get("router_sparse_K", None)
+        self._nheads = kwargs["nheads"]
+        self._router = None  # populated by attach_router(router)
+        if self._router_sparse_K is not None:
+            assert int(self._router_sparse_K) > 0
+            # Read incompatible-flag values directly from kwargs (the corresponding
+            # self.* attributes are set later in __init__; checking kwargs avoids
+            # an ordering bug).
+            assert not bool(kwargs.get("sparse_attention", False)), (
+                "router_sparse_K is incompatible with sparse_attention=True "
+                "(neighbor-list based) — pick one routing scheme."
+            )
+            assert not self.use_downsampling, (
+                "router_sparse_K is incompatible with use_downsampling."
+            )
+            assert int(kwargs.get("n_global_tokens", 0)) == 0, (
+                "router_sparse_K with n_global_tokens>0 not implemented "
+                "(would need to extend K-set with global indices)."
+            )
+            print(
+                f"[Move-2] router_sparse_K={int(self._router_sparse_K)}: "
+                f"every attention layer will gather K-set from frozen router."
+            )
+
         # Trunk layers
-        self.transformer_layers = torch.nn.ModuleList(
-            [
-                MultiheadAttnAndTransition(
-                    dim_token=self.token_dim,
-                    dim_pair=self.pair_repr_dim,
-                    nheads=kwargs["nheads"],
-                    dim_cond=kwargs["dim_cond"],
-                    residual_mha=True,
-                    residual_transition=True,
-                    parallel_mha_transition=False,
-                    use_attn_pair_bias=True,
-                    use_qkln=self.use_qkln,
-                )
-                for _ in range(self.nlayers)
-            ]
-        )
+        if self._router_sparse_K is None:
+            self.transformer_layers = torch.nn.ModuleList(
+                [
+                    MultiheadAttnAndTransition(
+                        dim_token=self.token_dim,
+                        dim_pair=self.pair_repr_dim,
+                        nheads=kwargs["nheads"],
+                        dim_cond=kwargs["dim_cond"],
+                        residual_mha=True,
+                        residual_transition=True,
+                        parallel_mha_transition=False,
+                        use_attn_pair_bias=True,
+                        use_qkln=self.use_qkln,
+                    )
+                    for _ in range(self.nlayers)
+                ]
+            )
+        else:
+            self.transformer_layers = torch.nn.ModuleList(
+                [
+                    MultiheadAttnAndTransitionRouterSparse(
+                        dim_token=self.token_dim,
+                        dim_pair=self.pair_repr_dim,
+                        nheads=kwargs["nheads"],
+                        dim_cond=kwargs["dim_cond"],
+                        use_qkln=self.use_qkln,
+                    )
+                    for _ in range(self.nlayers)
+                ]
+            )
 
         # To update pair representations if needed
         if self.update_pair_repr:
@@ -131,19 +177,22 @@ class LocalLatentsTransformer(torch.nn.Module):
                 f"present; otherwise falls back to x_t."
             )
 
-        # Neighbor-list curriculum: reallocate the K=64 budget across
+        # Neighbor-list curriculum: reallocate the K budget across
         # (sequential, spatial, random) groups as a function of t while keeping
-        # the total K constant. At low t (noisy x_t), spend the entire budget on
-        # sequential neighbors (which are t-invariant); at high t, recover the
-        # SALAD canonical composition (8 seq per side / 16 spatial / 32 random).
-        # The softmax always operates over K=64 real slots — only what fills
-        # them shifts. Per-protein t is supported (training: every protein in a
-        # batch can land in a different bucket; inference: t is uniform across
-        # the batch and the proteins all fall in the same bucket together).
-        # Default off so existing checkpoints / training are unchanged.
-        # NOTE: this schedule replaces an earlier K=40 inference-only schedule
-        # (E044/E045 era) — the flag name is kept but the per-bucket counts and
-        # total K have changed; that is intentional.
+        # the total K constant. At low t (noisy x_t), spend more of the budget
+        # on sequential neighbors (which are t-invariant); at high t, recover
+        # the architecture's static composition. The softmax always operates
+        # over K real slots — only what fills them shifts. Per-protein t is
+        # supported (training: every protein in a batch can land in a different
+        # bucket; inference: t is uniform across the batch and the proteins
+        # all fall in the same bucket together). Default off so existing
+        # checkpoints / training are unchanged.
+        #
+        # Defaults for the three split kwargs match the original K=64 schedule
+        # (commit fbcc1ec) for backward compatibility with the existing K=64
+        # curriculum training configs. For K!=64, all three splits MUST be
+        # overridden in the training config and sum to the architecture's K.
+        # The assert in `_build_neighbor_idx` enforces sum==K at runtime.
         self.curriculum_neighbors = kwargs.get("curriculum_neighbors", False)
 
         # Low-t bucket override. Default (32, 0, 0) is sequential-only at t<0.33
@@ -251,6 +300,143 @@ class LocalLatentsTransformer(torch.nn.Module):
             torch.nn.LayerNorm(self.token_dim),
             torch.nn.Linear(self.token_dim, 3, bias=False),
         )
+
+    def attach_router(self, router: torch.nn.Module):
+        """Register a frozen router as a submodule for Move-2 router-sparse
+        attention. The router is held under self._router (registered via
+        add_module so it moves with .to(device) and casts with .half()/.bfloat16(),
+        but its params have requires_grad=False so the optimizer skips them
+        and EMA never sees them — see Proteina.configure_optimizers which
+        filters by requires_grad).
+        """
+        assert self._router_sparse_K is not None, (
+            "attach_router called but trunk was not built with router_sparse_K. "
+            "Set router_sparse_K=64 in the nn config to enable router-sparse mode."
+        )
+        for p in router.parameters():
+            assert not p.requires_grad, (
+                "Router must be frozen (requires_grad=False on every param) "
+                "before attach_router. See script_utils/load_frozen_router.py."
+            )
+        # nn.Module.__setattr__ registers the module automatically. The earlier
+        # `self._router = None` in __init__ was a plain attribute (None isn't a
+        # Module), and reassigning to a Module here triggers registration.
+        self._router = router
+
+    def _router_K_set(
+        self,
+        layer_input: torch.Tensor,   # [B, N, token_dim]
+        layer_idx: int,
+        t: torch.Tensor,             # [B] float in [0, 1]
+        coords_nm: torch.Tensor,     # [B, N, 3]
+        mask: torch.Tensor,          # [B, N] bool
+        precomputed_rbf: torch.Tensor = None,  # [B, N, N, n_rbf] cached once / forward
+    ) -> tuple:
+        """Compute the per-(batch, head, query) K-set for layer `layer_idx`.
+
+        Self-inclusion is enforced by masking the diagonal to -inf before the
+        router's top-(K-1), then prepending the query's own index at slot 0.
+
+        Per-protein validity: top-(K-1) is taken globally over the padded
+        sequence dim (so every protein in a mixed-length batch gets the full
+        K-1 router budget when its real length permits). slot_valid is then
+        derived per-(batch, head, query, slot) from the sequence mask + a
+        not-self check on the picked index — short proteins automatically
+        get the surplus slots masked out, long proteins keep all 63.
+
+        N_pad < K-1 degenerate case: top-(min(K-1, N_pad-1)) and pad the tail
+        of the K-set with self-index + slot_valid=False so the final shape
+        is always [B, H, N, K].
+
+        Returns:
+            router_neighbor_idx: [B, H, N, K] int64
+            slot_valid:          [B, H, N, K] bool — True for real K-set entries
+        """
+        K = int(self._router_sparse_K)
+        B, N, _ = layer_input.shape
+        H = self._nheads
+        device = layer_input.device
+
+        # Speedup: keep tensors in trunk-native dtype (bf16 under Lightning's
+        # bf16-mixed autocast), and re-enable autocast inside the no_grad block
+        # so the router's fp32 weights upcast bf16 inputs on the fly. The earlier
+        # force-cast to fp32 was ~2× slower per router call and burned bandwidth
+        # on the 14 per-layer invocations × 32 accum micro-batches.
+        # Detach so gradients never flow back through the router.
+        ri = layer_input.detach()
+        coords_router = coords_nm.detach() if coords_nm is not None else None
+        t_router = t.detach()
+        # precomputed_rbf may be in any dtype; pass it through.
+
+        with torch.no_grad(), torch.amp.autocast(
+            device_type="cuda" if layer_input.is_cuda else "cpu",
+            dtype=torch.bfloat16,
+            enabled=layer_input.is_cuda,
+        ):
+            # Router signature depends on whether t-emb is on (TopKRouterT vs TopKRouter).
+            try:
+                scores = self._router.forward_one_layer(
+                    layer_input=ri, layer_idx=layer_idx,
+                    t=t_router, coords_nm=coords_router,
+                    precomputed_rbf=precomputed_rbf,
+                )                                                    # [B, H, N, N]
+            except TypeError:
+                # Plain TopKRouter (no t arg).
+                scores = self._router.forward_one_layer(
+                    layer_input=ri, layer_idx=layer_idx,
+                    coords_nm=coords_router,
+                    precomputed_rbf=precomputed_rbf,
+                )
+
+            # Mask padding keys to -inf so the router never picks them.
+            key_mask = mask.view(B, 1, 1, N).expand(B, H, N, N)
+            scores = scores.masked_fill(~key_mask, float("-inf"))
+            # Mask self (diagonal) to -inf so top-(K-1) excludes self; we prepend it below.
+            eye_mask = torch.eye(N, dtype=torch.bool, device=device).view(1, 1, N, N)
+            scores = scores.masked_fill(eye_mask, float("-inf"))
+
+            # Take top-(K-1) over the full padded sequence dim. Capped at N-1
+            # so the call is valid when N_pad < K-1 (smoke tests, very short
+            # trainings); this cap is on the *padded* dim, not per-protein
+            # real length — avoids the prior bug where the shortest protein
+            # in the batch capped K_router for every protein and silently
+            # under-budgeted long proteins.
+            K_router = min(K - 1, max(0, N - 1))
+            top_idx = scores.topk(K_router, dim=-1).indices          # [B, H, N, K_router]
+
+            # Per-(b, h, q, slot) validity. A router-picked key j is a real
+            # slot iff (a) mask[b, j] (not a pad residue) AND (b) j != q
+            # (not self — self is added separately at slot 0). Picks landing
+            # on padded keys arise naturally when the protein's real length
+            # is less than K-1, since those keys have score=-inf and topk
+            # falls back to arbitrary tied -inf positions.
+            mask_picked = (
+                mask.view(B, 1, 1, N).expand(B, H, N, N)
+                    .gather(-1, top_idx)
+            )                                                        # [B, H, N, K_router]
+            self_idx_bcast = torch.arange(N, device=device).view(1, 1, N, 1)
+            not_self = top_idx != self_idx_bcast                     # [B, H, N, K_router]
+            router_slot_valid = mask_picked & not_self
+
+            # Self always at slot 0 with slot_valid=True.
+            self_idx = self_idx_bcast.expand(B, H, N, 1)
+            self_slot_valid = torch.ones(B, H, N, 1, dtype=torch.bool, device=device)
+
+            # Tail self-pad if N_pad < K-1 — only triggers in tiny smoke tests.
+            pad_K = K - 1 - K_router
+            pieces = [self_idx, top_idx]
+            slot_pieces = [self_slot_valid, router_slot_valid]
+            if pad_K > 0:
+                pad_self_idx = self_idx_bcast.expand(B, H, N, pad_K)
+                pieces.append(pad_self_idx)
+                slot_pieces.append(
+                    torch.zeros(B, H, N, pad_K, dtype=torch.bool, device=device)
+                )
+
+            router_neighbor_idx = torch.cat(pieces, dim=-1)          # [B, H, N, K]
+            slot_valid_t = torch.cat(slot_pieces, dim=-1)            # [B, H, N, K]
+            assert router_neighbor_idx.shape == (B, H, N, K)
+            return router_neighbor_idx, slot_valid_t
 
     def _build_neighbor_idx(
         self,
@@ -611,17 +797,53 @@ class LocalLatentsTransformer(torch.nn.Module):
             )
 
         # Run trunk
-        for i in range(self.nlayers):
-            seqs = self.transformer_layers[i](
-                seqs, pair_rep, c, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
-            )  # [b, n, token_dim]
-
-            if self.update_pair_repr:
-                if i < self.nlayers - 1:
-                    if self.pair_update_layers[i] is not None:
+        if self._router_sparse_K is not None:
+            assert self._router is not None, (
+                "router-sparse trunk has no router attached. "
+                "Call self.attach_router(router) after construction."
+            )
+            t_router = input["t"]["bb_ca"]                       # [B]
+            coords_router = input["x_t"]["bb_ca"]                # [B, N, 3] nm
+            # Speedup: RBF features depend only on coords (not on layer_idx) —
+            # compute once per forward pass instead of 14×. ~13× fewer RBF
+            # evals; the RBF tensor itself ([B, N, N, n_rbf]) is shared by all
+            # 14 _router_K_set calls below.
+            rbf_cached = None
+            if getattr(self._router, "pair_features", False):
+                with torch.no_grad(), torch.amp.autocast(
+                    device_type="cuda" if seqs.is_cuda else "cpu",
+                    dtype=torch.bfloat16,
+                    enabled=seqs.is_cuda,
+                ):
+                    rbf_cached = self._router._compute_rbf(coords_router.detach())
+            for i in range(self.nlayers):
+                router_neighbor_idx, slot_valid_router = self._router_K_set(
+                    layer_input=seqs, layer_idx=i,
+                    t=t_router, coords_nm=coords_router, mask=mask,
+                    precomputed_rbf=rbf_cached,
+                )
+                seqs = self.transformer_layers[i](
+                    seqs, pair_rep, c, mask,
+                    router_neighbor_idx=router_neighbor_idx,
+                    slot_valid=slot_valid_router,
+                )
+                if self.update_pair_repr:
+                    if i < self.nlayers - 1 and self.pair_update_layers[i] is not None:
                         pair_rep = self.pair_update_layers[i](
-                            seqs, pair_rep, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
+                            seqs, pair_rep, mask, neighbor_idx=None, slot_valid=None
                         )
+        else:
+            for i in range(self.nlayers):
+                seqs = self.transformer_layers[i](
+                    seqs, pair_rep, c, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
+                )  # [b, n, token_dim]
+
+                if self.update_pair_repr:
+                    if i < self.nlayers - 1:
+                        if self.pair_update_layers[i] is not None:
+                            pair_rep = self.pair_update_layers[i](
+                                seqs, pair_rep, mask, neighbor_idx=neighbor_idx, slot_valid=slot_valid
+                            )
 
         # Strip globals before the output head — output stays [B, N, *] over real residues.
         if self.n_global_tokens > 0:
