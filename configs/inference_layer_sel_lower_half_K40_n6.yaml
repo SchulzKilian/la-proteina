@@ -1,0 +1,25 @@
+# Follow-up to the 16-cell layer-selective diagnostic: lower-half-sparse at K=40
+# (SALAD-canonical K-decomp) with N=6 × L∈{50, 100, 200}.
+# K=128 / K=64 in the 16-cell sweep are well above L for short proteins, so the
+# sparse path saturates and degenerates to dense; K=40 is the standard sparse
+# regime and gives a clean test of whether lower-half-sparse keeps its
+# all_dense-comparable behaviour at the trained K.
+defaults:
+  - inference_layer_sel_base
+  - _self_
+
+config_name: inference_layer_sel_lower_half_K40_n6
+
+generation:
+  args:
+    # Layers 0-6 sparse, layers 7-13 dense — same split as lower_half_sparse cells.
+    layer_sparse_mask: [true, true, true, true, true, true, true, false, false, false, false, false, false, false]
+    # K=40: 2*n_seq + n_spatial + n_random = 2*8 + 8 + 16 = 40 (SALAD canonical).
+    n_seq_neighbors_override: 8
+    n_spatial_neighbors_override: 8
+    n_random_neighbors_override: 16
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

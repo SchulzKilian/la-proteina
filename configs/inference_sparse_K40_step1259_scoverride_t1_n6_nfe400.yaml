@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_scoverride_t1_n6_nfe400
+config_name: inference_sparse_K40_step1259_scoverride_t1_n6_nfe400
+
+# Aggressive variant of inference_sparse_K40_step1259_scoverride_n6_nfe400:
+# threshold = 1.0 means ALWAYS use the previous-step x_sc-built neighbor list,
+# at every step of the integrator (after the step-0 bootstrap forward fills
+# x_sc). At low t (noisy regime) this is the same swap as the 0.4 config; at
+# high t (near-clean regime) it picks x_sc (previous-step denoised estimate)
+# over x_t (current noisy state) — both are close to clean by then, so the
+# topology change is small but non-zero. Distribution-shift test on a trunk
+# trained sc_neighbors=False; cousins (the 0.4 config and the trained-with-Fix-C2
+# scnbr_t04 ckpt) were washes at N=6.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_override: true
+    sc_neighbors_t_threshold_override: 1.0
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

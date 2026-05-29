@@ -32,6 +32,10 @@ from proteinfoundation.generate import (
     save_predictions,
     check_cfg_validity,
 )
+from proteinfoundation.utils.performance_utils import (
+    measure_performance,
+    save_performance_metrics,
+)
 
 torch.set_float32_matmul_precision("high")
 
@@ -212,7 +216,10 @@ def main(cfg: Dict) -> None:
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
     trainer = L.Trainer(accelerator="gpu", devices=1)
-    predictions = trainer.predict(model_B, dataloader)
+    perf_results = {}
+    with measure_performance(perf_results, task_name=config_name) as metrics:
+        predictions = trainer.predict(model_B, dataloader)
+    save_performance_metrics(root_path, config_name, metrics)
 
     # Persist the kink log next to the run output for downstream analysis.
     import json

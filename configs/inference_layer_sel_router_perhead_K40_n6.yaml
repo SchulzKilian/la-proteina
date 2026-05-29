@@ -1,0 +1,38 @@
+# Per-(layer, head) router K=40 on the lower 7 layers of dense E019 step-2646.
+# Successor to inference_layer_sel_router_lower_K40_n6.yaml (which mean-pooled
+# router scores across heads — see E090 note). The router was trained per-
+# (layer, head, query) (KL vs dense's per-(l, h) top-K), so per-head K-sets
+# are the proper consumption pattern.
+#
+# Mechanism (generate.py:load_ckpt_n_configure_inference router block):
+#   - For each lower layer i ∈ [0..6], the MHA module is swapped from
+#     MultiHeadBiasedAttentionADALN_MM (per-layer sparse / dense) →
+#     MultiHeadBiasedAttentionADALN_MM_RouterSparse (per-(head) sparse).
+#     Trained weights transfer bit-identically (parameter layouts match per
+#     pair_bias_attn_sparse.py:42-46).
+#   - At each ODE step:
+#       PASS 1: original blocks + all-dense mask → capture per-layer inputs.
+#       ROUTER: per-(layer, head, query) top-40 → router_neighbor_idx_i [B, H, N, K].
+#       PASS 2: swap router-sparse blocks in, pair_rep_dense to all positions,
+#               swapped blocks read per-head K-set from cache. Restore after.
+# Cost: 2× trunk forward per ODE step.
+defaults:
+  - inference_layer_sel_base
+  - _self_
+
+config_name: inference_layer_sel_router_perhead_K40_n6
+
+generation:
+  args:
+    layer_sparse_mask: [true, true, true, true, true, true, true, false, false, false, false, false, false, false]
+    n_seq_neighbors_override: 8
+    n_spatial_neighbors_override: 8
+    n_random_neighbors_override: 16
+    router_ckpt_path: /home/ks2218/la-proteina/router_final.pt
+    router_K: 40
+    router_lower_layers: [0, 1, 2, 3, 4, 5, 6]
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

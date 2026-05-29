@@ -1,0 +1,27 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_scoverride_t07_n6_nfe400
+config_name: inference_sparse_K40_step1259_scoverride_t07_n6_nfe400
+
+# Midpoint between the wash-at-t<0.4 ([E082] 5/18) and regression-at-t<1.0
+# ([E082] 3/18) sc_neighbors override arms on the canonical sparse-K40 ckpt
+# (trained sc_neighbors=False). t<0.7 means the noisy and mid-noisy regimes
+# both get clean-coord-built neighbors; the high-t/clean regime keeps x_t-built
+# neighbors (where the trunk was trained).
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_override: true
+    sc_neighbors_t_threshold_override: 0.7
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

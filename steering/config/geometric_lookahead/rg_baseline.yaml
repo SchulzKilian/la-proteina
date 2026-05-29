@@ -1,0 +1,23 @@
+# Rg steering, BASELINE: plain classifier guidance, constant/scheduled lambda,
+# NO look-ahead throttle (s == 1). Contrast arm for the ablation.
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: baseline
+  objectives:
+    - property: rg
+      direction: maximize   # expand backbone; also supports direction: target + target_value (nm)
+      weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 32.0             # = lambda0
+    t_start: 0.3
+    t_end: 0.8
+  proxy:
+    bond_target_nm: 0.38
+    clash_radius_nm: 0.40
+    lambda_clash: 1.0
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true

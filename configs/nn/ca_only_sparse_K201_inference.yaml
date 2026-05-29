@@ -1,0 +1,76 @@
+# Inference-only NN config for the `ca_only_sparse_K64_stochastic_p030` family of ckpts
+# (and any other K=64/K=64-stochastic trained sparse-attention ckpts).
+#
+# **K=201 (≈ dense for L ≤ 200)**
+#   K = 2*n_seq + n_spatial + n_random = 2*100 + 1 + 0 = 201
+#
+# Rationale: the stochastic_k=0.30 training schedule fires ~30% of forward passes
+# with K=full (`n_seq=ceil(N/2), n_sp=0, n_rd=0`), which is effectively dense
+# attention for all training lengths. For L∈{50, 100, 200} the entire protein fits
+# in the sequential budget of K=201:
+#   L=50:  k_seq=min(200, 50)=50   → all residues covered by sequential slots alone
+#   L=100: k_seq=min(200,100)=100  → all residues covered
+#   L=200: k_seq=min(200,200)=200  → all residues covered
+# The 1 spatial slot is wasted / may duplicate a sequential pick, but the
+# `slot_valid` mask in `sparse_neighbors.py:121-127` handles out-of-range indices
+# harmlessly.
+#
+# **This is an inference-only config — do NOT use for training.**
+# Attention weights are K-agnostic (per-token Q/K/V + per-pair bias), so loading
+# a K=64-trained ckpt into this config is mechanically valid without retraining.
+# The model was never trained at K=201 specifically, but it saw K=full (~K=N dense)
+# during stochastic_k passes, making this the closest supported inference mode.
+#
+# All non-sparse keys are byte-for-byte identical to
+# `ca_only_sparse_K64_curriculum_160M.yaml`. Do not change them — the loaded ckpt
+# must match.
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Match baseline: no pair update, no triangular multiplication, no downsampling.
+# Deliberately one-axis: K=201 inference (dense-equivalent for L≤200). update_pair_repr
+# stays False (separate axis, deferred). use_tri_mult MUST stay False under
+# sparse — pair_update.py:65 raises if combined with sparse.
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# K=201 sparse attention — dense-equivalent for all L ≤ 201.
+# K = 2*100 + 1 + 0 = 201.
+# For L≤200 the sequential budget alone covers every residue; the 1 spatial
+# slot is harmlessly masked when no additional spatial neighbor exists.
+sparse_attention: true
+n_seq_neighbors: 100       # sequential per side → up to 200 sequential total
+n_spatial_neighbors: 1     # 1 spatial slot (wasted/masked for L≤200; harmless)
+n_random_neighbors: 0      # no random sampling needed — seq covers all of L≤200

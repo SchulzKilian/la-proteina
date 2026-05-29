@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv2961_to_canonical2646_t06_n6_nfe400
+config_name: inference_hybrid_conv2961_to_canonical2646_t06_n6_nfe400
+
+# Best-ckpt hybrid: conv step 2961 (E053 ceiling) → canonical step 2646
+# (E019 76% N=30). Same t_switch as E088 conv→canonical but using strict-best
+# ckpts for both legs. Tests whether E088's 10/18 (with step 2331 + step 2457)
+# tightens further with better ckpts.
+ckpt_path_a: /home/ks2218/la-proteina
+ckpt_name_a: best_val_00000029_000000002961.ckpt   # conv step 2961 (best)
+ckpt_path_b: /home/ks2218/la-proteina
+ckpt_name_b: best_val_00000026_000000002646.ckpt   # canonical step 2646 (best)
+t_switch: 0.6
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000029_000000002961.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: false   # canonical isn't Fix-C2-trained; bootstrap moot but explicit
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

@@ -6,19 +6,22 @@ defaults:
 run_name_: laproteina_canonical_step2646_n6_nfe400
 config_name: inference_canonical_step2646_n6_nfe400
 
-# Sanity probe of the canonical dense ckpt (test_ca_only_diffusion/1776805213
-# step 2646) via the canonical Hydra inference pipeline. Reference point
-# for cross-checking dense_self_sparsify_per_lh's baseline arm — if this
-# canonical N=6 probe gives ~5-6/6 designable at L=50/L=100 (matching E019
-# N=30's 87%/87%), and the script's bespoke baseline gives 1-2/3, the
-# script's setup is degrading inference.
+# Canonical-alone at step 2646, N=6 × L∈{50,100,200} × seed=5 × nsteps=400.
+# Reference probe for the E041/E088/E089 hybrid value-add disambiguation.
+# E019 has step 2646 at N=30 but different seed; this entry locks the seed=5
+# N=6 number for clean delta-vs-hybrid analysis at matched protocol.
+# Previous version of this YAML had nres_lens=[50, 100] only — L=200 added
+# 2026-05-26 to complete the comparison; old CSV preserved as
+# results_*.csv.preL200_backup.
 ckpt_path: /home/ks2218/la-proteina
 ckpt_name: best_val_00000026_000000002646.ckpt
 autoencoder_ckpt_path:
 
 generation:
+  args:
+    nsteps: 400
   dataset:
     nsamples: 6
     max_nsamples_per_batch: 6
     nlens_cfg:
-      nres_lens: [50, 100]
+      nres_lens: [50, 100, 200]

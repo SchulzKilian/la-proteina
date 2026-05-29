@@ -33,6 +33,7 @@ from proteinfoundation.generate import load_ckpt_n_configure_inference, parse_ar
 from proteinfoundation.utils.pdb_utils import write_prot_to_pdb
 from steering.guide import SteeringGuide
 from steering.guide_coords import SteeringGuideCoords
+from steering.guide_geometric import GeometricLookaheadGuide
 
 logger = logging.getLogger(__name__)
 
@@ -225,9 +226,17 @@ def main():
     # Set device for steering predictor to match model
     steering_cfg["device"] = str(device)
 
-    # Build steering guide. `steering.use_coords: true` selects the
-    # CA-conditioned guide; default False preserves the existing latent-only path.
-    if steering_cfg.get("use_coords", False):
+    # Build steering guide.
+    #   steering.method: geometric_lookahead  -> closed-form Cα look-ahead guide
+    #   steering.use_coords: true             -> CA-conditioned learned predictor
+    #   (default)                             -> latent-only learned predictor
+    method = steering_cfg.get("method", None)
+    if method == "geometric_lookahead" or steering_cfg.get("use_geometric", False):
+        guide = GeometricLookaheadGuide(steering_cfg)
+        logger.info("Steering: geometric look-ahead guide, enabled=%s, mode=%s, objectives=%s",
+                    guide.enabled, steering_cfg.get("mode", "lookahead_proportional"),
+                    steering_cfg.get("objectives", []))
+    elif steering_cfg.get("use_coords", False):
         guide = SteeringGuideCoords(steering_cfg)
         logger.info("Steering: CA-conditioned guide, enabled=%s, objectives=%s",
                     guide.enabled, steering_cfg.get("objectives", []))

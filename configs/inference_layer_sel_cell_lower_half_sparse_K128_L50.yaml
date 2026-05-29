@@ -1,0 +1,19 @@
+# Auto-generated cell of test_layer_selective_sparse_inference.py.
+# DO NOT EDIT BY HAND — regenerate by re-running the driver.
+defaults:
+  - inference_layer_sel_base
+  - _self_
+
+config_name: inference_layer_sel_cell_lower_half_sparse_K128_L50
+
+generation:
+  args:
+    layer_sparse_mask: [true, true, true, true, true, true, true, false, false, false, false, false, false, false]
+    n_seq_neighbors_override: 16
+    n_spatial_neighbors_override: 32
+    n_random_neighbors_override: 64
+  dataset:
+    nsamples: 30
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50]

@@ -1,0 +1,59 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K64_stochastic_p030_step1190_K201inf_n6_nfe400
+config_name: inference_sparse_K64_stochastic_p030_step1190_K201inf_n6_nfe400
+
+# N=6 × L∈{50,100,200} × nsteps=400 designability probe on the
+# `ca_only_sparse_K64_stochastic_p030` training run, step 1190,
+# with INFERENCE-TIME K=201 (dense-equivalent for all evaluated lengths).
+#
+# Companion to E080 (same ckpt, canonical K=64 inference: 2/0/0 designable).
+# This probe tests whether the 30% K=full training passes (stochastic_k=0.30)
+# generalise to dense inference: K=201 forces ≈ dense attention for
+# L∈{50, 100, 200} (all ≤ 201), matching the training-time K=full mode.
+#
+# HOW K=201 IS APPLIED: `Proteina.load_from_checkpoint` restores the model's
+# nn config from the checkpoint's own saved hyperparameters (cfg_exp.nn), not
+# from a Hydra nn: config-group entry. The NN config in the inference YAML
+# defaults block is therefore not honoured for the actual model architecture.
+# Instead, `generate.py:278-301` supports post-load K-bump overrides via:
+#   generation.args.n_seq_neighbors_override  (per side; actual sequential = 2×)
+#   generation.args.n_spatial_neighbors_override
+#   generation.args.n_random_neighbors_override
+# These attributes are written directly to model.nn after checkpoint loading,
+# and the sparse-attention path consumes them at every forward call.
+# The companion NN config `nn/ca_only_sparse_K201_inference.yaml` documents
+# the intended K split for reference, but the override keys below are the
+# operative mechanism.
+#
+# K=201 = 2*100 + 1 + 0:
+#   L=50:  k_seq=min(200, 50)=50   → all residues covered by sequential slots
+#   L=100: k_seq=min(200,100)=100  → all residues covered
+#   L=200: k_seq=min(200,200)=200  → all residues covered
+#   n_spatial_neighbors_override=1: 1 extra slot; wasted/masked for L≤200
+#     thanks to `slot_valid` masking in `sparse_neighbors.py:121-127`.
+#
+# Mechanically valid: attention weights are K-agnostic (per-token Q/K/V +
+# per-pair bias). The ckpt has seen dense-attention forwards during training
+# (stochastic_k=0.30 K=full passes). No retraining required.
+#
+# nsteps inherited from `inference_base.yaml` (=400) — HARD RULE, not overridden.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K64_stochastic_p030_step1190.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    curriculum_neighbors: False
+    # K=201 inference-time override (K = 2*100 + 1 + 0 = 201)
+    n_seq_neighbors_override: 100      # sequential per side → up to 200 sequential total
+    n_spatial_neighbors_override: 1    # 1 spatial slot (harmlessly masked for L≤200)
+    n_random_neighbors_override: 0     # no random needed — seq covers all of L≤200
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

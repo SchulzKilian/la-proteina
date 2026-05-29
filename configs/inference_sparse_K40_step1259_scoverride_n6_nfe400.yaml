@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_scoverride_n6_nfe400
+config_name: inference_sparse_K40_step1259_scoverride_n6_nfe400
+
+# Inference-only Fix C2 test on the canonical sparse-K40 ckpt (trained
+# sc_neighbors=False). The override mutates model.cfg_exp.training.sc_neighbors
+# AND model.nn.sc_neighbors post-load (see generate.py). Direct A/B against
+# inference_sparse_K40_step1259_baseline_n6_nfe400.yaml — same ckpt, same N=6,
+# same seed=5, same nsteps=400, same L. Difference: at t<0.4 the sparse
+# neighbor list is built from the previous-step x1_pred (x_sc) instead of the
+# noisy x_t. self_cond=True (inherited from inference_base.yaml) populates x_sc;
+# sc_neighbors_bootstrap=True (also inherited) does the step-0 extra forward.
+# Distribution-shift test — trunk never saw clean-coord-built neighbors at low t.
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_override: true
+    sc_neighbors_t_threshold_override: 0.4
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

@@ -42,7 +42,9 @@ from pathlib import Path
 import pandas as pd
 
 REPO_ROOT = Path("/home/ks2218/la-proteina")
-PYTHON_EXEC = "/home/ks2218/conda_envs/laproteina_env/bin/python"
+PYTHON_EXEC = os.environ.get(
+    "PYTHON_EXEC", "/home/ks2218/.conda/envs/laproteina_env/bin/python"
+)
 NLAYERS = 14
 BASE_CFG = "inference_layer_sel_base"
 BASELINE_CKPT = (

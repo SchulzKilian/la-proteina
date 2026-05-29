@@ -1,0 +1,34 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv2961_to_canonical2646_t04_n6_nfe400
+config_name: inference_hybrid_conv2961_to_canonical2646_t04_n6_nfe400
+
+# Earlier handover variant of the best-ckpt hybrid. t_switch=0.4 keeps conv in
+# the "essentially tied" t-bucket per Finding 11 (conv2331 +0.006 nat at
+# t∈[0.0,0.2), +0.040 at [0.2,0.4)). Hypothesis: smaller per-t-loss handicap
+# during conv prefix → smaller handover kink → better canonical recovery.
+# Counter-hypothesis from E040: t_switch=0.75 outperformed 0.6 because longer
+# B-time matters more than smaller kink. This probe resolves the t_switch sweep
+# direction at the best-ckpt setting.
+ckpt_path_a: /home/ks2218/la-proteina
+ckpt_name_a: best_val_00000029_000000002961.ckpt   # conv step 2961
+ckpt_path_b: /home/ks2218/la-proteina
+ckpt_name_b: best_val_00000026_000000002646.ckpt   # canonical step 2646
+t_switch: 0.4
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000029_000000002961.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: false
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

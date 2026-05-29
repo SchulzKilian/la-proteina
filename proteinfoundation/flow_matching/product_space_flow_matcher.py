@@ -776,6 +776,23 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                         nn_out_inner = self.nn_out_add_simulation_tensor(batch_inner, nn_out_inner)
                         return nn_out_inner["local_latents"]["v"]
 
+                    # Cα-channel probe for the "score_faithful" look-ahead throttle:
+                    # re-evaluate the model's bb_ca velocity AT a candidate Cα point
+                    # (the base/guided one-shot clean estimate), holding the other
+                    # modes at the current step's noisy state and the time at the
+                    # current bb_ca t. Returns v_theta(c_candidate, t) for bb_ca.
+                    # One extra model forward per call; only used when the guide's
+                    # proxy_type == "score_faithful". Other guides never call it.
+                    def _flow_step_fn_bb_ca(c_candidate):
+                        if "bb_ca" not in _outer_batch["x_t"]:
+                            return None
+                        batch_inner = {**_outer_batch}
+                        batch_inner["x_t"] = {**_outer_batch["x_t"], "bb_ca": c_candidate}
+                        nn_out_inner = predict_for_sampling(batch_inner, mode="full")
+                        nn_out_inner = self.nn_out_add_clean_sample_prediction(batch_inner, nn_out_inner)
+                        nn_out_inner = self.nn_out_add_simulation_tensor(batch_inner, nn_out_inner)
+                        return nn_out_inner["bb_ca"]["v"]
+
                     # bb_ca / v_bb_ca are forwarded as kwargs so a CA-conditioned
                     # guide can consume them; the default SteeringGuide accepts
                     # **_extra_kwargs and ignores them (additive, no behaviour
@@ -785,11 +802,17 @@ class ProductSpaceFlowMatcher(L.LightningModule):
                         nn_out["bb_ca"].get("v") if isinstance(nn_out, dict) and "bb_ca" in nn_out
                         else None
                     )
+                    # bb_ca and local_latents follow DIFFERENT sampling schedules,
+                    # so a bb_ca-channel guide needs the CA-channel time for its
+                    # (1-t) clean-estimate extrapolation, not t["local_latents"].
+                    # Existing latent/coord guides ignore t_bb_ca via **kwargs.
+                    _t_bb_ca = t["bb_ca"].flatten()[0].item() if "bb_ca" in t else _t_ll
                     _guidance, _ = steering_guide.guide(
                         z_t=x["local_latents"], v_theta=nn_out["local_latents"][_v_key],
                         t_scalar=_t_ll, mask=mask,
                         flow_step_fn=_flow_step_fn,
-                        bb_ca=_bb_ca, v_bb_ca=_v_bb_ca,
+                        flow_step_fn_bb_ca=_flow_step_fn_bb_ca,
+                        bb_ca=_bb_ca, v_bb_ca=_v_bb_ca, t_bb_ca=_t_bb_ca,
                     )
                     # Apply the guidance to whichever channel the guide named.
                     if _steer_channel == "local_latents":

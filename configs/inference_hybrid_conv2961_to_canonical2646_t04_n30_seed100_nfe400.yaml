@@ -1,0 +1,34 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv2961_to_canonical2646_t04_n30_seed100_nfe400
+config_name: inference_hybrid_conv2961_to_canonical2646_t04_n30_seed100_nfe400
+
+# E090: large-N paired comparison vs E019's canonical-alone-N=30 baseline.
+# Protocol locked to E019: seed=100, nsteps=400, N=30 per L∈{50,100,200},
+# canonical ckpt = baseline_wd0.05_step2646.ckpt (== best_val_00000026_000000002646.ckpt).
+# Same dataloader → same per-protein (id_gen, noise, rotation) → PDB-by-PDB
+# paired comparison vs results_inference_baseline_n30_0.csv.
+ckpt_path_a: /home/ks2218/la-proteina
+ckpt_name_a: best_val_00000029_000000002961.ckpt   # conv step 2961 (best)
+ckpt_path_b: /home/ks2218/la-proteina
+ckpt_name_b: best_val_00000026_000000002646.ckpt   # canonical step 2646 = E019 ckpt
+t_switch: 0.4
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000029_000000002961.ckpt
+autoencoder_ckpt_path:
+
+seed: 100   # MATCH E019 for paired analysis
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: false
+  dataset:
+    nsamples: 30
+    max_nsamples_per_batch: 6   # 5 batches per length
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

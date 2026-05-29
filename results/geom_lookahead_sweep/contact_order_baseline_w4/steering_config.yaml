@@ -1,0 +1,26 @@
+steering:
+  channel: bb_ca
+  contact_order:
+    min_seq_sep: 3
+    temperature_nm: 0.05
+    threshold_nm: 0.8
+  device: cuda:0
+  enabled: true
+  gradient_clip: 0.0
+  gradient_norm: unit
+  log_diagnostics: true
+  method: geometric_lookahead
+  mode: baseline
+  objectives:
+  - direction: minimize
+    property: contact_order
+    weight: 1.0
+  proxy:
+    bond_target_nm: 0.38
+    clash_radius_nm: 0.4
+    lambda_clash: 1.0
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    type: linear_ramp
+    w_max: 4.0

@@ -1,0 +1,32 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_sparse_K40_step1259_scoverride_nobootstrap_n6_nfe400
+config_name: inference_sparse_K40_step1259_scoverride_nobootstrap_n6_nfe400
+
+# E085: rerun of E082's t<0.4 inference-only Fix C2 override on canonical
+# sparse-K40 step 1259, with sc_neighbors_bootstrap: false added.
+# Predicted null vs E082 (5/18 unchanged) — canonical trunk wasn't trained
+# with sc_neighbors=True so its weights should treat bootstrap-x_sc as
+# fungible with x_t-built topology and not be poisoned by the OOD step-0
+# bootstrap that bit the trained scnbr_t04 ckpt in E083 vs E084.
+# If null: flip inference_base.yaml:23 default to False (one-line patch).
+# If E085 < 5/18: bootstrap helps non-Fix-C2 trunks too — recommendation
+# becomes conditional ("disable for Fix-C2-trained only").
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: sparse_K40_step1259.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_override: true
+    sc_neighbors_t_threshold_override: 0.4
+    sc_neighbors_bootstrap: false   # override inference_base.yaml:23 default of True
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

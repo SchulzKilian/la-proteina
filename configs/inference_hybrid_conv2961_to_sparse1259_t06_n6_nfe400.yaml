@@ -1,0 +1,33 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv2961_to_sparse1259_t06_n6_nfe400
+config_name: inference_hybrid_conv2961_to_sparse1259_t06_n6_nfe400
+
+# Best-sparse hybrid: conv step 2961 → plain sparse_K40 step 1259 (E082
+# baseline at 5/18 alone, strict-best sparse by designability — beats trained
+# scnbr_t04 step 1133 at 3/18). Note: plain sparse_K40 has cfg_exp.training.
+# sc_neighbors=False stored in hparams, so the sc_neighbors swap path never
+# fires regardless of t_switch — pure architectural-type test.
+# t_switch=0.6 matches E088 conv→scnbr arm for direct comparison.
+ckpt_path_a: /home/ks2218/la-proteina
+ckpt_name_a: best_val_00000029_000000002961.ckpt   # conv step 2961
+ckpt_path_b: /home/ks2218/la-proteina
+ckpt_name_b: sparse_K40_step1259.ckpt              # plain sparse_K40 step 1259
+t_switch: 0.6
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000029_000000002961.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: false
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

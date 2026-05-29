@@ -1,0 +1,58 @@
+{
+  "dense": {
+    "path": "/home/ks2218/la-proteina/baseline_wd0.05_step2646.ckpt",
+    "global_step": 2646,
+    "epoch": 26,
+    "pair_repr_dim": 256,
+    "total_pair_feat_dim": 217,
+    "seq_sep_dim": 127
+  },
+  "sparse": {
+    "path": "/home/ks2218/la-proteina/sparse_K40_step1259.ckpt",
+    "global_step": 1259,
+    "epoch": 12,
+    "pair_repr_dim": 256,
+    "total_pair_feat_dim": 217,
+    "seq_sep_dim": 127
+  },
+  "weight_key": "nn.pair_repr_builder.init_repr_factory.linear_out.weight",
+  "seq_sep_dim": 127,
+  "divergence_by_region": {
+    "all (rows 0..126)": {
+      "mean_delta": 0.9804643392562866,
+      "max_delta": 1.1943061351776123,
+      "argmax_signed_offset": -5
+    },
+    "near-zero |off|<=4": {
+      "mean_delta": 1.065969467163086,
+      "max_delta": 1.131542682647705,
+      "argmax_signed_offset": 1
+    },
+    "mid 5<=|off|<=20": {
+      "mean_delta": 1.0024008750915527,
+      "max_delta": 1.1943061351776123,
+      "argmax_signed_offset": -5
+    },
+    "large 21<=|off|<=62": {
+      "mean_delta": 0.9628034234046936,
+      "max_delta": 1.059538722038269,
+      "argmax_signed_offset": -62
+    },
+    "saturation |off|>=63": {
+      "mean_delta": 0.9864639639854431,
+      "max_delta": 0.9930287003517151,
+      "argmax_signed_offset": -63
+    },
+    "positive offsets (>0, not sat)": {
+      "mean_delta": 0.9797240495681763,
+      "max_delta": 1.131542682647705,
+      "argmax_signed_offset": 1
+    },
+    "negative offsets (<0, not sat)": {
+      "mean_delta": 0.9821316599845886,
+      "max_delta": 1.1943061351776123,
+      "argmax_signed_offset": -5
+    }
+  },
+  "init_seed": 0
+}

@@ -1,0 +1,31 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_conv2961_to_sparse1259_t04_n6_nfe400
+config_name: inference_hybrid_conv2961_to_sparse1259_t04_n6_nfe400
+
+# Earlier handover of conv→sparse_K40 best-ckpt hybrid. Same logic as
+# conv2961→canonical2646 at t04 — keep conv in its "tied" t-bucket regime.
+# Tests whether sparse B can use a less-corrupted handoff x_t better than
+# E088 conv→scnbr at t06 managed (3/18) and t075 (2/18 = conv-alone-tie).
+ckpt_path_a: /home/ks2218/la-proteina
+ckpt_name_a: best_val_00000029_000000002961.ckpt
+ckpt_path_b: /home/ks2218/la-proteina
+ckpt_name_b: sparse_K40_step1259.ckpt
+t_switch: 0.4
+
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: best_val_00000029_000000002961.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  args:
+    nsteps: 400
+    sc_neighbors_bootstrap: false
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

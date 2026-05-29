@@ -1561,3 +1561,105 @@ So the defensible deployment number — the cell where you preserve codesignabil
 - [E066](experiments.md#e066--high-w-noise-aware-scout-w326412816-seedsboth-directions--reveals-pareto-frontier-in-codesign-vs-property-2026-05-14) — production knee + Pareto frontier on SWI. F13 confirms the same shape on real CamSol.
 - [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) — multi-objective cocktail; the natural lever for raising long-protein P(soluble) without paying codesign cost.
 - The Bhandari 2020 logistic at `proteinfoundation/analysis/compute_developability.py:73-78` is the source of the SWI → P(soluble expression) translation in this Finding.
+
+---
+
+## Finding 14 — Compositional sampling's wall-clock saving is bounded by the schedule-induced conv-step fraction, not by the per-step conv-vs-canonical speedup ratio; at the standard log-p=2.0 schedule with t_switch=0.4 the saving is ~5% and the quality cost is ~13 pp (2026-05-26)
+
+**Status:** finished. Methodological/architectural Finding extending [Finding 11](#finding-11--per-t-validation-loss-does-not-distinguish-ca-only-architectural-variants-at-the-resolution-that-matters-for-hybrid-sampling-2026-05-07-methodological-calibration)'s "per-t val loss is a poor variant-selection criterion" with the compute-side analysis of compositional sampling. Pairs with the lab-notebook detail: [E089 (small-N hybrid sweep)](experiments.md#e089--best-ckpt-hybrid-sweep-with-canonical-alone-2646-disambiguator-conv-canonical-at-t04-matches-canonical-with-less-compute-2026-05-26), [E090 (N=30 paired hybrid vs E019 canonical)](experiments.md#e090--n30-paired-hybrid-vs-e019-canonical-at-seed100-the-n6-result-doesnt-survive-converged-n-2026-05-26), and [E091 (microbench per-step wall and memory)](experiments.md#e091--microbench-per-step-wall-and-gpu-memory-for-conv2961-vs-canonical2646-at-l50-100-200-300-500-800-2026-05-26).
+
+**Experiment.**
+
+The conv→canonical hybrid was probed end-to-end at N=30 (matching the protocol of the E019 canonical-alone N=30 baseline at seed=100, nsteps=400, L∈{50, 100, 200}, ckpt step 2646), and the per-step compute of each underlying model was micro-benchmarked at L∈{50, 100, 200, 300, 500, 800} (batch=1, 20 timed forward iters per cell on an L4 after 3 warm-up iters, via the same `model.predict_for_sampling(batch, mode='full', n_recycle=0)` entry point the integrator uses). The hybrid used the canonical Fix-C2-disabled inference (sc_neighbors_bootstrap=false; sc_neighbors_active=False on the canonical-trained ckpt) so the cross-architecture handoff at t_switch=0.4 is the only mechanism difference vs canonical-alone. A side-channel `nvidia-smi @5s` poll captured end-to-end (gen + ESMFold eval) peak GPU memory to cross-check the Python-side `torch.cuda.max_memory_allocated()` numbers.
+
+**Numbers.**
+
+*Designability at converged N=30 (E090 paired vs E019, seed=100, nsteps=400):*
+
+| Arm | L=50 | L=100 | L=200 | Pooled |
+|---|---|---|---|---|
+| **canonical-alone step 2646 (E019)** | 26/30 (87 %) | 26/30 (87 %) | 16/30 (53 %) | **68/90 (76 %)** |
+| conv2961 → canonical2646 t_switch=0.4 (E090) | 19/30 (63 %) | 25/30 (83 %) | 12/30 (40 %) | **56/90 (62 %)** |
+| **Δ (hybrid − canonical-alone)** | **−7 (−24 pp)** | −1 (−3 pp) | −4 (−13 pp) | **−12 (−13 pp pooled)** |
+
+Wilson 95 % CIs: canonical [66 %, 84 %] vs hybrid [52 %, 72 %] — barely overlap; upper bound of hybrid (72 %) sits below point estimate of canonical (76 %).
+
+*Per-step wall-clock (E091 microbench, batch=1, mean ± std over 20 iters, L4 GPU):*
+
+| L | conv2961 ms | canonical2646 ms | speedup s = canon / conv | conv peak GPU (MB) | canon peak GPU (MB) |
+|---|---|---|---|---|---|
+| 50 | 16.68 ± 0.20 | 15.51 ± 0.27 | **0.93×** (conv 8 % slower) | 2515 | 2443 |
+| 100 | 16.50 ± 0.55 | 15.88 ± 0.69 | **0.96×** (conv 4 % slower) | 2575 | 2504 |
+| **200** | 22.00 ± 0.29 | 33.18 ± 0.73 | **1.51×** (conv FASTER) | 2817 | 2745 |
+| 300 | 40.58 ± 0.64 | 61.60 ± 0.53 | **1.52×** | 3201 | 3130 |
+| 500 | 97.43 ± 0.64 | 146.92 ± 0.79 | **1.51×** | 4453 | 4381 |
+| 800 | 274.86 ± 1.90 | 361.54 ± 13.52 | **1.32×** | 7511 | 7438 |
+
+Weights on GPU: conv 2487 MB, canonical 2415 MB. **Conv weights are 72 MB LARGER than canonical**, and conv's peak GPU memory at every L is ~70 MB above canonical (delta tracks the weight delta). Both architectures have essentially identical activation footprints at every L tested.
+
+*The compositional-sampling compute math (derived from E091):*
+
+For a 2-model hybrid with model A (the conv prefix, faster per step) handing off to model B at t = t_switch, integrated under a log schedule with step density `t(i) ≈ (i/N)^(1/p)` (the canonical La-Proteina default has p = 2.0):
+
+- **Conv-step fraction** `f_A = N_A / N = t_switch^p`. With p = 2.0: t_switch = 0.4 → 16 %; 0.5 → 25 %; 0.6 → 36 %; 0.75 → 56 %; 1.0 → 100 %.
+- **Wall-clock fraction relative to canonical-alone:** `W_hybrid / W_canon = f_A / s + (1 − f_A)`, where s is the per-step speedup ratio at the target L.
+- **Wall saving:** `1 − W_hybrid / W_canon = f_A × (1 − 1/s)`.
+
+Plugging in the E091 ratios at L=200 (s = 1.51):
+
+| t_switch | f_A (conv-step fraction at p=2.0) | Wall saving = f_A × (1 − 1/1.51) | Observed wall (E089/E090) |
+|---|---|---|---|
+| 0.4 | 16 % | **5.4 %** | 333 s vs 336 s ≈ 0 % (saving lost in Lightning/dataloader noise) |
+| 0.5 | 25 % | 8.5 % | (untested) |
+| 0.6 | 36 % | 12.2 % | (untested at N≥24) |
+| 0.75 | 56 % | 19.0 % | (untested) |
+
+The bound holds across L from 200 to 500 because s ≈ 1.51 is approximately L-stable; at L = 800 s drops to 1.32 (memory-bandwidth saturation) so the saving at fixed t_switch = 0.6 falls to 8.7 %.
+
+*Memory at the end-to-end workflow level (E090 side-channel + E091 microbench):*
+
+- Both models loaded on GPU during the hybrid run, confirmed by the +560 MB jump in the `nvidia-smi @5s` poll log (the second ckpt landing).
+- Real gen-phase peak (above the co-tenant baseline): ~4.75 GB for the hybrid, vs an estimated ~4.1 GB for canonical-alone at the same protocol — hybrid is +650 MB, not −600 MB as the Python-side `peak_gpu_memory_mb` initially suggested.
+- End-to-end peak (incl ESMFold during eval): ~14 GB for both arms; ESMFold dominates and erases any generator-side architectural difference.
+- Per-L peak in the E091 microbench: conv +70 MB at every L. Conv does not save memory at any L in {50, 100, 200, 300, 500, 800}.
+
+**Narrow claim.**
+
+On the canonical CA-only sparse-K40-class trunk (160 M params, AdamW wd = 0.05, no scheduler) with conv (`ca_only_downsampled` step 2961) and canonical (`test_ca_only_diffusion` step 2646) at nsteps = 400, codesignability eval (use_pdb_seq = True):
+
+1. **Per-step compute:** conv is **1.51× faster than canonical from L = 200 to L = 500** (drops to 1.32× at L = 800; below crossover at L ≤ 100, conv is 4–8 % slower because the downsample/upsample stack overhead dominates the attention-FLOP savings).
+2. **Per-step memory:** conv uses 72 MB more weight memory than canonical, and the per-L peak GPU follows that delta — conv does NOT save memory at any L tested. The "memory headroom for longer sequences" justification often given for downsampling architectures is unsupported on this implementation at L ≤ 800.
+3. **End-to-end hybrid wall saving** at the standard log-p = 2.0 schedule is bounded by `f_A × (1 − 1/s) = t_switch^2 × (1 − 1/s)`. At t_switch = 0.4 and L = 200, this is **5.4 % expected** — well below the Lightning/dataloader noise floor of a single-GPU probe, and observed as 0 % in E089/E090 (333 vs 336 s for N = 30 gen).
+4. **Quality cost at converged N = 30:** **−13 pp pooled designability** (56/90 = 62 % vs 68/90 = 76 % at the same seed = 100, ckpt step 2646, nsteps = 400), with Wilson 95 % CIs barely overlapping. The L = 50 cost is the largest (−24 pp); L = 100 is within noise (−3 pp); L = 200 (−13 pp) tracks the pooled gap.
+5. **Net trade-off at L ≤ 200, t_switch = 0.4:** ~5 % wall saving for ~13 pp quality cost. Not competitive.
+
+**Implication.**
+
+Compositional sampling on the architectural axis is bottlenecked by the integration schedule, not by the per-step speedup ratio of the cheaper model. Even with a 1.5× per-step speedup at L ≥ 200, the log-p = 2.0 schedule's step-packing near t = 1 means that holding t_switch ≤ 0.4 (where conv's per-t val loss is within +0.04 nat of canonical per [Finding 11](#finding-11--per-t-validation-loss-does-not-distinguish-ca-only-architectural-variants-at-the-resolution-that-matters-for-hybrid-sampling-2026-05-07-methodological-calibration)) dilutes the per-step saving to ~5 % wall. To make the wall saving meaningful (~12 %), you must raise t_switch to 0.6, which pushes conv into the t-bucket where its per-t val loss is +0.08 nat above canonical AND where the trained scnbr_t04 ckpt's sc_neighbors fires (a separate handoff complication for sparse-B variants per E082-E085). The integrator's step distribution is therefore a load-bearing constraint that must be acknowledged in any compositional-sampling design — choosing t_switch on a per-t-loss criterion alone (as F11 already showed insufficient for designability) also misses the compute side, where t_switch trades off two opposing effects in the same direction (more conv steps = more wall saving AND more handoff-induced quality cost). The compute-quality Pareto knee is at higher t_switch than the loss-equivalence criterion suggests, AND the wall-saving payoff at the loss-equivalence knee is too small to motivate the trade.
+
+The corollary for the broader CA-only architectural-route work (which the variants.md / hybrid-sampling line of work has pursued via sparse, conv, scnbr, downsampled, BigBird, and hybrid combinations across E010-E091): **architectural cheapness must surface in actual wall-clock (or actual feasibility, e.g. fitting L ≥ 500 at production batch sizes where canonical OOMs) to be a usable lever**. The E091 microbench rules out the memory-feasibility argument at L ≤ 800 (both models hit ~7.4 GB at L = 800 / batch = 1; at production batch = 6 both would need ~45 GB). The remaining feasibility path is L ≥ 500 batch = 1, where canonical's 147 ms/step × 400 steps × 6 lengths × N proteins becomes a real wall-clock burden and conv's 1.51× per-step speedup compounds across long integrations — but at that regime the per-protein cost is already so high (~88 s × N proteins for canonical-alone at L = 500) that wall-clock dominates other concerns, and the compositional-sampling story regains relevance through brute integration-time savings rather than memory feasibility.
+
+**Methodische Einschränkungen.**
+
+- **N = 30 single-seed (seed = 100) for the designability comparison.** Wilson 95 % CIs [66 %, 84 %] vs [52 %, 72 %] are barely overlapping; the 13 pp gap direction is robust but a multi-seed N = 30 would tighten the magnitude. The L = 100 −3 pp result specifically is inside per-bin noise and shouldn't be claimed as a meaningful gap.
+- **t_switch = 0.4 only at converged N.** The compute math predicts t_switch = 0.6 gives ~12 % wall saving and the experiment hasn't been run at N ≥ 24. If t_switch = 0.6 quality cost is similar to t_switch = 0.4 (i.e. doesn't grow much), the 12 % wall + 13 pp cost trade might be acceptable for some users. Currently unmeasured at converged N.
+- **L4 GPU, batch = 1 microbench.** Production hybrid sampling uses batch = 6; per-step times scale approximately linearly with batch on this architecture but the conv/canonical ratio s should hold (both scale similarly). Absolute wall numbers in the dilution math would shrink at batch = 6 (each forward serves more proteins) but the % saving formula is batch-invariant. The L = 800 / batch = 6 regime is OOM for both architectures on the L4; that's where the feasibility-not-compute argument lives.
+- **One conv ckpt (step 2961), one canonical ckpt (step 2646).** Per-step ratios for a different-scale conv ckpt (e.g. a deeper or wider conv trunk) could shift the crossover L; the 1.5× ratio is specific to this trunk.
+- **One schedule (log p = 2.0).** A different integration schedule (linear, cosine, or log with different p) would change the conv-step fraction at any given t_switch. The compute math `f_A × (1 − 1/s)` still holds; only the mapping `t_switch → f_A` changes. A linear schedule would give `f_A = t_switch` directly, raising f_A at t_switch = 0.4 from 16 % to 40 % and the wall saving to 13.6 % — but linear schedule's designability is worse than log-p = 2.0 in this codebase (default reason for log schedule).
+- **Conv at the t-buckets where it's NOT trained tied to canonical.** F11 / E043's per-t-loss equivalence is at conv step 2331; conv at step 2961 has no per-t val measurement. Assumption is the per-t shape is monotone across training steps (more training = better at every bucket, with same relative ordering). Could be violated; would change the t_switch choice.
+- **codesignability (use_pdb_seq = True) consistent with all post-E082 entries**, so directly comparable to E019 / E054 / E082 / E089 / E090 numbers.
+- **The memory-saving claim was retracted twice in the same session** (E089/E090 → E091): once based on a measurement artifact (`torch.cuda.max_memory_allocated()` undercount + cross-GPU baseline mismatch in `performance_metrics.json`), and once based on architectural speculation (downsampling MUST save memory). The microbench's per-L peak data falsifies both. Future hybrid claims about memory must cite side-channel `nvidia-smi @5s` poll data, not Python-side allocator counters.
+- **The fairness of the canonical-alone reference (E019) was checked**: E019's N = 30 at seed = 100 / step 2646 / nsteps = 400 is the strict-best canonical-CA-only configuration on file. The 68/90 pooled is what the hybrid must approach. The N = 6 canonical-alone re-run in E089 (12/18 = 67 %) was a low-side draw; the converged N = 30 number is the reference (cf. `feedback_dont_rerun_canonical_use_e019.md`).
+
+**Cross-references:**
+
+- [Finding 11](#finding-11--per-t-validation-loss-does-not-distinguish-ca-only-architectural-variants-at-the-resolution-that-matters-for-hybrid-sampling-2026-05-07-methodological-calibration) — direct parent. F11 said per-t val loss is uninformative for hybrid-sampling decisions on the quality side; F14 says the compute side has its own bottleneck (schedule-induced step distribution) that further compresses the hybrid's compute-quality trade-off.
+- [E089](experiments.md#e089--best-ckpt-hybrid-sweep-with-canonical-alone-2646-disambiguator-conv-canonical-at-t04-matches-canonical-with-less-compute-2026-05-26) — small-N hybrid sweep that gave the (misleadingly optimistic at N = 6) 11/18 vs 12/18 reading.
+- [E090](experiments.md#e090--n30-paired-hybrid-vs-e019-canonical-at-seed100-the-n6-result-doesnt-survive-converged-n-2026-05-26) — converged N = 30 paired comparison vs E019. 56/90 vs 68/90 = the load-bearing quality number for F14.
+- [E091](experiments.md#e091--microbench-per-step-wall-and-gpu-memory-for-conv2961-vs-canonical2646-at-l50-100-200-300-500-800-2026-05-26) — micro-benchmark that locked in s = 1.51 at L ≥ 200 and 72 MB extra conv weights. Compute math derives from this entry.
+- [E019](experiments.md#e019--full-n30-fixed-mpnn-re-eval-of-e014-five-arms-2026-04-29) — canonical-alone N = 30 reference. The 68/90 = 76 % pooled is what F14's hybrid is benchmarked against.
+- [E040](experiments.md#e040--hybrid-conv-scnbr-mid-trajectory-handover--kink-abruptness-at-the-switch-2026-05-06), [E041](experiments.md#e041--hybrid-conv-canonical-mid-trajectory-handover-2026-05-06), [E088](experiments.md#e088--real-hybrid-conv-canonical--conv-scnbr-at-nsteps400-the-corrected-three-arm-sweep-2026-05-26) — earlier hybrid probes that informed the t_switch and ckpt-pair choices for E089/E090.
+- `proteinfoundation/generate_hybrid.py` — production hybrid sampling driver (patched in E090 to add `measure_performance` instrumentation matching `generate.py`).
+- `script_utils/microbench_conv_vs_canonical.py` — per-step micro-benchmark (E091).
+- `feedback_python_perf_undercounts_gpu_memory.md` — memory lesson that crystallised in this Finding's development.
+- `feedback_hybrid_goal_is_compute_quality.md` — the user's framing that re-oriented the analysis from "does hybrid beat canonical" to "does hybrid approach canonical at lower compute".

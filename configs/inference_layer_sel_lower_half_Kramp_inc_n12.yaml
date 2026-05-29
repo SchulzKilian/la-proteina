@@ -1,0 +1,39 @@
+# Content-free K-RAMP on the lower 7 sparse layers of dense E019 step-2646.
+# Per-layer K increases monotonically toward the dense boundary:
+#   layer 0: K=16  (n_seq=4,  n_spatial=4,  n_random=4)
+#   layer 1: K=24  (n_seq=4,  n_spatial=4,  n_random=12)
+#   layer 2: K=32  (n_seq=4,  n_spatial=8,  n_random=16)
+#   layer 3: K=40  (n_seq=8,  n_spatial=8,  n_random=16)   # canonical K=40 split
+#   layer 4: K=48  (n_seq=8,  n_spatial=12, n_random=20)
+#   layer 5: K=56  (n_seq=8,  n_spatial=16, n_random=24)
+#   layer 6: K=64  (n_seq=8,  n_spatial=16, n_random=32)   # canonical K=64 split (SALAD)
+# Mean K = 40 → budget-matched to the K=40 lower-half-sparse N=6 baseline.
+# Hypothesis: deeper sparse layers feed dense layer 7; giving them more K
+# minimizes the K=40-sparse → suddenly-dense handoff shock.
+# N=12 × L∈{50, 100, 200} × seed=5 × nsteps=400.
+defaults:
+  - inference_layer_sel_base
+  - _self_
+
+config_name: inference_layer_sel_lower_half_Kramp_inc_n12
+
+generation:
+  args:
+    layer_sparse_mask: [true, true, true, true, true, true, true, false, false, false, false, false, false, false]
+    # K override fields below are placeholders — overridden per-layer by layer_K_splits.
+    n_seq_neighbors_override: 8
+    n_spatial_neighbors_override: 8
+    n_random_neighbors_override: 16
+    layer_K_splits:
+      - [4, 4, 4]      # layer 0, K=16
+      - [4, 4, 12]     # layer 1, K=24
+      - [4, 8, 16]     # layer 2, K=32
+      - [8, 8, 16]     # layer 3, K=40
+      - [8, 12, 20]    # layer 4, K=48
+      - [8, 16, 24]    # layer 5, K=56
+      - [8, 16, 32]    # layer 6, K=64
+  dataset:
+    nsamples: 12
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]

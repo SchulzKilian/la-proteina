@@ -1,0 +1,25 @@
+# Rg steering, GATED look-ahead: hard threshold on max(0, dP).
+# s = 1 if max(0, dP) <= gate_threshold else 0 (full step or no step).
+# Expected to underperform the proportional form — kept as a contrast arm.
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: lookahead_gated
+  gate_threshold: 0.005     # tune from baseline dP distribution in the diagnostics
+  objectives:
+    - property: rg
+      direction: maximize
+      weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+  proxy:
+    bond_target_nm: 0.38
+    clash_radius_nm: 0.40
+    lambda_clash: 1.0
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true

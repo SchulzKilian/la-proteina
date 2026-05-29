@@ -1,0 +1,27 @@
+# Rg steering, PROPORTIONAL look-ahead: s = f(max(0, dP)) with a saturating map.
+# The headline method. Throttle damps the step in proportion to the
+# guidance-induced geometric degradation of the one-shot clean estimate.
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: lookahead_proportional
+  f_map: exp                # s = exp(-beta * max(0, dP)); also: reciprocal, logistic
+  beta: 20.0                # sharpness — tune from diagnostics (s near 1 => raise; s ~0 => lower)
+  objectives:
+    - property: rg
+      direction: maximize
+      weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+  proxy:
+    bond_target_nm: 0.38
+    clash_radius_nm: 0.40
+    lambda_clash: 1.0
+  # t_floor: 0.2            # optional backup: disable throttle (s=1) below this t
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true

@@ -1,0 +1,178 @@
+[
+  {
+    "split": "all_dense",
+    "K": 128,
+    "L": 50,
+    "config": "inference_layer_sel_cell_all_dense_K128_L50",
+    "designable": 25,
+    "total": 30,
+    "rate": 0.8333333333333334,
+    "scrmsd_min": 0.5188661217689514,
+    "scrmsd_median": 0.9662618935108184
+  },
+  {
+    "split": "all_dense",
+    "K": 128,
+    "L": 100,
+    "config": "inference_layer_sel_cell_all_dense_K128_L100",
+    "designable": 25,
+    "total": 30,
+    "rate": 0.8333333333333334,
+    "scrmsd_min": 0.5997973680496216,
+    "scrmsd_median": 1.2309367656707764
+  },
+  {
+    "split": "lower_half_sparse",
+    "K": 128,
+    "L": 50,
+    "config": "inference_layer_sel_cell_lower_half_sparse_K128_L50",
+    "designable": 28,
+    "total": 30,
+    "rate": 0.9333333333333333,
+    "scrmsd_min": 0.5759285092353821,
+    "scrmsd_median": 1.1468416452407837
+  },
+  {
+    "split": "upper_half_sparse",
+    "K": 128,
+    "L": 50,
+    "config": "inference_layer_sel_cell_upper_half_sparse_K128_L50",
+    "designable": 23,
+    "total": 30,
+    "rate": 0.7666666666666667,
+    "scrmsd_min": 0.5056367516517639,
+    "scrmsd_median": 1.044165551662445
+  },
+  {
+    "split": "all_sparse",
+    "K": 128,
+    "L": 50,
+    "config": "inference_layer_sel_cell_all_sparse_K128_L50",
+    "designable": 23,
+    "total": 30,
+    "rate": 0.7666666666666667,
+    "scrmsd_min": 0.581272542476654,
+    "scrmsd_median": 1.2479248046875
+  },
+  {
+    "split": "all_dense",
+    "K": 64,
+    "L": 50,
+    "config": "inference_layer_sel_cell_all_dense_K64_L50",
+    "designable": 24,
+    "total": 30,
+    "rate": 0.8,
+    "scrmsd_min": 0.5606032609939575,
+    "scrmsd_median": 1.0856085419654846
+  },
+  {
+    "split": "lower_half_sparse",
+    "K": 64,
+    "L": 50,
+    "config": "inference_layer_sel_cell_lower_half_sparse_K64_L50",
+    "designable": 26,
+    "total": 30,
+    "rate": 0.8666666666666667,
+    "scrmsd_min": 0.4962711334228515,
+    "scrmsd_median": 1.068981111049652
+  },
+  {
+    "split": "upper_half_sparse",
+    "K": 64,
+    "L": 50,
+    "config": "inference_layer_sel_cell_upper_half_sparse_K64_L50",
+    "designable": 27,
+    "total": 30,
+    "rate": 0.9,
+    "scrmsd_min": 0.5647982358932495,
+    "scrmsd_median": 0.9230427742004395
+  },
+  {
+    "split": "all_sparse",
+    "K": 64,
+    "L": 50,
+    "config": "inference_layer_sel_cell_all_sparse_K64_L50",
+    "designable": 27,
+    "total": 30,
+    "rate": 0.9,
+    "scrmsd_min": 0.4913801550865173,
+    "scrmsd_median": 1.0957409739494324
+  },
+  {
+    "split": "all_dense",
+    "K": 64,
+    "L": 100,
+    "config": "inference_layer_sel_cell_all_dense_K64_L100",
+    "designable": 26,
+    "total": 30,
+    "rate": 0.8666666666666667,
+    "scrmsd_min": 0.6682753562927246,
+    "scrmsd_median": 1.1878053545951843
+  },
+  {
+    "split": "lower_half_sparse",
+    "K": 64,
+    "L": 100,
+    "config": "inference_layer_sel_cell_lower_half_sparse_K64_L100",
+    "designable": 24,
+    "total": 30,
+    "rate": 0.8,
+    "scrmsd_min": 0.6669840812683105,
+    "scrmsd_median": 1.191202163696289
+  },
+  {
+    "split": "upper_half_sparse",
+    "K": 64,
+    "L": 100,
+    "config": "inference_layer_sel_cell_upper_half_sparse_K64_L100",
+    "designable": 5,
+    "total": 30,
+    "rate": 0.16666666666666666,
+    "scrmsd_min": 0.7858334183692932,
+    "scrmsd_median": 6.308452606201172
+  },
+  {
+    "split": "all_sparse",
+    "K": 64,
+    "L": 100,
+    "config": "inference_layer_sel_cell_all_sparse_K64_L100",
+    "designable": 3,
+    "total": 30,
+    "rate": 0.1,
+    "scrmsd_min": 0.9926454424858092,
+    "scrmsd_median": 8.113000869750977
+  },
+  {
+    "split": "lower_half_sparse",
+    "K": 128,
+    "L": 100,
+    "config": "inference_layer_sel_cell_lower_half_sparse_K128_L100",
+    "designable": 24,
+    "total": 30,
+    "rate": 0.8,
+    "scrmsd_min": 0.7582222819328308,
+    "scrmsd_median": 1.1726459860801697
+  },
+  {
+    "split": "upper_half_sparse",
+    "K": 128,
+    "L": 100,
+    "config": "inference_layer_sel_cell_upper_half_sparse_K128_L100",
+    "designable": 26,
+    "total": 30,
+    "rate": 0.8666666666666667,
+    "scrmsd_min": 0.7577491998672485,
+    "scrmsd_median": 1.1879358291625977
+  },
+  {
+    "split": "all_sparse",
+    "K": 128,
+    "L": 100,
+    "config": "inference_layer_sel_cell_all_sparse_K128_L100",
+    "designable": 27,
+    "total": 30,
+    "rate": 0.9,
+    "scrmsd_min": 0.681808352470398,
+    "scrmsd_median": 1.2317793369293213
+  }
+]
