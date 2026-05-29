@@ -778,16 +778,25 @@ class ProductSpaceFlowMatcher(L.LightningModule):
 
                     # Cα-channel probe for the "score_faithful" look-ahead throttle:
                     # re-evaluate the model's bb_ca velocity AT a candidate Cα point
-                    # (the base/guided one-shot clean estimate), holding the other
-                    # modes at the current step's noisy state and the time at the
-                    # current bb_ca t. Returns v_theta(c_candidate, t) for bb_ca.
-                    # One extra model forward per call; only used when the guide's
-                    # proxy_type == "score_faithful". Other guides never call it.
-                    def _flow_step_fn_bb_ca(c_candidate):
+                    # (the base/guided one-shot clean estimate) at a FIXED near-clean
+                    # probe time t_probe. x̂₁ is a near-clean object, so it must be
+                    # probed near t→1, NOT at the current noisy t (that would read a
+                    # probe-level artifact and collapse B toward A). The other modes
+                    # stay frozen at the outer step's noisy state + time (single-
+                    # channel question: we steer only bb_ca). Returns
+                    # v_theta(c_candidate, t_probe) for bb_ca. One extra model forward
+                    # per call; only used when proxy_type == "score_faithful" (or the
+                    # calibration probe). Other guides never call it.
+                    def _flow_step_fn_bb_ca(c_candidate, t_probe):
                         if "bb_ca" not in _outer_batch["x_t"]:
                             return None
                         batch_inner = {**_outer_batch}
                         batch_inner["x_t"] = {**_outer_batch["x_t"], "bb_ca": c_candidate}
+                        _t_bb = _outer_batch["t"]["bb_ca"]
+                        batch_inner["t"] = {
+                            **_outer_batch["t"],
+                            "bb_ca": torch.full_like(_t_bb, float(t_probe)),
+                        }
                         nn_out_inner = predict_for_sampling(batch_inner, mode="full")
                         nn_out_inner = self.nn_out_add_clean_sample_prediction(batch_inner, nn_out_inner)
                         nn_out_inner = self.nn_out_add_simulation_tensor(batch_inner, nn_out_inner)
