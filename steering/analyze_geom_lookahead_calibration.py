@@ -31,7 +31,11 @@ CALIB = _ROOT / "results" / "geom_lookahead_calib"
 LN_07 = -math.log(0.7)   # 0.3567
 LN_02 = -math.log(0.2)   # 1.6094
 
-T_BINS = [("early", 0.30, 0.467), ("mid", 0.467, 0.633), ("late", 0.633, 0.801)]
+# The schedule holds full λ to t=1.0, so ~70% of active steps sit at t≥0.8.
+# Bins must cover the whole window and isolate the t→1 blow-up region (0.95–1.0)
+# where the 1/(1−t) factor dominates current-t score signals (convention A).
+T_BINS = [("0.3-0.55", 0.30, 0.55), ("0.55-0.8", 0.55, 0.80),
+          ("0.8-0.95", 0.80, 0.95), ("0.95-1.0", 0.95, 1.0001)]
 
 
 def _proxy_names(diag_step: dict) -> list[str]:
@@ -109,8 +113,9 @@ def main():
     for tgt in targets:
         steps = per_target_steps[tgt]
         n_struct = len(list((CALIB / tgt).glob("*_diagnostics.json")))
-        lam = next((s.get("lambda0") for s in steps if not s.get("skipped")), None)
-        print(f"\n### target={tgt}   λ(plateau)≈{lam}   ({n_struct} trajectories) ###")
+        lams = [s.get("lambda0", 0.0) for s in steps if not s.get("skipped")]
+        lam = max(lams) if lams else None
+        print(f"\n### target={tgt}   λ_max(plateau)≈{lam:.1f}   ({n_struct} trajectories) ###")
         print(f"  {'proxy':10s} {'m_base':>9s} {'%active':>8s} "
               f"{'r_med':>8s} {'r_p90':>8s} {'r_max':>8s} "
               f"{'dP_med':>9s} {'dP_p90':>9s}   β_r(med→.7 / p90→.2)")
@@ -130,7 +135,7 @@ def main():
 
     # --- t-band breakdown (where does guidance degrade the proxy?) ---
     print("\n" + "-" * 78)
-    print("Active fraction & median r by t-band (steering window 0.3–0.8):")
+    print("Active fraction & median r by t-band (λ holds to t=1.0; ~70% of steps are t≥0.8):")
     for tgt in targets:
         steps = per_target_steps[tgt]
         print(f"\n  target={tgt}")

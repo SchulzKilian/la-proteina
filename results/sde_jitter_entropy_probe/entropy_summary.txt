@@ -1,0 +1,13 @@
+
+=== E100: sequence diversity vs latent-channel SDE jitter ===
+(matched seed/length across local0.05/0.15/0.30; bb_ca fixed 0.15; nsteps=400)
+
+condition            n  shannon  maxAA%   run uniq3mer  lowcplx   netQ     Q/L  top_aa
+--------------------------------------------------------------------------------------
+local0.05           20    3.481    21.7   4.8    0.566    0.254  -45.8  -0.071  E=12.9%, L=11.2%, G=10.1%
+local0.15           20    3.582    18.9   4.1    0.617    0.120  -28.1  -0.049  L=13.0%, E=8.9%, Q=8.0%
+local0.30           20    3.655    17.1   3.6    0.677    0.095  -25.8  -0.046  L=13.2%, E=10.0%, A=7.9%
+1000panel(n<=60)    60    3.497    20.5   5.1    0.503    0.168  -38.4  -0.066  L=13.6%, E=11.7%, N=8.4%
+
+Reference: AFDB-natural Shannon (property panel, E099) = 4.05 bits; max for 20 AA = log2(20) = 4.32 bits.
+NOTE: Shannon here is computed in BITS directly from the .pt sequence; the E099 3.47-vs-4.05 gap used the developability-panel shannon_entropy column. Cross-check the 1000panel row against the local0.05 row — both should land near each other if 0.05 reproduces the baseline.

@@ -104,6 +104,15 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--nsteps", type=int, default=None)
+    parser.add_argument("--sc_scale_noise_local", type=float, default=None,
+                        help="Override SDE noise scale (sc_scale_noise) on the "
+                             "local_latents channel. The config default for "
+                             "inference_ucond_notri_long is 0.05. Higher = more "
+                             "sampling stochasticity in the latent that feeds the "
+                             "sequence head (tests mode-collapse / sequence-entropy).")
+    parser.add_argument("--sc_scale_noise_bb", type=float, default=None,
+                        help="Override SDE noise scale (sc_scale_noise) on the "
+                             "bb_ca channel. Config default is 0.15.")
     parser.add_argument("--length_mode", choices=["empirical", "stratified"],
                         default="empirical",
                         help="empirical: sample lengths from --length_csv. "
@@ -225,6 +234,16 @@ def main():
     cfg = load_proteina_config(args.proteina_config)
     if args.nsteps is not None:
         cfg.generation.args.nsteps = args.nsteps
+    if args.sc_scale_noise_local is not None:
+        old = cfg.generation.model.local_latents.simulation_step_params.sc_scale_noise
+        cfg.generation.model.local_latents.simulation_step_params.sc_scale_noise = args.sc_scale_noise_local
+        logger.info("Override local_latents sc_scale_noise: %s -> %s",
+                    old, args.sc_scale_noise_local)
+    if args.sc_scale_noise_bb is not None:
+        old = cfg.generation.model.bb_ca.simulation_step_params.sc_scale_noise
+        cfg.generation.model.bb_ca.simulation_step_params.sc_scale_noise = args.sc_scale_noise_bb
+        logger.info("Override bb_ca sc_scale_noise: %s -> %s",
+                    old, args.sc_scale_noise_bb)
     logger.info("Loading model checkpoint (nsteps=%d)...", cfg.generation.args.nsteps)
     model = load_ckpt_n_configure_inference(cfg)
     model = model.to(device)
@@ -301,6 +320,8 @@ def main():
         "bin_width": args.bin_width if args.length_mode == "stratified" else None,
         "seed_base": args.seed_base,
         "nsteps": cfg.generation.args.nsteps,
+        "sc_scale_noise_local": float(cfg.generation.model.local_latents.simulation_step_params.sc_scale_noise),
+        "sc_scale_noise_bb": float(cfg.generation.model.bb_ca.simulation_step_params.sc_scale_noise),
         "device": str(device),
     }
     with open(out_dir / "run_config.yaml", "w") as f:

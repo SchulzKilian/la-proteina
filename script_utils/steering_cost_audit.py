@@ -81,6 +81,8 @@ DIRECTION_PROP_TARGET = {
     "combo_devel4":       ("swi",                          +1),  # 4-obj: camsol+tango+sap+scmpos; primary = SWI
     "net_charge_max":     ("net_charge_ph7",               +1),
     "net_charge_min":     ("net_charge_ph7",               -1),
+    "net_charge_target":  ("net_charge_ph7",               +1),  # direction=target, target_value=-5; anchor -20.4 < -5 so wants INCREASE (signed-σ valid only while below -5; read prop_value for the settle point)
+    "hydpatch_min":       ("hydrophobic_patch_total_area", -1),  # single-obj: minimize hydrophobic surface patch area
     # Schedule-variant sweeps (all targeting tango_total at w=32)
     "tango_min_early":    ("tango_total",                  -1),
     "tango_min_late":     ("tango_total",                  -1),

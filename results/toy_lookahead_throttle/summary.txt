@@ -1,0 +1,137 @@
+=== TOY: look-ahead throttle on three manifolds ===
+cloud=600 samples=1200 nsteps=150 sigma_data=0.08 V_MAX=4.0
+
+################  MANIFOLD = ring  ################
+phi = x2 (maximise)
+      arm  lam0   mean_x2     mean_P
+     none   0.0    -0.051     0.0067
+    plain   0.0    -0.051     0.0067
+    plain   0.5     0.140     0.0078
+    plain   1.0     0.319     0.0117
+    plain   2.0     0.655     0.0256
+    plain   4.0     1.248     0.1792
+    plain   8.0     2.516     2.4837
+    plain  16.0     5.653    21.9456
+ throttle   0.0    -0.051     0.0067
+ throttle   0.5     0.114     0.0071
+ throttle   1.0     0.247     0.0084
+ throttle   2.0     0.451     0.0094
+ throttle   4.0     0.600     0.0106
+ throttle   8.0     0.667     0.0148
+ throttle  16.0     0.791     0.0202
+
+NON-TRIVIALITY: best mean_x2 achievable under on-manifold ceiling P<=tau
+  oracle: best_w(t) sweeps p; best_thr sweeps beta; best_combo sweeps (p,beta)
+  P<=tau    plain  best_w(t)  best_thr  best_combo       combo argmax
+    0.01    0.140      0.524     0.552       0.524     p=2,b=0,lam=16
+    0.02    0.319      0.694     0.684       0.694      p=1,b=0,lam=8
+    0.05    0.655      1.081     0.922       1.081     p=1,b=0,lam=16
+    0.10    0.655      1.081     1.098       1.081     p=1,b=0,lam=16
+
+MATCHED-BUDGET (refutes 'throttle just applies less guidance'):
+ lam0       arm   budget   mean_x2     mean_P
+  4.0  throttle    0.591     0.600     0.0106
+       plain@==    0.591     0.427     0.0148   (const lam0=1.31)
+  8.0  throttle    0.707     0.667     0.0148
+       plain@==    0.707     0.514     0.0181   (const lam0=1.57)
+ 16.0  throttle    0.823     0.791     0.0202
+       plain@==    0.823     0.600     0.0222   (const lam0=1.83)
+
+CONTROL phi=-||x|| (degenerate optimum at origin; Rg-minimise analog)
+      arm  lam0    mean_r     mean_P
+    plain   0.0     1.000     0.0067
+ throttle   0.0     1.000     0.0067
+    plain   0.5     0.914     0.0147
+ throttle   0.5     0.937     0.0107
+    plain   1.0     0.835     0.0410
+ throttle   1.0     0.899     0.0211
+    plain   2.0     0.645     0.1620
+ throttle   2.0     0.837     0.0496
+    plain   4.0     0.131     0.7760
+ throttle   4.0     0.726     0.1080
+    plain   8.0     0.028     0.9445
+ throttle   8.0     0.736     0.0918
+
+################  MANIFOLD = sine  ################
+phi = x2 (maximise)
+      arm  lam0   mean_x2     mean_P
+     none   0.0    -0.074     0.0128
+    plain   0.0    -0.074     0.0128
+    plain   0.5     0.066     0.0174
+    plain   1.0     0.194     0.0279
+    plain   2.0     0.424     0.0701
+    plain   4.0     0.956     0.4315
+    plain   8.0     2.326     3.8615
+    plain  16.0     5.539    27.1153
+ throttle   0.0    -0.074     0.0128
+ throttle   0.5     0.028     0.0138
+ throttle   1.0     0.065     0.0157
+ throttle   2.0     0.072     0.0172
+ throttle   4.0     0.068     0.0208
+ throttle   8.0     0.084     0.0271
+ throttle  16.0     0.099     0.0325
+
+NON-TRIVIALITY: best mean_x2 achievable under on-manifold ceiling P<=tau
+  oracle: best_w(t) sweeps p; best_thr sweeps beta; best_combo sweeps (p,beta)
+  P<=tau    plain  best_w(t)  best_thr  best_combo       combo argmax
+    0.01      nan        nan       nan         nan                  -
+    0.02    0.066      0.118     0.093       0.118      p=2,b=0,lam=8
+    0.05    0.194      0.409     0.250       0.409      p=1,b=0,lam=8
+    0.10    0.424      0.409     0.352       0.424      p=0,b=0,lam=2
+
+MATCHED-BUDGET (refutes 'throttle just applies less guidance'):
+ lam0       arm   budget   mean_x2     mean_P
+  4.0  throttle    0.183     0.068     0.0208
+       plain@==    0.183     0.041     0.0161   (const lam0=0.41)
+  8.0  throttle    0.181     0.084     0.0271
+       plain@==    0.181     0.040     0.0159   (const lam0=0.40)
+ 16.0  throttle    0.184     0.099     0.0325
+       plain@==    0.184     0.042     0.0161   (const lam0=0.41)
+
+################  MANIFOLD = cliff  ################
+phi = x1 (maximise)
+      arm  lam0   mean_x1     mean_P
+     none   0.0    -0.034     0.0063
+    plain   0.0    -0.034     0.0063
+    plain   0.5     0.194     0.0061
+    plain   1.0     0.411     0.0066
+    plain   2.0     0.786     0.0110
+    plain   4.0     1.295     0.1234
+    plain   8.0     2.482     2.2935
+    plain  16.0     5.616    21.5011
+ throttle   0.0    -0.034     0.0063
+ throttle   0.5     0.194     0.0061
+ throttle   1.0     0.411     0.0065
+ throttle   2.0     0.752     0.0058
+ throttle   4.0     0.990     0.0060
+ throttle   8.0     1.063     0.0092
+ throttle  16.0     1.092     0.0136
+
+NON-TRIVIALITY: best mean_x1 achievable under on-manifold ceiling P<=tau
+  oracle: best_w(t) sweeps p; best_thr sweeps beta; best_combo sweeps (p,beta)
+  P<=tau    plain  best_w(t)  best_thr  best_combo       combo argmax
+    0.01    0.411      0.770     1.063       1.063     p=0,b=20,lam=8
+    0.02    0.786      0.770     1.119       1.119    p=0,b=10,lam=16
+    0.05    0.786      1.117     1.170       1.170     p=0,b=5,lam=16
+    0.10    0.786      1.117     1.275       1.275     p=0,b=2,lam=16
+
+MATCHED-BUDGET (refutes 'throttle just applies less guidance'):
+ lam0       arm   budget   mean_x1     mean_P
+  4.0  throttle    0.954     0.990     0.0060
+       plain@==    0.954     0.824     0.0123   (const lam0=2.12)
+  8.0  throttle    1.039     1.063     0.0092
+       plain@==    1.039     0.880     0.0149   (const lam0=2.31)
+ 16.0  throttle    1.094     1.092     0.0136
+       plain@==    1.094     0.916     0.0173   (const lam0=2.43)
+
+################  COMMITTED-SHAPE FAIR COMPARISON  ################
+shape fixed ACROSS all manifolds, only lambda swept; ceiling P<=0.05
+committed p* = 1 (avg frac-of-oracle 0.995); beta* = 2 (avg frac 0.983); combo (p,b)* = (1.0, 0.0) (avg frac 0.980)
+ABSOLUTE property at committed shape per manifold (oracle in parens):
+ manifold |  sched@p*   thr@b*   combo@* |  orc_sch  orc_thr orc_combo
+     ring |     1.081    0.922     1.081 |    1.081    0.922     1.081
+     sine |     0.409    0.250     0.409 |    0.409    0.250     0.409
+    cliff |     1.098    1.112     1.098 |    1.117    1.170     1.170
+  avgfrac |     0.995    0.983     0.980 |  (1.000)  (1.000)   (1.000)
+READ: combo nests both (beta->0 = schedule, p->0 = throttle); its oracle should
+>= max(sched,thr) per manifold. Question = does ONE committed (p,beta) win across all.

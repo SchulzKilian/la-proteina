@@ -1663,3 +1663,53 @@ The corollary for the broader CA-only architectural-route work (which the varian
 - `script_utils/microbench_conv_vs_canonical.py` — per-step micro-benchmark (E091).
 - `feedback_python_perf_undercounts_gpu_memory.md` — memory lesson that crystallised in this Finding's development.
 - `feedback_hybrid_goal_is_compute_quality.md` — the user's framing that re-oriented the analysis from "does hybrid beat canonical" to "does hybrid approach canonical at lower compute".
+
+## Finding 15 — `hydrophobic_patch_total_area` is independently steerable in the therapeutic (minimize) direction: a −12 % patch-area reduction is available at zero codesignability cost, with a sharp collapse boundary at w≈128 (2026-05-29)
+
+**Status:** finished. Single-objective extension of [Finding 10](#finding-10--closing-the-gradient-hacking-gap-in-latent-flow-steering-noise-aware-predictor-training--fold-ensembling-validated-by-real-property-delivery-and-structural-integrity-2026-05-06-codesignability-addendum-2026-05-07)'s noise-aware-ensemble steering machinery to a previously-unswept developability axis. Lab-notebook detail in [E102](experiments.md#e102--single-objective-steering-sweep-hydrophobic_patch_total_area-minimize-2026-05-29); pairs with [Finding 13](#finding-13--real-camsol-intrinsic-solubility-from-the-sormanni-lab-web-server-confirms-that-noise-aware-ensemble-latent-steering-raises-actual-solubility-on-the-predictors-training-target-without-measurable-codesign-cost-2026-05-21) (CamSol solubility steering) and [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) (the 4-objective cocktail where the hydrophobic axis was only ever touched via SAP).
+
+**Experiment.**
+
+Gradient-based latent-flow steering with the NA-v1 5-fold ensemble predictor (the same gradient source as F10/F13), single objective `hydrophobic_patch_total_area`, `direction: minimize` (smaller exposed hydrophobic surface patches → lower aggregation propensity → better developability). Canonical steering recipe: `inference_ucond_notri_long`, `linear_ramp` schedule (t_start=0.3, t_end=0.8, t_stop=0.9), unit grad-norm, gradient_clip=10, channel `local_latents`, **nsteps=400**. Sweep w ∈ {32, 48, 64, 128} × 16 seeds {42..57} × L ∈ {300, 400, 500} = 192 generations. Codesignability via the use_pdb_seq=True / ESMFold check (n=48 sequences/cell), benchmarked against the n=30 paired unsteered baseline (codesign 47.9 %, hydpatch area 2253.9 Å²). Audit: `steering_cost_audit.py` (property + AA-composition + codesign + diversity).
+
+**Numbers.**
+
+| w | hydpatch area (Å²) | Δ vs unguided | codesign rate | Δ codesign (pp) | top-AA (N) freq | Shannon | low-cplx frac | KL vs w1 | verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| unguided | 2253.9 | — | 47.9 % | — | — | — | — | — | anchor |
+| 32 | 1988.8 | **−265 (−11.8 %)** | **50.0 %** | **+2.1** | 0.194 | 3.523 | 0.152 | 0.000 | **WORKING** |
+| 48 | 1923.8 | −330 (−14.6 %) | 39.6 % | −8.3 | 0.195 | 3.521 | 0.156 | 0.004 | WORKING |
+| 64 | 1815.1 | −439 (−19.5 %) | 35.4 % | −12.5 | 0.195 | 3.527 | 0.152 | 0.020 | WORKING |
+| 128 | 1669.3 | −585 (−25.9 %) | 6.25 % | −41.7 | 0.257 | 3.388 | 0.291 | 0.177 | **BROKEN** |
+
+Predictor-side delivery is clean and monotonic across the full range (−11.8 % → −25.9 %). Diversity (pairwise TM) is flat across all w within each length bin (~0.50 @ L=300, ~0.33 @ L=400, ~0.40 @ L=500) — steering does not mode-collapse the structural ensemble even at w=128.
+
+**Narrow claim.**
+
+On the canonical La-Proteina LD+AE inference stack (`inference_ucond_notri_long`, nsteps=400) with the NA-v1 5-fold ensemble predictor as gradient source, single-objective minimization of `hydrophobic_patch_total_area`:
+
+1. **The axis is independently steerable in the therapeutic direction**, with a monotonic predictor-side dose-response from −11.8 % (w=32) to −25.9 % (w=128) of total hydrophobic patch area vs the unguided baseline.
+2. **At w=32 the −11.8 % reduction is delivered at zero codesignability cost** (50.0 % vs 47.9 % anchor; the +2.1 pp is within n=48 sampling noise) and with no detectable sequence-composition shift (KL-vs-w1 = 0.000, Shannon and low-complexity fraction unchanged).
+3. **The usable Pareto front extends to w≈64**: w=48 and w=64 buy larger reductions (−14.6 %, −19.5 %) at a real but bounded codesignability cost (−8.3 pp, −12.5 pp).
+4. **There is a sharp collapse boundary at w=128**: codesignability craters to 6.25 % (−41.7 pp) and the sequence head collapses toward poly-N (top-AA Asn 0.20→0.26, Shannon 3.53→3.39, low-complexity fraction 0.15→0.29, KL-vs-w1=0.18, MAX_AA flag), placing w=128 outside the usable range.
+
+**Implikation.**
+
+This extends the F10/F13 "noise-aware-ensemble steering delivers real property change without codesign cost" result from solubility (CamSol) to the hydrophobic-patch-area axis, and adds a quantitative collapse boundary: the codesign-free operating point (w=32) and the model-breaking point (w=128) are separated by only a factor of 4 in guidance strength, so the steering weight is a load-bearing hyperparameter that must be tuned per axis rather than carried over from another property. Cautiously, the existence of a zero-cost therapeutic reduction on a clinically-relevant developability axis (aggregation-prone hydrophobic surface) supports the broader thesis that latent-flow steering is a usable post-hoc developability lever, not just a predictor-side curiosity — but the magnitude of the *real* (structure-measured) reduction at the codesign-free operating point is not established by this experiment (see below).
+
+**Methodische Einschränkungen.**
+
+- **Structure-blind predictor.** NA-v1 is latent-only. `hydrophobic_patch_total_area` is the single axis [E075](experiments.md#e075--ca-conditioned-multi-task-property-predictor-5-fold-from-scratch-2026-05-20) showed the largest CA-conditioning gain on (+0.07 fold-mean r², latent-only 5-fold R²≈0.86 → coord-conditioned ≈0.93). The reductions reported here are measured on the steered structures' FreeSASA-derived patch area, but the *gradient* that produced them came from a structure-blind predictor — a structure-aware (CA-conditioned) re-run is the natural follow-up and may deliver a differently-shaped or larger codesign-free reduction.
+- **σ-delivery is length-binned, not pooled.** `hydrophobic_patch_total_area` scales with N; the audit's pooled `prop_delta_sigma` column (0.25–0.55) under-reports the effect across L∈{300,400,500} and is not the trustworthy figure. The raw Å² deltas in the table are the load-bearing numbers (cf. `feedback_length_bin_property_sigmas.md`).
+- **n=48 codesign sequences/cell.** The w=32 "+2.1 pp" and the w=48/w=64 cost magnitudes are subject to n=48 binomial noise; the direction (free at w=32, costly past w=48, broken at w=128) is robust but the per-w cost magnitudes have CIs of ±~14 pp.
+- **Codesignability = use_pdb_seq=True / ESMFold check** (steering codesignability convention, cf. `feedback_steering_use_codesignability.md`), not MPNN-redesign — consistent with all post-E064 steering entries and directly comparable to F10/F13.
+- **Single objective.** This isolates the patch-area head; behaviour inside a multi-objective developability cocktail (where it would compete with SAP / SCM / CamSol gradients, as in E072) is not characterized here.
+
+**Cross-references:**
+
+- [E102](experiments.md#e102--single-objective-steering-sweep-hydrophobic_patch_total_area-minimize-2026-05-29) — lab-notebook detail (configs, driver, audit outputs).
+- [Finding 10](#finding-10--closing-the-gradient-hacking-gap-in-latent-flow-steering-noise-aware-predictor-training--fold-ensembling-validated-by-real-property-delivery-and-structural-integrity-2026-05-06-codesignability-addendum-2026-05-07) — the noise-aware-ensemble steering machinery this reuses.
+- [Finding 13](#finding-13--real-camsol-intrinsic-solubility-from-the-sormanni-lab-web-server-confirms-that-noise-aware-ensemble-latent-steering-raises-actual-solubility-on-the-predictors-training-target-without-measurable-codesign-cost-2026-05-21) — the analogous zero-cost-delivery result on the CamSol solubility axis.
+- [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) — the 4-objective cocktail; the hydrophobic axis was previously only exercised via SAP inside it.
+- [E075](experiments.md#e075--ca-conditioned-multi-task-property-predictor-5-fold-from-scratch-2026-05-20) — CA-conditioned predictor; the structure-aware follow-up for this exact axis.
+- `feedback_length_bin_property_sigmas.md`, `feedback_steering_use_codesignability.md`, `feedback_steering_denoised_is_best.md` — methodological conventions applied here.
