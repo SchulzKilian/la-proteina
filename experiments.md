@@ -22,6 +22,8 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 
 | ID | Date | Status | Topic | Narrative? |
 |---|---|---|---|---|
+| [E106](#e106--sine-per-sample-distribution-audit-is-the-schedules-property-win-on-manifold-crest-occupation-or-a-mean-p-tail-artifact-2026-05-30) | 2026-05-30 | finished | Sine per-sample-P audit of E104. Refutes "schedule just pushed it off-manifold": its 0.409 is genuine tall-crest occupation (median P 0.020, on-manifold subset mean-x₂ 0.513 > headline, only 1% clearly off). New: at matched property the schedule is also *cleaner* than the throttle (577 vs 276 tight-on-manifold). Caution: mean-P ceilings are gameable; report median + off-manifold fraction. | non-narrative — robustness check for E104. |
+| [E105](#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30) | 2026-05-30 | finished | net_charge **target=−5.0** steering sweep (w∈{8,16,24,32}, 16 seeds, L∈{300,400,500}) + paired designability vs seed-matched unguided. **Inverted dose-response = setpoint regulation** (higher w → milder charge; grad self-extinguishes at target). Charge −10→−5 closed-loop. **Designability: NO significant gain** (paired n=16/L: L400 38→50% is McNemar +2/−0 p=0.50; pooled 66→69% p=0.63); the N=48 "des rises with w" was binomial noise. Corrects an interim scattered-bucket over-claim. → Finding (break-even property control). |
 | [E001](#e001--multi-task-property-predictor-on-la-proteina-latents-2026-04-21) | 2026-04-21 | finished | Multi-task property predictor on AE latents | → Finding 1 |
 | [E002](#e002--capacity-probing-of-property-decoders-2026-04-21) | 2026-04-21 | finished | Capacity probing (linear / MLP / per-residue MLP / Tx) | → Finding 4 |
 | [E003](#e003--latent-geometry-of-the-partial-autoencoder-2026) | 2026 (Apr) | finished | Latent geometry (Part 1 of steerability pipeline) | → Finding 3 |
@@ -8894,3 +8896,88 @@ Non-triviality (β=20 only): P≤0.02 → plain 0.066 / best w(t) 0.118 / thrott
 - **Synthetic toy — the nsteps=400 rule does NOT apply** (no structures, no scRMSD; NSTEPS=150 is the toy integrator resolution, documented in the script header).
 - Analytic FM field + V_MAX cap is a *model* of a bounded trained network, not a trained network; the qualitative mechanism transfers but the exact crossover λ/β do not.
 - **Synthetic toy — the nsteps=400 rule does NOT apply** (no structures, no scRMSD; NSTEPS=150 is the toy integrator resolution, documented in the script header).
+
+---
+
+## E105 — Single-objective steering sweep: net_charge **target = −5.0** (setpoint regulation) + paired designability test vs seed-matched unguided (2026-05-30)
+
+**Status:** finished (generation + audit + codesign sweep done; codesign sweep exited ~2026-05-30 15:5x UTC). Sibling of [E103](#e103--single-objective-steering-sweep-net_charge-maximize--less-acidic-2026-05-30) (maximize direction) — this is the `direction: target` counterpart aimed at the *natural* charge regime (≈ −5), not "as basic as possible".
+
+**Why ran.** E103 pushes net charge monotonically *past* natural at increasing codesign cost; the therapeutically relevant move is a *gentle* push to the natural setpoint (≈ −5), so this sweep uses `direction: target, target_value: -5.0`. Two questions: **(1)** does a target objective deliver a clean setpoint (vs the open-loop overshoot of maximize)? **(2)** an N=6→N=48 surprise prompted the headline question: the codesign rate appeared to *rise* with steering weight (w8 48% → w32 54%) — **is target steering literally improving designability, or is that an artifact?** Motivated the paired, seed-matched analysis below.
+
+**Configs.**
+- Predictor: NA-v1 5-fold ensemble (`laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt`).
+- Objective: `net_charge`, `direction: target`, `target_value: -5.0`, weight 1.0.
+- Recipe (canonical): `inference_ucond_notri_long`, `linear_ramp` (t_start=0.3, t_end=0.8, t_stop=0.9), `gradient_norm: unit`, `gradient_clip: 10.0`, channel `local_latents`, **nsteps=400**, default jitter (sc_scale_noise_local=0.05).
+- Sweep: w ∈ {8, 16, 24, 32} × seeds {42..57} (16) × L ∈ {300, 400, 500} = 192 PDBs.
+- Configs: `steering/config/sweep_net_charge_target/net_charge_target_w{8,16,24,32}.yaml`.
+- Driver: `script_utils/run_net_charge_target_pipeline.sh` (`--skip_unguided`; nohup → `nohup_net_charge_target.out`). Single L4, `cuda:0`.
+- Output: `results/net_charge_target_sweep/net_charge_target_w*/`; AA audit → `results/sequence_collapse_audit_net_charge_target_sweep/`.
+- **Unguided baseline (reused, NOT regenerated):** `results/noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv` — n=48, **seeds 42–57 × L{300,400,500}**, same model/nsteps=400/`ucond_notri_long`/jitter=0.05 → directly paired. (Unguided output is config-independent given seed+length+model+nsteps+jitter, so the ensemble-sweep baseline is identical to what `--skip_unguided` would have produced here.)
+
+**Results — (a) charge delivery is an INVERTED dose-response (setpoint regulation, not open-loop push).** `net_charge_ph7` from the generated sequences (target = −5.0):
+
+| w | overall | L300 | L400 | L500 |
+|---|---|---|---|---|
+| 8  | −6.78 | −8.24 | **−10.37** | −1.73 |
+| 16 | −4.78 | −6.42 | −7.25 | −0.68 |
+| 24 | −3.57 | −5.17 | −3.93 | −1.61 |
+| 32 | −3.25 | −4.70 | **−2.75** | −2.30 |
+
+Higher weight produces a **weaker** acidic push (−10.4 → −2.8 at L400), the opposite of a maximize sweep. **Mechanism (per-step diagnostics, batch elem 0, s42_n400):** the model's unguided prior at L400 is strongly acidic (trajectory starts −13.9 before guidance ramps). `direction: target` is a regulator — gradient ∝ distance-to-target, vanishing at −5. **w32** has the authority to drag the predicted charge up to −5 by t≈0.56, at which point `grad_norm_raw` collapses 4.8 → **0.009** and guidance self-disengages (ends −5.1). **w8** is too weak to overcome the acidic prior: `grad_norm_raw` stays 2–7 the whole trajectory but the unit-step × small-w can't move it, so it drifts to the prior's extreme (pred −16, final −10.4). So the "inverted" dose-response is correct setpoint behavior: strong w = converge-and-stop at the setpoint; weak w = never regulate. **w16 best matches the −5.0 target overall (−4.78); w24 best at L300 specifically (−5.2).**
+
+Composition driver (w8 ≈ prior): D+E enriched ~2.6pp over K+R at L300/L400 (L400 D+E 15.3% / K+R 12.7% → −0.026 e/res), giving the acidic skew; **L500 collapses both charged classes to ~10.9/10.6% (near-neutral) — a length-degradation regime, not "long proteins are neutral"** (L500 also structurally broken, below). Natural SwissProt ≈ D+E 11.6% ≈ K+R 11.3%, so the model over-produces charged residues (esp. acidic) — consistent with the low-latent-temperature collapse amplifier of [E101](#e101--sde-jitter-sequence-entropy-probe-is-the-low-complexity--acidic-skew-a-low-latent-temperature-artifact-2026-05-29).
+
+**Results — (b) sequence health: no collapse at any w.** Mean Shannon ~3.51 bits, max-AA-freq ~0.19 (top AA N), all cells flagged `ok`, KL-vs-unsteered flat (~0.11), KL-vs-w8 ≤ 0.0003. (`results/sequence_collapse_audit_net_charge_target_sweep/summary.csv`.)
+
+**Results — (c) designability: target steering does NOT measurably improve it (paired vs seed-matched unguided, n=16/L).** frac coScRMSD<2Å:
+
+| | unguided | w8 | w16 | w24 | w32 |
+|---|---|---|---|---|---|
+| L300 | **94%** | 88% | 88% | 88% | 94% |
+| L400 | 38% | 38% | 38% | 44% | **50%** |
+| L500 | 12% | 19% | 12% | 19% | 19% |
+
+- **L300:** steering neutral-to-slightly-harmful (94→88 for w8/16/24; w32 holds 94). McNemar loses a pair in several cells.
+- **L400:** the +12pp point estimate (unguided 38% → w32 50%) is **McNemar +2/−0** (two seeds flip favorably), exact p=0.50, Wilcoxon p=0.16 — **not significant**. Median coScRMSD 2.32 → 2.13.
+- **L500:** rate flat (12→19%); median improves 8.09 → 7.73 (w32) — steering reduces gross off-manifold failures but does not rescue to designable.
+- **Pooled on-target (w24+w32) × {L300,L400}, 64 pairs: 66% → 69%, McNemar +3/−1, exact p=0.63, Wilcoxon p=0.70 → no effect.**
+
+**Possible narrative.** Candidate Finding (paired with E103/F10 steering story): **net_charge target steering delivers a clean charge setpoint (−10 → −5 closed-loop regulation, grad self-extinguishes) at no significant designability cost — break-even, not an improvement.** "Controls the property for free" is defensible; "improves foldability" is NOT supported by the paired data. Added as a Finding in `content_masterarbeit.md`.
+
+**Methodological caveats.**
+- **The N=48 unpaired "designability rises with w" (w8 48% → w32 54%) is within binomial noise** (SE ≈ 7pp; w8 23/48 vs w32 26/48 ≈ 0.4σ). The apparent monotone trend dissolved under the seed-matched paired analysis.
+- **Correction of an interim over-claim (logged honestly):** a first pass compared guided cells to a unguided *bucket* at scattered empirical lengths (490–560 etc.), which let length confounding inflate an apparent L400 gain and produced a spurious "two independent contrasts agree" read. Switching to the **seed-matched** unguided baseline (same seeds 42–57, exact L) removed the confound and the gain collapsed to non-significance. Lesson: for designability deltas, pair on (seed, L) — see the length-bin-σ note and `feedback_dont_rerun_canonical_use_e019`-style seed pairing.
+- **L500 is a degradation regime** (both charged classes collapse, structures ~8–25 Å) — it confounds any pooled-over-L charge or designability claim; analyze L300/L400 separately.
+- **Power:** to resolve even the L400 +12pp hint with a clean paired McNemar (~12.5% favorable-discordant rate) needs ~80 seeds at L400; pooled evidence (p=0.63) makes a true positive effect unlikely, so not prioritized.
+- Codesign is the `use_pdb_seq=True` / ESMFold check (E042 style), not MPNN-redesign. `--skip_unguided` used; baseline reused from `noise_aware_ensemble_sweep` (verified same config).
+
+---
+
+## E106 — Sine per-sample distribution audit: is the schedule's property win on-manifold crest-occupation or a mean-P tail artifact? (2026-05-30)
+
+**Status:** finished. Follow-up deep-dive on [E104](#e104--2d-toy-look-ahead-throttle-on-three-manifolds-ring--sine--cliff-2026-05-30)'s sine result. (E104 ← this entry refines, does not supersede.)
+
+**Why ran:** E104 reported that on the multi-crest sine the best fixed schedule `w(t)=(1−t)^p` beats the look-ahead throttle even at oracle-β (P≤0.05: sched 0.409 > thr 0.250). The oracle filters on **mean** P ≤ τ, and a mean is gameable — a schedule could fake a property win with a tail of samples pushed *up and off* the curve (high x₂, but off-manifold) while the bulk stays on, inflating mean-x₂ without inflating mean-P enough to be filtered. Question: is the schedule's 0.409 genuine on-manifold redistribution onto the tall crests, or that artifact? (User challenge: "are you sure the schedule didn't just push it away?")
+
+**Configs / setup:**
+- Driver: `script_utils/sine_schedule_vs_throttle_audit.py` (NumPy + matplotlib only, no torch/GPU). Reproduces E104's exact cloud-construction RNG stream (`default_rng(0)`, ring draw burned first, then sine) so numbers match the E104 summary.
+- Sweeps sine `sched`(λ∈LAMS × p∈{0.5,1,2,4,8}) and `throttle`(λ × β∈{0.5,1,2,5,10,20,50}); for each arm picks the operating point with **max mean-x₂ subject to mean-P ≤ 0.05**. Reports per-sample P distribution (mean/median/p90, off-manifold fractions) and mean-x₂ of the tight-on-manifold subset (P<0.02). Output: `results/toy_lookahead_throttle/sine_schedule_vs_throttle_audit.png`.
+
+**Results.** Winning points reproduce E104 exactly: schedule = (λ8, p1) → mean-x₂ 0.409; throttle = (λ2, β2) → mean-x₂ 0.250.
+
+| arm (operating pt) | mean x₂ | mean P | med P | p90 P | frac P>0.05 | frac P>0.2 | mean x₂ \| P<0.02 (n_on) |
+|---|---|---|---|---|---|---|---|
+| sched (λ8, p1) | 0.409 | 0.0355 | **0.0203** | 0.0943 | 0.19 | 0.01 | **0.513** (577) |
+| throttle (λ2, β2) | 0.250 | 0.0434 | 0.0330 | 0.0895 | 0.29 | 0.01 | 0.355 (276) |
+
+**Two findings:**
+1. **The tail-artifact hypothesis is REFUTED — the schedule's win is genuine on-manifold crest occupation.** (a) median P = 0.020 (bulk is tight on the curve); (b) only 1% clearly off (P>0.2); (c) decisive: the **on-manifold subset's mean x₂ = 0.513 is HIGHER than the headline 0.409** — dropping the off-manifold samples *raises* the mean, the opposite of a high-x₂ flier tail. Per-sample-P coloring confirms the off-manifold (bright) points are **low-x₂ valley stragglers** in the x₁∈[1.5,3] trough (pushed up off the curve but still at x₂≈−0.3), which drag the mean *down*. The property comes from on-manifold mass sitting on the two tall crests (x₂≈0.82 @ x₁≈0.79; x₂≈0.35 @ x₁≈−2.36).
+2. **At matched property the schedule is also CLEANER than the throttle — new, strengthens E104.** To climb to 0.250 the oracle throttle must use weak braking (β=2), which on the wavy manifold leaves it messier on *both* axes than the schedule: more off-manifold (29% vs 19% P>0.05), worse median P (0.033 vs 0.020), and **fewer than half as many tight-on-manifold samples (276 vs 577)**. The pristine β=20 throttle in the E104 clouds figure (P=0.027) barely climbed (x₂=0.08) — you cannot get both clean + climbing from the throttle here. So the sine is not merely "throttle is over-conservative but safe"; **the schedule dominates the throttle on property AND on-manifold-ness simultaneously.**
+
+**Possible narrative:** Non-narrative — methods-robustness check for E104/E097/E098. Reinforces E104's regime story with a distributional mechanism: on excursion-rewarding multi-crest manifolds, early-burst guidance (schedule) biases the soft denoiser `E[x₁|x_t]` onto the tall crests and the flow's restoring force lands them there cleanly; the myopic one-step throttle can't, and tuning it to climb costs manifold-cleanliness. The throttle's niche stays exactly the cliff regime (per-sample brake-required, no productive excursion). Also a reusable caution: **mean-P ceilings are gameable; report median + off-manifold fraction + on-manifold-subset property** when adjudicating "did guidance stay on-manifold."
+
+**Methodological caveats:**
+- Synthetic 2D toy — nsteps=400 rule N/A (NSTEPS=150 toy integrator resolution). Analytic FM field + V_MAX=4 cap models a bounded trained net, not a trained net; qualitative mechanism transfers, exact crossover λ/β/p do not.
+- Single seed (seed=1 for the sampler, cloud seed 0), N_SAMPLE=1200. Fractions have ~1.5pp binomial SE; the 577-vs-276 on-manifold-count gap and the 0.513-vs-0.409 ordering are far outside that.
+- "On-manifold" thresholds (P<0.02 tight, P>0.05 off, P>0.2 clearly off) are chosen cut-points on a continuous distance; the qualitative conclusion is robust to moving them but the exact counts are not.

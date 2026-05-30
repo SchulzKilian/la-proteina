@@ -1713,3 +1713,31 @@ This extends the F10/F13 "noise-aware-ensemble steering delivers real property c
 - [E072](experiments.md#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scmpos-2026-05-19) — the 4-objective cocktail; the hydrophobic axis was previously only exercised via SAP inside it.
 - [E075](experiments.md#e075--ca-conditioned-multi-task-property-predictor-5-fold-from-scratch-2026-05-20) — CA-conditioned predictor; the structure-aware follow-up for this exact axis.
 - `feedback_length_bin_property_sigmas.md`, `feedback_steering_use_codesignability.md`, `feedback_steering_denoised_is_best.md` — methodological conventions applied here.
+
+---
+
+## Finding 16 — `net_charge` target steering acts as a closed-loop setpoint regulator (−10 → −5) at break-even designability cost; it controls charge "for free" but does not improve foldability (2026-05-30)
+
+**Experiment.** Single-objective latent steering of `net_charge` with `direction: target, target_value: -5.0` (the natural charge regime), w ∈ {8, 16, 24, 32} × seeds 42–57 × L ∈ {300, 400, 500}, nsteps=400, NA-v1 5-fold ensemble, `inference_ucond_notri_long`, default jitter. Designability assessed **paired by (seed, L)** against a seed-matched unguided baseline (`noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv`, same seeds/lengths/config). Lab detail: [E105](experiments.md#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30). Sibling of the maximize-direction sweep ([E103](experiments.md#e103--single-objective-steering-sweep-net_charge-maximize--less-acidic-2026-05-30)).
+
+**Numbers.**
+- **Inverted dose-response (the regulator signature).** Final `net_charge_ph7` at L400: w8 −10.4 → w16 −7.2 → w24 −3.9 → w32 −2.8. Higher weight gives a *milder* charge (opposite of a maximize sweep). Per-step diagnostics: at w32 the predicted charge reaches the −5 setpoint by t≈0.56 and `grad_norm_raw` collapses 4.8 → 0.009 (guidance self-extinguishes); at w8 the gradient stays 2–7 throughout but the unit-step × small-w never overcomes the acidic prior (starts −13.9, ends −10.4). w16 best matches the −5.0 target overall (−4.8).
+- **Designability, paired vs seed-matched unguided (frac coScRMSD<2 Å, n=16/L):** L300 unguided 94% → 88–94%; L400 unguided 38% → w32 50% (McNemar **+2/−0**, exact p=0.50, Wilcoxon p=0.16); L500 unguided 12% → 19% (rate flat). Pooled on-target (w24+w32) × {L300,L400}, 64 pairs: **66% → 69%, McNemar +3/−1, p=0.63.**
+- Sequences healthy at all w (Shannon ~3.51, no collapse, KL-vs-unsteered flat).
+
+**Narrow claim.** A `direction: target` objective on `net_charge` behaves as a **closed-loop setpoint regulator**: it drives the model's over-acidic prior (≈ −10 to −14 at L300/400) to the natural −5 target and then self-disengages (gradient → 0), in contrast to the open-loop overshoot of the maximize objective (F-sibling E103). Across a paired, seed-matched designability comparison (n=16 per length), target steering produces **no statistically significant change in codesignability** at any weight or length (pooled 66→69%, p=0.63; the best single cell, L400 w32, is +2 flipped seeds, p=0.16). Charge is controlled at **break-even structural cost**.
+
+**Implikation.** Cautiously: for property axes where the unguided prior is *off* the natural distribution (here, over-acidic due to the low-latent-temperature collapse of [Finding 8](#finding-8)/[E101](experiments.md#e101--sde-jitter-sequence-entropy-probe-is-the-low-complexity--acidic-skew-a-low-latent-temperature-artifact-2026-05-29)), a target objective is the right tool — it regulates to a biologically sensible setpoint rather than maximizing a possibly-pathological direction, and the self-extinguishing gradient bounds the perturbation automatically. This complements the "free delivery" results of F10/F13/F15 on a *target* (rather than monotone) objective. It does **not** support a "steering improves designability" claim: the regularization-toward-natural-composition mechanism is real in principle but below detection at n=16/L.
+
+**Methodische Einschränkungen.**
+- **Null/break-even result at n=16 paired per length** — consistent with zero effect but underpowered to exclude a small (≤~10 pp) designability gain; resolving the L400 hint would need ~80 paired seeds at L400.
+- **An interim over-claim was corrected.** A first pass compared guided cells to a *scattered-length* unguided bucket (L 490–560 etc.) and reported an apparent L400 gain ("two contrasts agree"); switching to the seed-matched baseline removed the length confound and the gain collapsed to non-significance. The N=48 *unpaired* "designability rises with w" (48→54%) is binomial noise (SE ≈ 7 pp). Pair on (seed, L) for designability deltas.
+- **L500 is a degradation regime** (charged-residue composition collapses, structures 8–25 Å); pooled-over-L charge or designability statements are not meaningful — analyze L300/L400 separately.
+- Codesignability = `use_pdb_seq=True` / ESMFold convention, not MPNN-redesign. Structure-blind (latent-only) predictor; charge is in the "charge-dominated" steerable class (E072).
+
+**Cross-references:**
+
+- [E105](experiments.md#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30) — lab-notebook detail.
+- [E103](experiments.md#e103--single-objective-steering-sweep-net_charge-maximize--less-acidic-2026-05-30) — maximize-direction sibling (open-loop overshoot).
+- [E101](experiments.md#e101--sde-jitter-sequence-entropy-probe-is-the-low-complexity--acidic-skew-a-low-latent-temperature-artifact-2026-05-29) / [Finding 8](#finding-8) — the over-acidic prior this regulates toward natural.
+- [Finding 10](#finding-10--closing-the-gradient-hacking-gap-in-latent-flow-steering-noise-aware-predictor-training--fold-ensembling-validated-by-real-property-delivery-and-structural-integrity-2026-05-06-codesignability-addendum-2026-05-07), [Finding 13](#finding-13), [Finding 15](#finding-15) — the free-delivery steering results this extends to a target objective.
