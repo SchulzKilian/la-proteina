@@ -22,6 +22,7 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 
 | ID | Date | Status | Topic | Narrative? |
 |---|---|---|---|---|
+| [E107](#e107--cliff-per-sample-audit-companion-to-e106-the-throttles-winning-regime-in-the-same-format-2026-05-30) | 2026-05-30 | finished | Cliff per-sample audit — throttle-WINS counterpart to E106's sine (throttle-loses), same visual language. At mean-P≤0.05: throttle (λ16,β5) 1.170 vs schedule (λ8,p0.5) 1.117 (matches E104). Throttle's edge = tightness (p90-P 0.054 vs 0.070, zero P>0.2 fliers); schedule launches a bright tail off the edge (x1=1.5–1.8) + leaves laggards. Dramatic margin is at TIGHT ceilings (E104 τ0.01 +38%), modest at τ0.05. | non-narrative — companion viz for E104/E106. |
 | [E106](#e106--sine-per-sample-distribution-audit-is-the-schedules-property-win-on-manifold-crest-occupation-or-a-mean-p-tail-artifact-2026-05-30) | 2026-05-30 | finished | Sine per-sample-P audit of E104. Refutes "schedule just pushed it off-manifold": its 0.409 is genuine tall-crest occupation (median P 0.020, on-manifold subset mean-x₂ 0.513 > headline, only 1% clearly off). New: at matched property the schedule is also *cleaner* than the throttle (577 vs 276 tight-on-manifold). Caution: mean-P ceilings are gameable; report median + off-manifold fraction. | non-narrative — robustness check for E104. |
 | [E105](#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30) | 2026-05-30 | finished | net_charge **target=−5.0** steering sweep (w∈{8,16,24,32}, 16 seeds, L∈{300,400,500}) + paired designability vs seed-matched unguided. **Inverted dose-response = setpoint regulation** (higher w → milder charge; grad self-extinguishes at target). Charge −10→−5 closed-loop. **Designability: NO significant gain** (paired n=16/L: L400 38→50% is McNemar +2/−0 p=0.50; pooled 66→69% p=0.63); the N=48 "des rises with w" was binomial noise. Corrects an interim scattered-bucket over-claim. → Finding (break-even property control). |
 | [E001](#e001--multi-task-property-predictor-on-la-proteina-latents-2026-04-21) | 2026-04-21 | finished | Multi-task property predictor on AE latents | → Finding 1 |
@@ -8981,3 +8982,31 @@ Composition driver (w8 ≈ prior): D+E enriched ~2.6pp over K+R at L300/L400 (L4
 - Synthetic 2D toy — nsteps=400 rule N/A (NSTEPS=150 toy integrator resolution). Analytic FM field + V_MAX=4 cap models a bounded trained net, not a trained net; qualitative mechanism transfers, exact crossover λ/β/p do not.
 - Single seed (seed=1 for the sampler, cloud seed 0), N_SAMPLE=1200. Fractions have ~1.5pp binomial SE; the 577-vs-276 on-manifold-count gap and the 0.513-vs-0.409 ordering are far outside that.
 - "On-manifold" thresholds (P<0.02 tight, P>0.05 off, P>0.2 clearly off) are chosen cut-points on a continuous distance; the qualitative conclusion is robust to moving them but the exact counts are not.
+
+---
+
+## E107 — Cliff per-sample audit (companion to E106): the throttle's winning regime in the same format (2026-05-30)
+
+**Status:** finished. Throttle-WINS counterpart to [E106](#e106--sine-per-sample-distribution-audit-is-the-schedules-property-win-on-manifold-crest-occupation-or-a-mean-p-tail-artifact-2026-05-30) (sine, throttle-loses), rendered in identical visual language so the two regimes can be compared directly. Sub-result of [E104](#e104--2d-toy-look-ahead-throttle-on-three-manifolds-ring--sine--cliff-2026-05-30).
+
+**Why ran:** E106 forensically audited the *losing* manifold (sine). User asked to see the *winning* manifold (cliff) in the same per-sample-P format — i.e. *how*, mechanistically, the throttle beats the schedule when it does.
+
+**Configs:** `script_utils/cliff_schedule_vs_throttle_audit.py` (NumPy-only, no torch/GPU). Reproduces E104's exact cliff cloud RNG stream (ring→sine→cliff drawn from `default_rng(0)`). Cliff = segment {x₁∈[−1,1], x₂=0}, φ=x₁ (push right), P=(x₁−clip(x₁,±1))²+x₂². Picks each arm's max-mean-x₁ operating point at mean-P≤0.05. Output: `results/toy_lookahead_throttle/cliff_schedule_vs_throttle_audit.png`.
+
+**Results.** Winning points reproduce E104 exactly: schedule (λ8, p0.5)→1.117, throttle (λ16, β5)→1.170.
+
+| arm (operating pt) | mean x₁ | mean P | med P | p90 P | frac P>0.05 | frac P>0.2 | frac past edge (x₁>1) | mean x₁ \| on (n_on) |
+|---|---|---|---|---|---|---|---|---|
+| sched (λ8, p0.5) | 1.117 | 0.0334 | 0.0195 | 0.0695 | 0.16 | 0.01 | 0.90 | 1.044 (620) |
+| throttle (λ16, β5) | 1.170 | 0.0346 | 0.0299 | **0.0535** | 0.14 | **0.00** | 1.00 | 1.133 (270) |
+
+**Findings:**
+1. **Throttle wins, but the τ=0.05 margin is modest (1.170 vs 1.117) and the mechanism is "tightness," not a clean on/off-segment split.** Both arms push the cloud *just past* the edge (x₁≈1.2; throttle 100% past, schedule 90% past — at this loose ceiling mean-P≤0.05 tolerates a uniform ~0.04 over-shoot). The throttle's edge: lower p90-P (0.054 vs 0.070) and **zero extreme fliers** (P>0.2 = 0% vs 1%). The schedule's cost is visible in the figure as a **bright tail flung to x₁=1.5–1.8** (right-enders launched off the cliff by the late push) *plus* laggards left behind at x₁<1 — the schedule can't brake the over-shooters and drag the laggards with one scalar w(t).
+2. **The dramatic throttle margin is at TIGHT ceilings, not this one.** E104 oracle table: τ0.01 throttle 1.063 vs sched 0.770 (**+38%**), τ0.02 1.119 vs 0.770 (+45%); the gap shrinks as the ceiling loosens (τ0.05 +5%, τ0.10 +14%). τ=0.05 was chosen only for visual parity with the E106 sine audit; it under-sells the cliff win.
+3. **Together E106+E107 visualize the full regime split:** sine (excursion-rewarding) → schedule cleaner *and* higher; cliff (per-sample brake-required) → throttle cleaner (no fliers) *and* higher — the function-class impossibility for a scalar w(t) made visible.
+
+**Possible narrative:** Non-narrative — companion visualization for E104/E106/E098. Reinforces the regime story; reusable figure pair for the methods section ("when does a state-dependent brake beat a time-schedule").
+
+**Methodological caveats:**
+- At τ=0.05 the mean-P ceiling is loose enough that *both* arms sit mildly past the edge; the throttle's win here is tightness + no extreme excursions, NOT a clean "throttle on-segment, schedule off." For the clean split use a tight ceiling (τ≤0.02), where the schedule cannot keep laggards on without launching right-enders.
+- Single seed (sampler seed=1, cloud seed 0), N_SAMPLE=1200; same synthetic-toy / nsteps-400-N/A caveats as E104/E106.
