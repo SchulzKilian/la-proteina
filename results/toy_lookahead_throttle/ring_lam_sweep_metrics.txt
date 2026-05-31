@@ -1,0 +1,27 @@
+=== RING lambda sweep (phi=x2, push up) ===
+cloud=600 samples=1200 nsteps=150 V_MAX=4.0 beta=20.0
+      arm  lam0   mean_x2     mean_P
+    plain   0.0    -0.051     0.0067
+    plain   0.5     0.140     0.0078
+    plain   1.0     0.319     0.0117
+    plain   2.0     0.655     0.0256
+    plain   4.0     1.248     0.1792
+    plain   8.0     2.516     2.4837
+    plain  16.0     5.653    21.9456
+    plain  32.0    12.501   132.6718
+ throttle   0.0    -0.051     0.0067
+ throttle   0.5     0.114     0.0071
+ throttle   1.0     0.247     0.0084
+ throttle   2.0     0.451     0.0094
+ throttle   4.0     0.600     0.0106
+ throttle   8.0     0.667     0.0148
+ throttle  16.0     0.791     0.0202
+ throttle  32.0     0.874     0.0257
+    sched   0.0    -0.051     0.0067
+    sched   0.5    -0.032     0.0066
+    sched   1.0    -0.015     0.0066
+    sched   2.0     0.023     0.0064
+    sched   4.0     0.101     0.0063
+    sched   8.0     0.249     0.0069
+    sched  16.0     0.524     0.0092
+    sched  32.0     0.910     0.0175

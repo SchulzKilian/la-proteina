@@ -26,6 +26,12 @@ if str(_STEERABILITY_ROOT) not in sys.path:
     sys.path.insert(0, str(_STEERABILITY_ROOT))
 
 from src.multitask_predictor.model import PropertyTransformer
+try:
+    # Concept-bottleneck variant (latent -> AA+torsion -> properties). Drop-in:
+    # forward(latents, mask, t) -> [B, n_properties] z-scored, same as PropertyTransformer.
+    from src.multitask_predictor.cbm_model import CBMPropertyTransformer
+except Exception:  # noqa: BLE001
+    CBMPropertyTransformer = None
 
 
 @dataclass
@@ -72,10 +78,18 @@ class SteeringPredictor(nn.Module):
             stats_means.append(sm)
             stats_stds.append(ss)
 
-            m = PropertyTransformer(
-                latent_dim=8, d_model=128, n_heads=4, n_layers=3,
-                ffn_expansion=4, dropout=0.1, n_properties=n_props_first, max_len=1024,
-            )
+            if ckpt.get("cbm"):
+                if CBMPropertyTransformer is None:
+                    raise ImportError("ckpt is a CBM but CBMPropertyTransformer failed to import")
+                m = CBMPropertyTransformer(
+                    latent_dim=8, d_model=128, n_heads=4, n_layers=3,
+                    ffn_expansion=4, dropout=0.1, n_properties=n_props_first, max_len=1024,
+                )
+            else:
+                m = PropertyTransformer(
+                    latent_dim=8, d_model=128, n_heads=4, n_layers=3,
+                    ffn_expansion=4, dropout=0.1, n_properties=n_props_first, max_len=1024,
+                )
             m.load_state_dict(ckpt["model_state_dict"])
             m.eval()
             for p in m.parameters():

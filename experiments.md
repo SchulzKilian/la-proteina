@@ -22,6 +22,10 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 
 | ID | Date | Status | Topic | Narrative? |
 |---|---|---|---|---|
+| [E110](#e110--concept-bottleneck-cbm-property-predictor-aatorsion-bottleneck-anti-goodhart-2026-05-31) | 2026-05-31 | in progress | **CBM property predictor** to fix the E109 gradient-hacking: `latent → (AA identity + torsion angles) bottleneck → 14 properties`. g2 sees only the supervised AA/torsion concepts, so latent gradients must route through them. Fresh-trained, AA-only-decodable concepts (no coords from latent — that'd be dishonest), all 13/14 props kept, same data/splits/hparams as no-bottleneck NA-v1 (full processed_latents_300_800, 5-fold). Smoke OK (AA CE=ln21, torsions unit). Training launched 2026-05-31 12:18. | Anti-Goodhart fix for [E109](#e109--single-objective-steering-sweep-iupred3_fraction_disordered-target--0123-natural-setpoint-down-regulation-2026-05-31); compare CBM vs NA-v1 R² + (later) re-run iupred steering through it. |
+| [E111](#e111--toy-ring-λ-sweep-at-what-guidance-strength-does-plain-constant-w-leave-the-manifold-and-do-throttleschedule-hold-2026-05-31) | 2026-05-31 | finished | Toy **ring λ-sweep** (`toy_lookahead_ring_lam_sweep.py`): renders the look-ahead throttle toy's ring clouds across λ∈{0..32} for plain/throttle/sched, decomposing the single-λ `lam_show=8.0` panel. plain on-manifold only to λ≈2, knee at λ=4 (P=0.18), fully off-ring by λ=8 (P=2.48); throttle (β=20) + sched (p=2) stay on the ring across the whole sweep. | Confirms the toy's "plain flies off" message is partly a strength artifact (λ=8 was already past the cliff); presentation/decomposition asset for the look-ahead figure. Non-narrative. |
+| [E109](#e109--single-objective-steering-sweep-iupred3_fraction_disordered-target--0123-natural-setpoint-down-regulation-2026-05-31) | 2026-05-31 | finished | iupred3_fraction_disordered **target=0.123** sweep w∈{8,16,24,32}, 16 seeds, L∈{300,400,500}. **Steering-time OVER-OPTIMIZATION / Goodhart, dose-dependent**: predictor converges to 0.121≈target (textbook setpoint like E105) but real IUPred3 lands 0.176 AND per-sample proxy↔truth corr collapses **r 0.84→0.43** (Spearman 0.85→0.49, within-length) as w 8→32 — predicted σ squeezed to setpoint while real σ persists. NOT a constant offset (Spearman falls), NOT adversarial (pred & real both rise). Contrast net_charge E105 (LINEAR predictor → honest, real matched −5). iupred NONLINEAR → hackable (TANGO family). → Finding-grade: properties split honest(linear)/hackable(nonlinear); re-targeting does NOT fix; need real-in-loop / retrain on off-manifold latents. (Two earlier readings — "adversarial", then "simple calibration offset" — both corrected after diagnostics + correlation analysis.) |
+| [E108](#e108--net_charge-target--50-higher-n-l400-w32-extension-resolves-e105s-12pp-designability-hint-2026-05-31) | 2026-05-31 | finished | net_charge **target=−5.0** w32 **higher-n L400 extension** (48 fresh seeds 58–105, paired seed-matched unguided) to resolve E105's L400 +12pp hint (needed ~80 seeds). **Resolved = NOISE**: guided 21/48 (44%) vs unguided 20/48 (42%), McNemar +2/−1, p≈1.0. Predictor-side charge regulated tight to −5.0 (median pred −5.0, clustered −4.6..−5.6). Confirms E105's break-even conclusion. | non-narrative — power top-up confirming E105 null. |
 | [E107](#e107--cliff-per-sample-audit-companion-to-e106-the-throttles-winning-regime-in-the-same-format-2026-05-30) | 2026-05-30 | finished | Cliff per-sample audit — throttle-WINS counterpart to E106's sine (throttle-loses), same visual language. At mean-P≤0.05: throttle (λ16,β5) 1.170 vs schedule (λ8,p0.5) 1.117 (matches E104). Throttle's edge = tightness (p90-P 0.054 vs 0.070, zero P>0.2 fliers); schedule launches a bright tail off the edge (x1=1.5–1.8) + leaves laggards. Dramatic margin is at TIGHT ceilings (E104 τ0.01 +38%), modest at τ0.05. | non-narrative — companion viz for E104/E106. |
 | [E106](#e106--sine-per-sample-distribution-audit-is-the-schedules-property-win-on-manifold-crest-occupation-or-a-mean-p-tail-artifact-2026-05-30) | 2026-05-30 | finished | Sine per-sample-P audit of E104. Refutes "schedule just pushed it off-manifold": its 0.409 is genuine tall-crest occupation (median P 0.020, on-manifold subset mean-x₂ 0.513 > headline, only 1% clearly off). New: at matched property the schedule is also *cleaner* than the throttle (577 vs 276 tight-on-manifold). Caution: mean-P ceilings are gameable; report median + off-manifold fraction. | non-narrative — robustness check for E104. |
 | [E105](#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30) | 2026-05-30 | finished | net_charge **target=−5.0** steering sweep (w∈{8,16,24,32}, 16 seeds, L∈{300,400,500}) + paired designability vs seed-matched unguided. **Inverted dose-response = setpoint regulation** (higher w → milder charge; grad self-extinguishes at target). Charge −10→−5 closed-loop. **Designability: NO significant gain** (paired n=16/L: L400 38→50% is McNemar +2/−0 p=0.50; pooled 66→69% p=0.63); the N=48 "des rises with w" was binomial noise. Corrects an interim scattered-bucket over-claim. → Finding (break-even property control). |
@@ -9010,3 +9014,225 @@ Composition driver (w8 ≈ prior): D+E enriched ~2.6pp over K+R at L300/L400 (L4
 **Methodological caveats:**
 - At τ=0.05 the mean-P ceiling is loose enough that *both* arms sit mildly past the edge; the throttle's win here is tightness + no extreme excursions, NOT a clean "throttle on-segment, schedule off." For the clean split use a tight ceiling (τ≤0.02), where the schedule cannot keep laggards on without launching right-enders.
 - Single seed (sampler seed=1, cloud seed 0), N_SAMPLE=1200; same synthetic-toy / nsteps-400-N/A caveats as E104/E106.
+
+---
+
+## E108 — net_charge target = −5.0, higher-n L400 (w32) extension: resolves E105's +12pp designability hint (2026-05-31)
+
+**Status:** finished (generation + paired codesign done). Power top-up for [E105](#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30).
+
+**Why ran.** E105's one open thread: at L400, the on-target cell (w32) showed unguided 38% → guided 50% designable, but on only n=16 seeds it was McNemar +2/−0 (exact p=0.50) — a hint, not a result; the caveat estimated ~80 L400 seeds were needed to resolve it. This run adds **48 fresh seeds at L400** (a fresh seed-matched unguided arm at the same seeds), the most-promising single cell, to settle whether the hint is real or binomial noise.
+
+**Configs.**
+- Predictor: NA-v1 5-fold ensemble (same as E105).
+- Objective: `net_charge`, `direction: target`, `target_value: -5.0`, `w_max: 32.0`. Config `steering/config/sweep_net_charge_target/net_charge_target_w32.yaml`.
+- Recipe (canonical): `inference_ucond_notri_long`, linear_ramp (t_start=0.3, t_end=0.8, t_stop=0.9), gradient_norm unit, clip 10.0, channel local_latents, **nsteps=400**, jitter 0.05.
+- Sweep: w32 only × L=400 only × **seeds 58–105 (48 fresh, disjoint from E105's 42–57)**.
+- Guided + paired seed-matched unguided generated in this run (NOT reused): `results/net_charge_target_L400_n64/{w32,unguided}/codesign_guided.csv`. Per-seed steering diagnostics: `results/net_charge_target_L400_n64/w32/diagnostics/s*_n400_diagnostics.json`. Single L4, cuda:0.
+- Dir named `_n64` because pooling E105's 16 L400 pairs (seeds 42–57) + this run's 48 (seeds 58–105) = **64 total paired L400 seeds**.
+
+**Results — (a) designability is break-even (the hint was noise).** Paired seed-matched, n=48, L400, w32, coScRMSD_ca<2Å:
+
+| | unguided | guided (w32) |
+|---|---|---|
+| designable | 20/48 (42%) | 21/48 (44%) |
+| median coScRMSD | 2.98 | 2.42 |
+| mean coScRMSD | 4.38 | 4.05 |
+
+McNemar discordant **+2/−1** (2 seeds flip favorable, 1 unfavorable; 19 both-designable, 26 both-fail), exact p≈1.0. The +12pp E105 point estimate collapses to **+2pp** at 3× the seeds. Median/mean scRMSD improve slightly (2.98→2.42 / 4.38→4.05) — consistent with E105's "reduces gross failures without changing the designable rate."
+
+**Results — (b) charge regulated tight to the −5.0 setpoint (predictor-side).** Final-step predicted net_charge across all 48 seeds: median ≈ −5.0, mass clustered −4.6 to −5.6 (e.g. s60 −4.62, s75 −5.11, s99 −5.33), with a handful of weak-regulation overshoots toward the acidic prior (s85 −15.5, s100 −14.5, s73 −8.7, s82 −6.8). Reproduces E105's closed-loop setpoint behavior at higher n.
+
+**Possible narrative.** Non-narrative — confirms E105's Finding (net_charge target steering = clean charge setpoint at break-even designability), removes E105's only "needs more seeds" caveat. The pooled L400 evidence (E105 16 + E108 48 = 64 pairs) is now firmly null on designability gain. Strengthens but does not change the E105 paper claim.
+
+**Methodological caveats.**
+- **Charge values are predictor-side** (steering diagnostics on batch elem 0's clean estimate), NOT measured net_charge_ph7 from the generated sequences — the developability panel was not run on this dir, so the closed-loop "−10→−5" claim rests on E105's measured numbers; here only the predictor trajectory confirms regulation. To make the measured claim at n=64, run `compute_developability.py` on `results/net_charge_target_L400_n64/w32/guided/*.pdb`.
+- Single L (400) and single w (32) — by design (the only cell with a hint). No new evidence at L300/L500 or other w.
+- Codesign is `use_pdb_seq=True` ESMFold (E042 style), not MPNN-redesign.
+
+---
+
+## E109 — Single-objective steering sweep: iupred3_fraction_disordered **target = 0.123** (natural setpoint, down-regulation) (2026-05-31)
+
+**Status:** finished (generation + property panel + codesign + collapse audit + diversity done). Sibling of [E067](#e067--iupred3_fraction_disordered_max-scout-disorder-as-a-design-target-2026-05-15) (the *maximize* / push-disorder-UP direction) and the disorder counterpart of [E105](#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30) (net_charge target / down-regulation).
+
+**Why ran.** E105 showed net_charge `direction: target` is a clean setpoint regulator that pulls the property *down* to the natural value (−5) and self-extinguishes. The natural test of generality: does target regulation also work for a *structural-disorder* property in the down direction? The unsteered model over-produces disorder (~0.158–0.181 vs AFDB natural 0.123, see E099/E067), so target=0.123 asks steering to **reduce** disorder to the natural setpoint — the design-relevant move (more-ordered, more-foldable). If it works like net_charge, this is a second "free property control" axis; if it fails, it bounds the F10 generalization claim.
+
+**Configs.**
+- Predictor: NA-v1 5-fold ensemble (same as E105/E067).
+- Objective: `iupred3_fraction_disordered`, `direction: target`, `target_value: 0.123`, weight 1.0.
+- Recipe (canonical): `inference_ucond_notri_long`, linear_ramp (0.3/0.8/0.9), gradient_norm unit, clip 10.0, channel local_latents, **nsteps=400**, jitter 0.05.
+- Sweep: w ∈ {8,16,24,32} × seeds {42..57} (16) × L ∈ {300,400,500} = 192 PDBs. Configs `steering/config/sweep_iupred_target/iupred_target_w{8,16,24,32}.yaml`.
+- Driver `script_utils/run_iupred_target_pipeline.sh` (queued after the n64 run via `script_utils/queue_iupred_after_n64.sh`). Single L4.
+- Output `results/iupred_target_sweep/iupred_target_w*/` (codesign_guided.csv + properties_guided.csv + run_config.yaml). Collapse audit `results/sequence_collapse_audit_iupred_target_sweep/`; diversity `results/iupred_target_sweep/diversity_pairwise_tm.csv`; cost audit `results/iupred_target_sweep/steering_cost_audit.csv`.
+
+**Results — (a) down-regulation FAILS: measured disorder moves AWAY from the target as w increases.** `iupred3_fraction_disordered` measured on the generated sequences (target = 0.123; unsteered ≈ 0.158):
+
+| w | iupred3_fraction_disordered (mean) | iupred3_mean | codesign <2Å | scRMSD med | scRMSD mean |
+|---|---|---|---|---|---|
+| 8  | 0.170 | 0.330 | 22/48 (45.8%) | 2.14 | 5.12 |
+| 16 | 0.175 | 0.338 | 20/48 (41.7%) | 2.59 | 5.41 |
+| 24 | 0.178 | 0.346 | 22/48 (45.8%) | 2.65 | 5.64 |
+| 32 | 0.180 | 0.357 | 21/48 (43.8%) | 2.54 | 5.59 |
+
+Real disorder rises **monotonically** 0.170 → 0.180 with weight — i.e. real disorder moves *away* from the 0.123 target (and above the unsteered ~0.158 baseline). Codesign anchor (E105/E044 unguided ~47.9%) → 41.7–45.8%: a small monotone-ish decline within binomial noise (SE ≈ 7pp), scRMSD median drifts 2.14 → 2.54.
+
+**Results — (b) the real failure is steering-time OVER-OPTIMIZATION (Goodhart), with a dose–response in w — NOT a simple constant calibration offset, and NOT an adversarial gradient.** `log_diagnostics: true` was on; per-step predicted `iupred3_fraction_disordered` (batch elem 0; each (seed,length) is its own file so per-sample pairing is valid) saved to `results/iupred_target_sweep/iupred_target_w*/diagnostics/`. Pairing predictor-final (last guided step, t≈0.9) vs real measured (t=1) per sample, n=48/w:
+
+| w | pred final mean | pred median | real mean | mean gap (real−pred) | **Pearson(pred,real)** | Spearman | pred σ | real σ |
+|---|---|---|---|---|---|---|---|---|
+| 8  | 0.090 | 0.103 | 0.170 | +0.081 | **+0.84** | +0.85 | 0.072 | 0.203 |
+| 16 | 0.097 | 0.121 | 0.175 | +0.078 | +0.74 | +0.78 | 0.055 | 0.187 |
+| 24 | 0.104 | 0.121 | 0.178 | +0.074 | +0.61 | +0.69 | 0.040 | 0.171 |
+| 32 | 0.110 | 0.121 | 0.180 | +0.070 | **+0.43** | +0.49 | 0.028 | 0.157 |
+
+Predictor-side regulation **succeeds**: predicted converges onto the 0.123 setpoint (median 0.121), tightens with w, and (single-seed s42 w32) the trajectory is textbook — predicted climbs 0.012(t=0.30)→0.124(t=0.76), `grad_norm_raw` self-extinguishes 1.9→**0.023** on arrival, holds (0.120) — shape identical to net_charge E105. **But the per-sample proxy↔truth coupling DEGRADES monotonically with steering strength** (Pearson 0.84→0.43, Spearman 0.85→0.49), confirmed *within each length* (w8 r≈0.81–0.87, w32 r≈0.46–0.49 at L300/400/500 — not a length confound). As w rises the controller squeezes predicted σ to the setpoint (0.072→0.028) while real σ persists (0.203→0.157) and real *mean rises* (0.170→0.180, away from the 0.123 down-target). **This is the over-optimization / Goodhart signature: harder steering satisfies the proxy without controlling the truth.** Spearman collapsing rules out a pure constant offset (any monotone miscalibration leaves rank-corr intact); the predicted-σ-collapses-2.6× / real-σ-collapses-1.3× asymmetry rules out it being only restriction-of-range artifact (a faithful controller would have collapsed real σ too). There IS a constant-offset component at low w (gap +0.08 at w8 where r=0.84) — part calibration, part the unguided t=0.9→1.0 tail (predicted logged at t≈0.9 since t_stop=0.9, real at t=1) — but that component is w-independent and cannot explain the decoupling. ⚠️ Both earlier readings were wrong: original (a) "adversarial gradient" (refuted — pred & real move *together*), and the first correction "simple calibration offset, re-target to fix" (refuted — coupling breaks under the w needed to actually move real). **Sharp contrast with net_charge E105**, where real charge was *measured* and matched −5 with no decoupling: net charge is a near-LINEAR count of D/E/K/R (predictor gradient ≈ real gradient, few adversarial directions), while iupred is a learned NONLINEAR classifier with many off-manifold directions to exploit — same hackable family as TANGO (F10/E028 over-promised 2–3×).
+
+**Results — (c) the decoupling is a DISORDER-HEAD-SPECIFIC adversarial direction, NOT global off-manifold corruption.** The diagnostics log all 14 predicted properties; pairing each against its real developability value (w8 vs w32 Pearson, n=48):
+
+| property | r(w8) | r(w32) | Δr |
+|---|---|---|---|
+| **iupred3_fraction_disordered (steered)** | +0.84 | **+0.43** | **−0.41** |
+| iupred3_mean (disorder sibling) | +0.92 | +0.79 | −0.13 |
+| shannon_entropy | +0.85 | +0.74 | −0.10 |
+| net_charge | +0.96 | +0.97 | +0.01 |
+| pI | +0.93 | +0.93 | 0.00 |
+| swi | +0.91 | +0.93 | +0.02 |
+| tango | +0.89 | +0.88 | −0.01 |
+| scm_pos / scm_neg | +0.95/+0.93 | +0.97/+0.94 | ≈0 |
+| rg | +0.68 | +0.71 | +0.03 |
+
+Only the steered head (and its disorder sibling iupred3_mean, plus shannon — both consequences of the Asn-enrichment from (d)) decouples; **net_charge, pI, swi, tango, scm stay pinned at r≈0.9+ under the same steering.** Because the predictor is a **multitask model with a shared trunk**, generic off-manifold input would corrupt *all* heads simultaneously — it doesn't. So the steered latents are **not broadly off-manifold** (trunk still reads charge/pI/aggregation correctly); the corruption is confined to the disorder-relevant subspace.
+
+**Mechanism (refined through user dialogue; one sub-hypothesis tested and REFUTED).** The predictor imitates the composite `f = iu(d(L))` (iu = IUPred sequence→disorder, easy; d = decode latent→sequence, hard). The naive read "the transformer learned hard-d but not easy-iu" is the WRONG diagnosis on two counts: (1) **Not capacity** — on-manifold the predictor computes disorder correctly (held-out R²≈0.87; r=0.84 with real at w8), so it learned iu∘d to high accuracy *on the data manifold*; the failure is out-of-distribution extrapolation under adversarial search — a robustness/geometry property, not a capacity one. (2) **The failure is which-head-you-optimize geometry, NOT a global decode error.**
+
+*Refuted sub-hypothesis (logged honestly):* I first proposed the decoupling tracks each property's sensitivity to **Asn (N/Q) content** — the optimizer corrupting the predictor's internal composition estimate selectively in the N/Q direction (Asn being the disorder-residue the collapse audit flags as enriched). **Direct test refutes it.** Per-sequence (w32, n=48) correlation of each *real* property with *real* Asn fraction vs. its decoupling Δr: real disorder does NOT correlate with Asn fraction (r=+0.03) yet decouples most (Δr −0.41); shannon correlates strongly with Asn (−0.75) yet barely decouples (−0.10); tango/rg correlate with Asn (+0.54/+0.53) yet don't decouple. So Asn enrichment is a **side-effect** of the displacement, not the causal lever for per-sequence disorder variation. (Asn-fraction extracted from guided PDBs via CA resnames.)
+
+*Correct mechanism (survives the test):* steering displaces the latent along **∇(predicted disorder)** — by construction the steepest direction of the disorder head *specifically*. (a) That drives the latent off-manifold along the disorder head's own steepest/most-overfit direction, exactly where an on-manifold-trained head is most likely to diverge from truth (max sensitivity = max extrapolation risk) → the disorder head is stress-tested where it is weakest. (b) The other heads are evaluated at the *same* off-manifold point but stay accurate because they are **robust** functions of the latent (charge/pI/scm ~linear → extrapolate cleanly) — robustness, not orthogonality, saves them. So **a head's pred↔real coupling is at risk only when you optimize along *its own* gradient, and only *fragile* (nonlinear) heads actually break under that pressure.** This unifies with E105: steering charge pushes along ∇charge but charge is robust → its own coupling survives (honest); steering disorder pushes along ∇disorder, disorder is fragile → its coupling dies (hacked). **Decisive remaining test: re-encode** the decoded sequences through the AE encoder and re-predict; high disorder ⇒ the predictor is fine on-manifold and the whole failure is the steered `z_1_est` sitting off-manifold along the disorder direction.
+
+**Results — (e) RE-ENCODE TEST: off-manifold steering kills the per-sample COUPLING (recoverable); a generated-vs-natural calibration bias kills the MEAN (not recoverable).** Decoded w32 structures (48 PDBs) re-encoded to on-manifold latents via the AE encoder, then scored by the same 5-fold predictor at t=1 (`script_utils/reencode_test_iupred.py`; outputs `reencode_test_iupred_w32_AE{1,2}*.csv`). Compared to the steered-trajectory prediction:
+
+| latent fed to predictor | pred disorder (mean) | r vs real | offset (real−pred) |
+|---|---|---|---|
+| steered z (off-manifold endpoint) | 0.110 | 0.43 | −0.070 |
+| re-encoded, **AE1_ucond_512** (predictor's training AE) | 0.113 | **0.71** | −0.067 |
+| re-encoded, **AE2_ucond_800** (sampler's AE) | 0.096 | **0.69** | −0.084 |
+| real (IUPred3 on decoded seq) | 0.180 | — | — |
+
+Two stacked failures, now separated: **(1)** the per-sample correlation recovers 0.43→~0.70 on *both* AEs once the protein is put back on-manifold → the Goodhart/decoupling from (b)/(c) is substantially an **off-manifold artifact of steering** (confirmed; recoverable by trust-region / staying on-manifold). **(2)** the **mean under-read survives re-encoding** (real 0.180 vs on-manifold-pred 0.11) → a **generated-vs-natural distribution-shift calibration bias** in the predictor, independent of steering, *not* fixed by re-encoding; r=0.71 also still < the 0.87 held-out-on-natural, so generated proteins are intrinsically harder. **(3)** A real but secondary **train/serve AE mismatch**: the predictor was trained on **AE1**-derived latents (`processed_latents_300_800`, verified `slurm_precompute_27754627.out`) but the sampler (`inference_ucond_notri_long`) runs the flow on **AE2_ucond_800** latents — feeding AE2 latents costs ~0.017 extra under-read vs AE1. Implication: retraining the shortcut or adding a trust-region alone would fix only (1); the **CBM (`developability∘decode` with analytic IUPred on the real decoded sequence) fixes both (1) and (2)** because the scored quantity becomes ground truth, and sidesteps (3) entirely. This makes the CBM the indicated fix, not just an option. (E109 (e), 2026-05-31.)
+
+**Results — (d) no sequence collapse, mild composition drift.** Collapse audit (`summary.csv`): mean Shannon ~3.51 bits (flat), max-AA-freq creeps 0.196 → 0.205 with w, top AA = **N (Asn)** at every cell (0.115 → 0.119) — same disorder-promoting residue E067 found in the *maximize* direction; longest homopolymer run 4.4 → 4.6; KL-vs-natural ~0.638, KL-vs-unsteered ~0.107, KL-vs-w8 ≤ 0.0009; all cells flagged `ok`. Asn enrichment is consistent with (b): the gradient *is* an up-disorder push, so it correctly recruits the disorder residue. Diversity (pairwise TM) unchanged across w.
+
+**Possible narrative.** Finding-grade (in-silico demonstration of steering-time reward-hacking with a dose–response): **gradient steering on La-Proteina splits properties into "honest" and "hackable" by predictor linearity, and target setpoint steering on a hackable property over-optimizes — driving the proxy to the setpoint while the true property decouples, monotonically worse with steering weight.** net_charge (linear count of D/E/K/R) is honest: predicted and real both reach −5, no decoupling (E105). iupred3_fraction_disordered (nonlinear learned classifier) is hackable: predicted converges to 0.123 but real lands ~0.176 and the per-sample proxy↔truth correlation falls 0.84→0.43 as w 8→32. Same family as TANGO (F10/E028 over-promise 2–3×). **Implication for the steering pipeline:** "predictor converged to target" is NOT evidence the real property is controlled on a nonlinear property — you must verify against the real metric. Re-targeting does NOT fix it (the decoupling occurs at the w needed to move real). Real remedies = real-property-in-the-loop / reject-sampling, retrain predictor on steered/off-manifold latents, w-cap / early-stop in the coupled regime, or a trust-region/KL penalty keeping latents on-manifold. Pairs with E067 (same iupred predictor under-promises *magnitude* in the maximize direction). Promote to `content_masterarbeit.md` as the hackability/over-optimization counterpart to E105's honest-control positive result.
+
+**Methodological caveats.**
+- **No seed-matched unguided arm generated in this run** — the codesign anchor (~47.9%) is the E105/noise_aware_ensemble unguided baseline (same model/nsteps/jitter, config-independent), so the codesign deltas are not strictly paired here; the disorder finding, however, is internal (predictor vs real, monotone vs w) and needs no anchor.
+- `steering_cost_audit.csv` is **mislabeled** — its `prop_target` column reads `swi` (and reports swi ~0.798, ~flat), not the iupred objective; the property conclusion above comes from `properties_guided.csv`, not the cost audit. The audit's property scoring for this sweep is unreliable; fix the property-label wiring in the audit before reusing its `v_property` verdict.
+- Disorder is the sequence-side IUPred3 score (a logistic regression on physicochemical features), not a structural-disorder measurement; "did not reduce disorder" is a sequence-predictor statement.
+- nsteps=400 throughout (HARD RULE satisfied). Codesign is `use_pdb_seq=True` ESMFold.
+
+---
+
+## E110 — Concept-bottleneck (CBM) property predictor: AA+torsion bottleneck (anti-Goodhart) (2026-05-31)
+
+**Status:** in progress (training launched 2026-05-31 12:18). The architectural fix indicated by [E109](#e109--single-objective-steering-sweep-iupred3_fraction_disordered-target--0123-natural-setpoint-down-regulation-2026-05-31) (e): the latent→property shortcut is gradient-hackable, so insert a supervised concept bottleneck.
+
+**Why ran.** E109 showed steering on the disorder head over-optimizes: the optimizer finds off-manifold latent directions that fool the predictor's disorder readout while the real (decoded) disorder decouples. Re-encode test (E109 (e)) localized it to the latent→property map being a learned shortcut. **Fix:** route the prediction through an interpretable, *supervised* bottleneck — `latent → (amino-acid identity + torsion angles) → properties` — so the only way to move a predicted property via gradients is to move the predicted AA/torsion concepts, which are pinned to ground truth. To move a property dishonestly the optimizer would now have to forge a self-consistent wrong *sequence*, far harder than nudging a scalar.
+
+**Design decisions (with the user).**
+- **Bottleneck = AA identity (21-way, OpenFold restype) + torsion angles (7×(sin,cos): ω,φ,ψ,χ1–4).** Both are what the latent actually encodes. **Coordinates are NOT decoded from the latent** — the latent holds per-residue identity+torsions, not global geometry (that's in `bb_ca`), so "reading coords from the latent" would be dishonest. Structural props (rg/sap/scm/patches) are therefore limited to what AA+torsion can express (≈ what the no-bottleneck predictor already had, since it too only saw the latent) — they remain in the 14-output set for a clean drop-in comparison; honest global-geometry grounding is the coord-aware predictor's job.
+- **Fresh-trained** (not the AE decoder's seq head) — cheaper, AA-only, and needed for a clean comparison vs the canonical predictor.
+- **Heads = same style as the current predictor**, just with the bottleneck inserted: g1 and g2 are each a FiLM-`t` transformer trunk (the original `PropertyTransformer`); g1 ends in AA+torsion heads, g2 starts from the soft bottleneck. Differentiable soft-AA path (for steering); straight-through option for hard decode.
+- **Drop-in**: `forward(latents, mask, t) → [B,14]` z-scored, so it plugs into `SteeringPredictor` unchanged.
+
+**Configs.**
+- New code: `laproteina_steerability/src/multitask_predictor/cbm_model.py` (`CBMPropertyTransformer`), `cbm_dataset.py` (loads `residue_type` + computes torsions via OpenFold `atom37_to_torsion_angles` — note `@curry1`, call `f()(protein)`), `cbm_train.py` (prop MSE + λ_aa·CE + λ_tors·torsion-MSE), `run_cbm.py` (mirrors `run.py`).
+- **Same data/regime as NA-v1**: full `data/pdb_train/processed_latents_300_800` (63,178 proteins, length 300–800), `data/properties.csv`, held-out 10% + 5-fold, AdamW lr 3e-4 wd 0.01, warmup 500 + cosine, bf16 AMP, length-bucket sampler bs=16, ≤30 epochs patience 5, z-scored NaN-masked MSE, R²-mean early stop. d_model 128, 4 heads, 3 layers each trunk. λ_aa=λ_tors=1.0. Joint training, g2 reads g1's *predicted* soft bottleneck (no teacher forcing in v1).
+- Output: `laproteina_steerability/logs/multitask_cbm/<timestamp>/` (checkpoints `fold_{0..4}_best.pt` with `stats_mean/std`, `cbm=True`). Log `nohup_cbm_train.log`. Single L4 (pinned GPU).
+
+**Results.** Smoke (single shard, n=14): shapes correct, AA CE=3.01≈ln(21), AA acc=0.077≈1/21 at init, drop-in forward OK.
+
+**Preliminary full-run (folds 0,1 done; 2–4 still training, ~64 s/epoch, ≤30 ep patience 5):**
+- **Bottleneck AA accuracy = 99.6%** — the latent→AA decode is essentially lossless (the latent all but determines the residue), so the AA bottleneck loses almost no information for sequence properties. Torsion sin/cos MSE ≈ 0.66 (partial — torsions harder).
+- **Accuracy cost of the bottleneck ≈ ZERO.** Apples-to-apples vs the *original non-noise-aware t1* predictor (same data/regime), R²_mean **0.895 → 0.896**; CBM ≥ no-bottleneck on **13/14** properties:
+
+  | property | no-bottleneck t1 | CBM (f0,1) | Δ |
+  |---|---|---|---|
+  | R²_mean | 0.895 | 0.896 | +0.001 |
+  | iupred3_fraction_disordered (the hacked one) | 0.871 | 0.896 | +0.025 |
+  | net_charge | 0.970 | 0.980 | +0.010 |
+  | rg | 0.790 | 0.856 | +0.066 |
+  | sap | 0.876 | 0.912 | +0.036 |
+  | hydrophobic_patch_n_large | 0.780 | 0.839 | +0.059 |
+  | tango / pI / iupred3 / shannon / scm± / camsol | ~equal | ~equal | +0.005..+0.018 |
+  | **swi** | **0.773** | **0.464** | **−0.309** |
+
+  **swi update (after two flip-flops — final read): the 0.379 is REAL on full val and driven by an OUTLIER SUBPOPULATION.** Re-evaluating the saved fold-0 ckpt with the exact `evaluate()`:
+  - **Full fold-0 val (10083): r2_swi=0.3793, r2_mean=0.8907 — reproduces the log exactly.** So evaluate() is correct and the logged number is right; the CBM genuinely scores swi R²=0.379 on full val (vs no-bottleneck 0.773).
+  - **But a 2000-protein spread subsample gives r2_swi=0.990** (fp32 & bf16 identical; mean|err|=0.0006; labels CSV==seq-derived R²=1.0). So the **bulk** of proteins have near-perfect swi; a **minority with large swi errors drags the full-set R² down** (swi's CV=1.3%, lowest of 14 props, so r2_score is brutally outlier-sensitive — a few % badly-predicted proteins tank it).
+  - **Net:** the swi regression is real on the full distribution (not a logging fluke — I wrongly called it that mid-investigation), but it's an outlier/subpopulation effect, not a uniform deficit. **Origin still uncharacterized** (likely OOD proteins where g1's AA accuracy drops → swi off; needs per-protein error vs AA-accuracy/length breakdown). The analytic-head fix helps only if the failure is in g2, not in g1's AA on those proteins — TBD. Treat swi as the CBM's one genuinely-worse property pending characterization; the other 13 are equal-or-better.
+  - Decomposition trail below (premise that swi is uniformly low was wrong; kept as record):
+
+  ~~**Decomposition (fold-0 ckpt, n=400) shows this is a LEARNED-HEAD artifact, not a bottleneck loss**~~ (two earlier guesses — "needs local ordering", then "soft-AA blur amplified by low variance" — both WRONG):
+  - `compute_swi` = `np.mean(per-residue solubility scores)` → exactly linear in composition, order-free.
+  - swi has the lowest between-protein spread of all 14 props (CV=1.3%, std 0.0101; ~2× below shannon), so R²=1−MSE/Var punishes any error hardest here. BUT:
+  - **(a) analytic SWI from g1's argmax AA → R²=0.994; (b) from g1's *soft* expectation `Σpᵢ·scoreᵢ` → R²=0.996.** So the **bottleneck preserves SWI essentially perfectly** — the AA info is fully there. (Model-free flip sim: 0.4% AA error → R²=0.995, 3% → 0.953, so discretization can't explain 0.464 either.)
+  - Therefore the **0.464 is g2's learned head underperforming**, NOT the bottleneck. The true analytic ceiling is ~0.99; **both** learned predictors badly underperform it (no-bottleneck 0.773, CBM-g2 0.464) — they overfit a ~zero-variance target; the latent-only one just overfits slightly less. Neither learned head should be trusted for swi.
+  - **Fix (validated): analytic linear head for swi** (and the other closed-form props net_charge/shannon/pI) → R²≈0.99, beating both learned predictors. The CBM *uniquely enables* this (can't apply the SWI formula to the raw latent — no AA there). So the bottleneck turns swi from a weakness into a strength.
+  - **Bonus diagnostic — concept leakage:** (c) feeding g2 the *true* one-hot AA gives R²=−2.57 (worse than the mean). g2 is **distribution-coupled to g1's soft output** — it reads g1's fuzzy texture, not clean identities (classic CBM soft-leakage). In-distribution at steering time (g2 always sees g1's soft output), but a real caveat for the anti-hacking guarantee; watch in the steering re-run. Mitigations: discretize/sharpen the bottleneck (temperature, straight-through), or train g2 with concept dropout / on hard one-hot.
+  - vs the *deployed noise-aware NA-v1* at t1 the CBM looks even better (R²_mean 0.802→0.896) but that partly reflects NA-v1's noise-aware handicap at t1; the non-NA t1 comparison above is the fair one.
+- **The headline "equivalent" claim holds**: inserting the supervised AA+torsion bottleneck does not cost predictive accuracy (R²_mean unchanged), while forcing all latent gradients through interpretable, ground-truth-pinned concepts.
+- **Still pending**: folds 2–4 finish; then the decisive test — re-run E109 iupred steering through the CBM and check whether per-sample pred↔real correlation stays high under increasing w (no Goodhart decoupling).
+
+**Possible narrative.** If the CBM matches NA-v1 R² on the sequence props AND (re-run E109 through it) the steered iupred no longer decouples (per-sample pred↔real r stays high under w), this is the **constructive counterpart to E109's Finding**: gradient-hacking of a latent→property predictor is fixable by a supervised concept bottleneck. Promote jointly with E109.
+
+**Results — (f) STEERING TEST (the payoff): the CBM FIXES the E109 iupred Goodhart failure, for free.** Re-ran E109's iupred `target=0.123` w32 cell with the single best CBM (fold_2) swapped in for the NA-v1 ensemble — identical recipe/seeds(42–57)/L{300,400,500}/nsteps=400 (`steering/config/sweep_iupred_target_cbm/iupred_target_cbm_w32.yaml`, driver `run_iupred_cbm_probe.sh`, out `results/iupred_target_cbm/`). The `SteeringPredictor` was patched to load CBM ckpts (branch on `cbm` flag → `CBMPropertyTransformer`); at steering time g1 predicts AA+torsion from the latent, so it's a pure drop-in (no external torsions). Single-protein A/B vs E109 (only the predictor changed):
+
+| | predicted (setpoint) | **real IUPred3** | direction | codesign ≤2Å |
+|---|---|---|---|---|
+| unsteered baseline | — | ~0.158 | — | ~47.9% |
+| E109 **NA-v1** w32 | 0.110 | **0.180** | UP — wrong way (Goodhart) | 43.8% |
+| E110 **CBM** w32 | 0.114 | **0.128** | **DOWN toward target (honest)** | **46%** |
+
+- **Substantive metric — direction of real disorder:** NA-v1 drove real disorder UP to 0.180 (away from the 0.123 target, above baseline); the **CBM drove it DOWN to mean 0.128 / median 0.072** — 75% of proteins below baseline, 60% at/below target. The CBM achieves the down-regulation NA-v1 perversely reversed. **By length:** L300 real 0.100, L400 0.127, L500 0.156 (longer = harder, L500≈baseline).
+- **No designability cost:** 22/48 = 46% codesign vs NA-v1 43.8% vs unsteered ~47.9% — break-even. (L300 13/16 median 1.26Å; L400 6/16; L500 3/16 median 8.17Å.) So disorder dropped without wrecking structure.
+- **Per-sample Pearson(pred,real)=0.21 (Spearman 0.24) is LOW but a red herring at w32:** the predicted side is squeezed to the setpoint (pred σ=0.031), so it's restriction-of-range, not decoupling. The E109 correlation was diagnostic only as a *dose-response* (0.84→0.43); as a standalone w32 number it's uninformative. The **direction-of-real-property** metric is the right one, and it's unambiguous.
+- **Possible over-steering:** median real (0.072) sits below the 0.123 target — the CBM pushes the *true* property harder than NA-v1 (expected: honest gradient). A real-property-in-the-setpoint sense it slightly overshoots downward, but that's the right failure mode (vs NA-v1's wrong-direction one).
+- **Narrative:** constructive counterpart to E109's Finding — **gradient-hacking of a latent→property predictor is fixable by a supervised concept bottleneck**: routing gradients through ground-truth-pinned AA+torsion concepts converts a Goodharted, wrong-direction axis (E109) into honest, on-target, cost-free control. Promote jointly with E109. Next: dose-response (w∈{8,16,24}) to show the CBM's pred↔real stays coupled where NA-v1's collapsed; and the camsol_max Pareto (E066 replication, CBM-driven, running) to test a property NA-v1 already did well.
+
+**Methodological caveats.**
+- The w32 single-cell result needs the dose-response (w8–24) to fully mirror E109's decoupling curve; the direction + designability at w32 are already decisive vs E109's w32.
+- iupred unsteered baseline (~0.158) is from E067/E099, not a seed-matched unguided arm in this run; the CBM-vs-NA-v1 A/B at matched (seed,L,w,recipe) is exact, so the direction flip (0.180→0.128) is clean regardless.
+- Concept-leakage caveat from (c) (g2 distribution-coupled to g1's soft output) applies; in-distribution at steering time, but means g2 reads g1's soft texture not pure identities.
+- Structural props (rg/sap/scm/patches) can't be honestly grounded in an AA+torsion bottleneck (latent lacks global geometry) — kept for interface parity but their CBM quality is bounded by the no-bottleneck predictor's (already length-driven) ceiling; not a regression *caused* by the bottleneck.
+- v1 has no teacher forcing and λ_aa=λ_tors=1.0 untuned; if g1's AA accuracy is low the property heads inherit a weak bottleneck (monitor `aa_acc` in `training_curves.csv`).
+- Trained on AE1 latents (matches NA-v1); the AE1/AE2 train/serve mismatch (E109 (e)) still applies at steering time.
+- Soft→hard sequence gap remains a (narrow) residual exploit surface; verify against hard decode before trusting steered CBM property values.
+
+## E111 — Toy ring λ-sweep: at what guidance strength does plain (constant w) leave the manifold, and do throttle/schedule hold? (2026-05-31)
+
+**Status:** finished.
+
+**Why ran:** The look-ahead throttle toy (`script_utils/toy_lookahead_throttle.py`) renders its ring clouds at a single fixed strength `lam_show=8.0`. That made it look like guidance is inherently "too harsh → off-manifold," conflating *strength* with *method*. Question: visualise the *progression* on the ring across λ so the off-manifold onset for the plain (constant-weight) arm is separable from the throttle/schedule arms' on-manifold behaviour. Decision it feeds: whether the toy's "plain flies off" message is a strength artifact (it is, partly) and at which λ each arm actually breaks.
+
+**Configs:** new script `script_utils/toy_lookahead_ring_lam_sweep.py` (FM velocity, ramp t∈[0.3,0.8], throttle rule, ring cloud — all byte-identical to the main toy; only the visualisation differs: λ-grid instead of a single value). Ring manifold only; φ=x2 (push up). λ ∈ {0, 0.5, 1, 2, 4, 8, 16, 32}; arms = plain / throttle (β=20) / sched (w(t)=(1−t)^p, p=2). cloud=600, samples=1200, nsteps=150 (2D ODE — the nsteps=400 rule is about scRMSD, N/A here), V_MAX=4.0, σ_data=0.08, seed=1. Run: `/opt/conda/bin/python script_utils/toy_lookahead_ring_lam_sweep.py`. Out: `results/toy_lookahead_throttle/ring_lam_sweep.png` (3×8 grid, point colour = |dist to ring|) + `ring_lam_sweep_metrics.txt`.
+
+**Results** (mean_x2 = achieved property ↑, mean_P = off-manifold ↓):
+
+| λ | plain x2 | plain P | throttle x2 | throttle P | sched x2 | sched P |
+|----|----|----|----|----|----|----|
+| 0.5 | 0.140 | 0.008 | 0.114 | 0.007 | −0.032 | 0.007 |
+| 1.0 | 0.319 | 0.012 | 0.247 | 0.008 | −0.015 | 0.007 |
+| 2.0 | 0.655 | 0.026 | 0.451 | 0.009 | 0.023 | 0.006 |
+| 4.0 | 1.248 | **0.179** | 0.600 | 0.011 | 0.101 | 0.006 |
+| 8.0 | 2.516 | **2.484** | 0.667 | 0.015 | 0.249 | 0.007 |
+| 16.0 | 5.653 | **21.95** | 0.791 | 0.020 | 0.524 | 0.009 |
+| 32.0 | 12.50 | **132.7** | 0.874 | 0.026 | 0.910 | 0.018 |
+
+- **Plain** is on-manifold (P≈ baseline 0.007) only up to λ≈2; the knee is λ=4 (P=0.18) and it is fully off the ring by λ=8 (P=2.48) — i.e. the value the original clouds plot used (`lam_show=8.0`) is already past the cliff. P then explodes ~9× per λ-doubling.
+- **Throttle** stays glued to the ring across the whole sweep (P 0.007→0.026, never leaves) while still climbing x2 to 0.87 — it trades a little property for staying on-manifold at every strength.
+- **Schedule** (p=2) is the most conservative: P barely moves (0.006→0.018) but property growth lags badly (x2 only catches throttle near λ=32). On the *ring* (homogeneous danger, no state-dependence) the fixed schedule and the throttle are both adequate stabilisers; their separation is what the sine/cliff manifolds in the main toy are for.
+
+**Possible narrative:** non-narrative — kept for tuning/decision-making and as a presentation asset. It does NOT add a new claim beyond the main toy (E097/E098/E106/E107); it just decomposes the existing ring figure across strength so the "plain off-manifold" message isn't misread as "guidance is inherently harsh." Confirms: the original single-λ clouds panel exaggerated plain's failure by sampling at λ=8 (already off-cliff). Could be folded into the look-ahead throttle figure in `content_masterarbeit.md` as a supplementary strength-progression panel if that section is written up.
+
+**Methodological caveats:** 2D analytic toy, not the protein model — V_MAX-capped softmax FM velocity, not a trained net; ring danger is homogeneous (every point equidistant from the manifold), so it cannot show the *state-dependent* advantage the throttle has over a fixed schedule (that requires sine/cliff). The ring therefore under-separates throttle vs sched — do not read "sched ≈ throttle here" as a general result. β=20 and p=2 are the untuned defaults, not per-manifold optima.
