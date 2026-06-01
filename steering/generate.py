@@ -118,6 +118,93 @@ def generate_one(
     return coors, res_type, mask, extra_info
 
 
+def generate_batch(
+    model,
+    length: int,
+    seeds_chunk: list,
+    device: torch.device,
+) -> tuple:
+    """Generate len(seeds_chunk) proteins of `length` in ONE batched forward.
+
+    Uses the model's native `nsamples` batch dim (the same path multi-sample
+    generation uses), so the steering guide / throttle (which already vectorise
+    over the batch) run on [B, L, *] tensors.
+
+    Seeding note: `full_simulation` has no per-sample noise override, so the RNG
+    is seeded once with seeds_chunk[0] and the B samples are independent draws
+    from that seed. Output i is labelled with seeds_chunk[i] only for filename
+    continuity — the cost audit compares cell-level RATES against the fixed
+    unsteered-baseline CSV, not per-seed pairs, so this is rate-valid. (For
+    batch_size=1 this is byte-identical to generate_one.)
+
+    Returns:
+        (list of (coors[n,37,3], residue_type[n], mask[n]) per sample, extra_info)
+    """
+    B = len(seeds_chunk)
+    L.seed_everything(seeds_chunk[0])
+
+    batch = {"nsamples": B, "nres": length}
+    model._generation_base_seed = seeds_chunk[0]
+
+    model.eval()
+    with torch.no_grad():
+        from functools import partial
+
+        self_cond = model.inf_cfg.args.self_cond
+        nsteps = model.inf_cfg.args.nsteps
+        guidance_w = model.inf_cfg.args.get("guidance_w", 1.0)
+        ag_ratio = model.inf_cfg.args.get("ag_ratio", 0.0)
+
+        fn_predict = partial(
+            model.predict_for_sampling,
+            n_recycle=model.inf_cfg.get("n_recycle", 0),
+        )
+
+        gen_samples, extra_info = model.fm.full_simulation(
+            batch=batch,
+            predict_for_sampling=fn_predict,
+            nsteps=nsteps,
+            nsamples=B,
+            n=length,
+            self_cond=self_cond,
+            sampling_model_args=model.inf_cfg.model,
+            device=device,
+            guidance_w=guidance_w,
+            ag_ratio=ag_ratio,
+            steering_guide=getattr(model, "steering_guide", None),
+        )
+
+        sample_prots = model.sample_formatting(
+            x=gen_samples, extra_info=extra_info, ret_mode="coors37_n_aatype",
+        )
+
+    out = [
+        (sample_prots["coors"][i], sample_prots["residue_type"][i], sample_prots["mask"][i])
+        for i in range(B)
+    ]
+    return out, extra_info
+
+
+def _save_diagnostics(diag, diag_path):
+    """Serialise the steering diagnostics list (tolerant of nested/non-float values)."""
+    diag_serialisable = []
+    for d in diag:
+        entry = {}
+        for k, v in d.items():
+            if isinstance(v, dict):
+                entry[k] = {
+                    kk: (vv if isinstance(vv, (int, float, bool, str)) else str(vv))
+                    for kk, vv in v.items()
+                }
+            elif isinstance(v, (int, float, bool, str)):
+                entry[k] = v
+            else:
+                entry[k] = str(v)
+        diag_serialisable.append(entry)
+    with open(diag_path, "w") as f:
+        json.dump(diag_serialisable, f, indent=2)
+
+
 def save_protein(
     coors: torch.Tensor,
     residue_type: torch.Tensor,
@@ -191,6 +278,12 @@ def main():
                         help="Skip the guided generation. Use to extend the matched-seed "
                              "unguided baseline only — the steering config is still loaded "
                              "but never applied.")
+    parser.add_argument("--batch_size", type=int, default=1,
+                        help="Number of seeds generated per forward at a fixed length "
+                             "(native nsamples batch). 1 = original per-seed path (byte-"
+                             "identical). >1 batches for throughput on big GPUs; samples in "
+                             "a chunk are independent draws from the chunk's lead seed "
+                             "(rate-valid for the cost audit, not per-seed paired).")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -271,48 +364,44 @@ def main():
     done = 0
     t0 = time.time()
 
+    bs = max(1, int(args.batch_size))
     for length in args.lengths:
-        for seed in seeds:
-            protein_id = f"s{seed}_n{length}"
-            done += 1
-            logger.info("[%d/%d] Generating %s ...", done, total, protein_id)
+        for ci in range(0, len(seeds), bs):
+            chunk = seeds[ci:ci + bs]
+            ids = [f"s{s}_n{length}" for s in chunk]
+            done += len(chunk)
+            tag = ids[0] if len(ids) == 1 else f"{ids[0]}..{ids[-1]} (batch={len(ids)})"
+            logger.info("[%d/%d] Generating %s ...", done, total, tag)
 
             # --- Unguided ---
             if args.skip_unguided:
                 logger.info("  Skipping unguided generation (--skip_unguided set).")
             else:
                 model.steering_guide = None
-                coors_u, res_u, mask_u, _ = generate_one(model, length, seed, device)
-                save_protein(coors_u, res_u, mask_u, protein_id, unguided_dir)
+                if len(chunk) == 1:
+                    c, r, m, _ = generate_one(model, length, chunk[0], device)
+                    save_protein(c, r, m, ids[0], unguided_dir)
+                else:
+                    outs, _ = generate_batch(model, length, chunk, device)
+                    for (c, r, m), pid in zip(outs, ids):
+                        save_protein(c, r, m, pid, unguided_dir)
 
             # --- Guided ---
             if args.skip_guided:
                 logger.info("  Skipping guided generation (--skip_guided set).")
             else:
                 model.steering_guide = guide
-                coors_g, res_g, mask_g, extra_g = generate_one(model, length, seed, device)
-                save_protein(coors_g, res_g, mask_g, protein_id, guided_dir)
-
-                # Save diagnostics
-                diag = extra_g.get("steering_diagnostics", [])
-                diag_path = diag_dir / f"{protein_id}_diagnostics.json"
-                # Convert to serialisable format
-                diag_serialisable = []
-                for d in diag:
-                    entry = {}
-                    for k, v in d.items():
-                        if isinstance(v, dict):
-                            entry[k] = {
-                                kk: (vv if isinstance(vv, (int, float, bool, str)) else str(vv))
-                                for kk, vv in v.items()
-                            }
-                        elif isinstance(v, (int, float, bool, str)):
-                            entry[k] = v
-                        else:
-                            entry[k] = str(v)
-                    diag_serialisable.append(entry)
-                with open(diag_path, "w") as f:
-                    json.dump(diag_serialisable, f, indent=2)
+                if len(chunk) == 1:
+                    c, r, m, extra_g = generate_one(model, length, chunk[0], device)
+                    save_protein(c, r, m, ids[0], guided_dir)
+                else:
+                    outs, extra_g = generate_batch(model, length, chunk, device)
+                    for (c, r, m), pid in zip(outs, ids):
+                        save_protein(c, r, m, pid, guided_dir)
+                # Diagnostics are logged for batch element 0 only → save once,
+                # under the chunk's lead seed id.
+                _save_diagnostics(extra_g.get("steering_diagnostics", []),
+                                  diag_dir / f"{ids[0]}_diagnostics.json")
 
             elapsed = time.time() - t0
             rate = done / elapsed

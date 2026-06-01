@@ -25,6 +25,10 @@ SEEDS="42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57"
 LENGTHS="300 400 500"
 NSTEPS=400
 DEVICE=cuda:0
+# Native nsamples batching for generation throughput (1 = original per-seed path).
+# 16 seeds/length -> one forward per (arm,w,L). Safe on A100-80/40 at L<=500;
+# drop to ~8 on a 24GB card. ESMFold in the audit stays sequential.
+BATCH_SIZE=${BATCH_SIZE:-16}
 mkdir -p "$CFGDIR" "$OUT_ROOT"
 
 # arm -> "throttle_type beta"
@@ -74,6 +78,7 @@ for w in 128 64; do
         --proteina_config inference_ucond_notri_long \
         --steering_config "$CFGDIR/${arm}_w${w}.yaml" \
         --lengths $LENGTHS --seeds $SEEDS --nsteps $NSTEPS --skip_unguided \
+        --batch_size $BATCH_SIZE \
         --output_dir "$out" --device $DEVICE
   done
 done
