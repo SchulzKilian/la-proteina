@@ -54,3 +54,6 @@ CamSolpH_results.txt
 results/thermal_stability/stratified_vs_pdb/temstapro_ref.tsv
 results/dense_attn_audit/canonical_2646_grad_per_query.json
 
+# Small non-checkpoint .pt artifacts explicitly tracked
+!steering/throttle_priors/priors.pt
+

@@ -35,6 +35,11 @@ def main():
     parser.add_argument("--folds", type=str, default=None, help="e.g. '0' or '0,1,2,3,4'")
     parser.add_argument("--lambda-aa", type=float, default=1.0)
     parser.add_argument("--lambda-tors", type=float, default=1.0)
+    parser.add_argument("--noise-aware", action="store_true",
+                        help="Inject NA-v1-style flow noise into latents during training (fix-t, no t-conditioning).")
+    parser.add_argument("--sigma-langevin", type=float, default=0.1)
+    parser.add_argument("--t-min", type=float, default=0.3)
+    parser.add_argument("--t-max", type=float, default=0.8)
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
 
@@ -43,7 +48,8 @@ def main():
         cfg = yaml.safe_load(f)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path("logs/multitask_cbm") / timestamp
+    log_root = "logs/multitask_cbm_noise_aware" if args.noise_aware else "logs/multitask_cbm"
+    output_dir = Path(log_root) / timestamp
     output_dir.mkdir(parents=True, exist_ok=True)
 
     train_config = {
@@ -53,6 +59,8 @@ def main():
         "max_epochs": 2 if args.smoke_test else args.max_epochs,
         "patience": 5, "batch_size": args.batch_size, "max_len": 1024, "seed": 42,
         "lambda_aa": args.lambda_aa, "lambda_tors": args.lambda_tors,
+        "noise_aware": args.noise_aware, "sigma_langevin": args.sigma_langevin,
+        "t_min": args.t_min, "t_max": args.t_max,
         "data": cfg["data"], "property_file": cfg["part2"]["property_file"],
         "property_names": cfg["part2"]["property_names"], "timestamp": timestamp, "cbm": True,
     }

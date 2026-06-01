@@ -1,0 +1,25 @@
+# iupred3_fraction_disordered TARGET=0.123 steering, but driven by the CONCEPT-BOTTLENECK
+# predictor (latent -> AA+torsion -> properties) instead of the NA-v1 ensemble.
+# Decisive test for E110: E109 showed the NA-v1 latent->property shortcut gradient-hacks
+# this objective (per-sample pred<->real corr collapses 0.84->0.43 as w 8->32). The CBM
+# forces gradients through supervised AA/torsion concepts. Does the decoupling vanish?
+# Single best CBM fold = fold_2 (r2_mean=0.9335). Recipe IDENTICAL to E109's w32 cell.
+steering:
+  enabled: true
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_cbm/20260531_121832/checkpoints/fold_2_best.pt
+  objectives:
+  - property: iupred3_fraction_disordered
+    direction: target
+    target_value: 0.123
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 8.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true

@@ -302,7 +302,10 @@ def main():
                     entry = {}
                     for k, v in d.items():
                         if isinstance(v, dict):
-                            entry[k] = {kk: float(vv) for kk, vv in v.items()}
+                            entry[k] = {
+                                kk: (vv if isinstance(vv, (int, float, bool, str)) else str(vv))
+                                for kk, vv in v.items()
+                            }
                         elif isinstance(v, (int, float, bool, str)):
                             entry[k] = v
                         else:

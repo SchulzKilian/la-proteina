@@ -27,6 +27,22 @@ from .train import evaluate  # reused unchanged: calls model(latents, mask, t) -
 logger = logging.getLogger(__name__)
 
 
+def _inject_noise(latents, mask, sigma_langevin, t_min, t_max):
+    """NA-v1-style flow noising of the latents (data augmentation; t NOT conditioned on).
+
+    Per-sample t ~ U(t_min, t_max) sets the noise magnitude only:
+        z_t = (1-t)*eps + t*z_1 + sigma_langevin*sqrt(t(1-t))*eps2
+    The model is still fed t=1 (fix-t); the property/AA/torsion targets stay CLEAN, so g1 learns
+    to recover the clean concepts from a noised latent — the off-manifold robustness lever.
+    """
+    B = latents.shape[0]
+    t = torch.rand(B, 1, 1, device=latents.device) * (t_max - t_min) + t_min  # [B,1,1]
+    eps = torch.randn_like(latents)
+    eps2 = torch.randn_like(latents)
+    z = (1.0 - t) * eps + t * latents + sigma_langevin * torch.sqrt(t * (1.0 - t)) * eps2
+    return torch.where(mask.unsqueeze(-1), z, latents)  # leave padded slots untouched
+
+
 def _bottleneck_losses(aa_logits, tors, batch, device):
     """AA cross-entropy + torsion sin/cos MSE (masked), plus AA accuracy for logging."""
     residue_type = batch["residue_type"].to(device)        # [B,L] (pad = AA_PAD_IDX)
@@ -52,7 +68,8 @@ def _bottleneck_losses(aa_logits, tors, batch, device):
 
 
 def train_one_epoch_cbm(model, loader, optimizer, scheduler, scaler, device,
-                        lambda_aa, lambda_tors, grad_clip, step_counter, csv_writer=None):
+                        lambda_aa, lambda_tors, grad_clip, step_counter, csv_writer=None,
+                        noise_aware=False, sigma_langevin=0.1, t_min=0.3, t_max=0.8):
     model.train()
     total_loss, n_batches = 0.0, 0
     for batch in loader:
@@ -60,6 +77,9 @@ def train_one_epoch_cbm(model, loader, optimizer, scheduler, scaler, device,
         mask = batch["mask"].to(device)
         targets = batch["targets"].to(device)
         t = batch["t"].to(device)
+
+        if noise_aware:
+            latents = _inject_noise(latents, mask, sigma_langevin, t_min, t_max)  # t stays 1.0 (fix-t)
 
         optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast(device.type, dtype=torch.bfloat16, enabled=(device.type == "cuda")):
@@ -176,6 +196,8 @@ def train_fold_cbm(fold_idx, train_records, val_records, prop_df, output_dir, co
             model, train_loader, optimizer, scheduler, scaler, device,
             lambda_aa=config.get("lambda_aa", 1.0), lambda_tors=config.get("lambda_tors", 1.0),
             grad_clip=config.get("grad_clip", 1.0), step_counter=step_counter, csv_writer=step_writer,
+            noise_aware=config.get("noise_aware", False), sigma_langevin=config.get("sigma_langevin", 0.1),
+            t_min=config.get("t_min", 0.3), t_max=config.get("t_max", 0.8),
         )
         curves_file.flush()
         val_results = evaluate(model, val_loader, device, stats)

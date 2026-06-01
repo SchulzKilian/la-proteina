@@ -112,6 +112,12 @@ class SteeringGuide:
         if self.denoising_steps < 1:
             raise ValueError(f"denoising_steps must be >= 1, got {self.denoising_steps}")
 
+        # Look-ahead BLOCKER on the guidance (rama / aa-prior). Forward-only:
+        # damps guidance by s∈(0,1] where the step would push g1's concept
+        # reconstruction off-manifold. No-op when throttle.type is absent/none.
+        from steering.throttle import SteeringThrottle
+        self.throttle = SteeringThrottle(config, self.predictor, self.feed_z_t_directly)
+
     @property
     def diagnostics(self) -> List[dict]:
         return self._diagnostics
@@ -269,7 +275,15 @@ class SteeringGuide:
         # Scale by schedule weight
         guidance = w * raw_grad
 
-        # Final norms for diagnostics
+        # Look-ahead blocker: damp guidance where the step worsens the cheap
+        # concept reconstruction (rama energy / composition KL). No-op if off.
+        throttle_diag = None
+        if self.throttle.enabled:
+            guidance, throttle_diag = self.throttle.apply(
+                guidance, z_t.detach(), v_theta.detach(), t_scalar, mask
+            )
+
+        # Final norms for diagnostics (AFTER throttle, so they reflect damping)
         final_norms = guidance.reshape(B, -1).norm(dim=-1)  # [B]
 
         # Build diagnostics
@@ -299,6 +313,8 @@ class SteeringGuide:
                 "grad_norm_final": final_norms[0].item(),
                 "predicted_properties": pred_dict,
             }
+            if throttle_diag is not None:
+                diag["throttle"] = throttle_diag
             self._diagnostics.append(diag)
 
         return guidance, diag
