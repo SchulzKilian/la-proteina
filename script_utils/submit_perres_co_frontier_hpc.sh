@@ -46,6 +46,18 @@ PY=python
 ulimit -n 65536 2>/dev/null || true
 echo "node=$(hostname) python=$(which python) gpu=$CUDA_VISIBLE_DEVICES"
 
+# --- pre-flight: verify the long-generation checkpoints exist (paths from
+#     configs/inference_ucond_notri_long.yaml). Fail fast with a clear message. ---
+LD_CKPT=./checkpoints_laproteina/LD3_ucond_notri_800.ckpt   # latent flow (~2.8G)
+AE_CKPT=./checkpoints_laproteina/AE2_ucond_800.ckpt         # autoencoder (~3.9G)
+for c in "$LD_CKPT" "$AE_CKPT"; do
+  if [ ! -s "$c" ]; then
+    echo "[FATAL] missing checkpoint: $c (cwd=$(pwd)). Place it there or edit inference_ucond_notri_long.yaml." >&2
+    exit 1
+  fi
+done
+echo "[ok] checkpoints present: $LD_CKPT , $AE_CKPT"
+
 # --- grid ---
 PROXIES="${PROXIES:-geometric rama}"   # override via --export to split the job
 WS="4 8 16 32"
