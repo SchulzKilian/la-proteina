@@ -278,6 +278,10 @@ def main():
                         help="Skip the guided generation. Use to extend the matched-seed "
                              "unguided baseline only — the steering config is still loaded "
                              "but never applied.")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip seeds whose output .pdb already exists (guided, and "
+                             "unguided unless --skip_unguided). Makes reruns top-up only "
+                             "the missing seeds, so interrupted runs resume cheaply.")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="Number of seeds generated per forward at a fixed length "
                              "(native nsamples batch). 1 = original per-seed path (byte-"
@@ -368,6 +372,14 @@ def main():
     for length in args.lengths:
         for ci in range(0, len(seeds), bs):
             chunk = seeds[ci:ci + bs]
+            if args.resume:
+                def _have(s):
+                    g_ok = (guided_dir / f"s{s}_n{length}.pdb").exists() or args.skip_guided
+                    u_ok = (unguided_dir / f"s{s}_n{length}.pdb").exists() or args.skip_unguided
+                    return g_ok and u_ok
+                chunk = [s for s in chunk if not _have(s)]
+                if not chunk:
+                    continue
             ids = [f"s{s}_n{length}" for s in chunk]
             done += len(chunk)
             tag = ids[0] if len(ids) == 1 else f"{ids[0]}..{ids[-1]} (batch={len(ids)})"

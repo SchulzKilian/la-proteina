@@ -109,7 +109,7 @@ run_cell () {  # $1=proxy $2=w $3=beta
     echo "[$(date -u +%FT%TZ)] gen $cell (beta=$beta)"
     "$PY" -m steering.generate \
         --proteina_config inference_ucond_notri_long --steering_config "$cfg" \
-        --lengths $LENGTHS --seeds $SEEDS --nsteps $NSTEPS --skip_unguided \
+        --lengths $LENGTHS --seeds $SEEDS --nsteps $NSTEPS --skip_unguided --resume \
         --output_dir "$ROOT/$cell" --device cuda:0
   else
     echo "[$(date -u +%FT%TZ)] $cell has $n_pdb pdbs; skip gen"
