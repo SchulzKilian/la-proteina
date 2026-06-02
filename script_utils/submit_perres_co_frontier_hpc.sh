@@ -29,7 +29,8 @@
 # To halve wall-clock, submit twice with PROXIES=geometric and PROXIES=rama:
 #   sbatch --export=ALL,PROXIES=geometric script_utils/submit_perres_co_frontier_hpc.sh
 #   sbatch --export=ALL,PROXIES=rama      script_utils/submit_perres_co_frontier_hpc.sh
-set -uo pipefail   # NOT set -e (TaskProlog mkdir perm error would kill the script)
+set -o pipefail   # NOT set -e, and NOT -u: sourcing .bashrc references unset $BASHRCSOURCED
+                  # and `set -u` would abort the whole script there. Overridable vars use ${V:-default}.
 
 cd /home/ks2218/la-proteina
 
@@ -44,7 +45,7 @@ export IUPRED3_DIR=${IUPRED3_DIR:-/home/ks2218/iupred3}
 export MPNN_INPROCESS=1     # in-process ProteinMPNN (one torch import, reused); harmless if unsupported
 PY=python
 ulimit -n 65536 2>/dev/null || true
-echo "node=$(hostname) python=$(which python) gpu=$CUDA_VISIBLE_DEVICES"
+echo "node=$(hostname) python=$(which python) gpu=${CUDA_VISIBLE_DEVICES:-unset}"
 
 # --- pre-flight: verify the long-generation checkpoints exist (paths from
 #     configs/inference_ucond_notri_long.yaml). Fail fast with a clear message. ---
