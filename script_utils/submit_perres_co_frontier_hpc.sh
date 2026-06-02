@@ -77,9 +77,9 @@ mkdir -p "$CFGDIR"
 # (model-derived, identical model -> transfers). Geom on bond/clash load, rama on pseudo-torsion.
 beta_for () { case "$1" in geometric) echo 171.4809 ;; rama) echo 0.8721 ;; *) echo 1.0 ;; esac; }
 
-write_cfg () {  # $1=proxy $2=w $3=beta -> path on stdout
-  local proxy=$1 w=$2 beta=$3
-  local f="$CFGDIR/${proxy}_w${w}_lookahead_proportional.yaml"
+write_cfg () {  # $1=proxy $2=w $3=beta $4=per_residue(true|false) $5=cfgname -> path on stdout
+  local proxy=$1 w=$2 beta=$3 per_res=$4 name=$5
+  local f="$CFGDIR/${name}.yaml"
   {
     echo "steering:"
     echo "  method: geometric_lookahead"
@@ -87,7 +87,7 @@ write_cfg () {  # $1=proxy $2=w $3=beta -> path on stdout
     echo "  channel: bb_ca"
     echo "  mode: lookahead_proportional"
     echo "  proxy_type: ${proxy}"
-    echo "  per_residue: true"
+    echo "  per_residue: ${per_res}"
     echo "  f_map: exp"
     echo "  beta: ${beta}"
     echo "  objectives: [{property: contact_order, direction: minimize, weight: 1.0}]"
@@ -104,33 +104,34 @@ write_cfg () {  # $1=proxy $2=w $3=beta -> path on stdout
   echo "$f"
 }
 
-run_cell () {  # $1=proxy $2=w $3=beta
-  local proxy=$1 w=$2 beta=$3
-  local cell="contact_order_${proxy}res_w${w}"
-  local n_pdb; n_pdb=$(ls "$ROOT/$cell/guided"/*.pdb 2>/dev/null | wc -l)
-  if [ "$n_pdb" -lt 32 ]; then
-    local cfg; cfg=$(write_cfg "$proxy" "$w" "$beta")
-    echo "[$(date -u +%FT%TZ)] gen $cell (beta=$beta)"
-    "$PY" -m steering.generate \
-        --proteina_config inference_ucond_notri_long --steering_config "$cfg" \
-        --lengths $LENGTHS --seeds $SEEDS --nsteps $NSTEPS --skip_unguided --resume \
-        --output_dir "$ROOT/$cell" --device cuda:0
-  else
-    echo "[$(date -u +%FT%TZ)] $cell has $n_pdb pdbs; skip gen"
-  fi
+# gen (resume-safe) + scRMSD for one cell. $1=cellname $2=cfgpath
+gen_eval () {
+  local cell=$1 cfg=$2
+  echo "[$(date -u +%FT%TZ)] gen $cell  (cfg=$cfg)"
+  "$PY" -m steering.generate \
+      --proteina_config inference_ucond_notri_long --steering_config "$cfg" \
+      --lengths $LENGTHS --seeds $SEEDS --nsteps $NSTEPS --skip_unguided --resume \
+      --output_dir "$ROOT/$cell" --device cuda:0
   echo "[$(date -u +%FT%TZ)] scRMSD designability $cell"
   OUT_BASE=$ROOT "$PY" script_utils/run_scrmsd_steering.py \
       --cfgs "$cell" --seeds $SEEDS --lengths $LENGTHS
 }
 
+run_cell () {  # $1=proxy $2=w $3=beta  (per-residue throttle cell)
+  local proxy=$1 w=$2 beta=$3
+  local cfg; cfg=$(write_cfg "$proxy" "$w" "$beta" true "${proxy}res_w${w}")
+  gen_eval "contact_order_${proxy}res_w${w}" "$cfg"
+}
+
 # --- no-throttle baseline reference (so the frontier has its lower curve) ---
+# beta=0 -> s=exp(0)=1 -> throttle never fires == plain CO steering (the no-throttle point).
+# proxy=geometric needs no prior file. Same steering.generate pipeline as the throttle cells,
+# so it's fully HPC-portable (no dependency on a pre-existing unguided dir).
 if [ "$RUN_BASELINE" = "1" ]; then
-  echo "[$(date -u +%FT%TZ)] === baseline (no-throttle) contact_order w=$WS ==="
-  "$PY" -m steering.run_geom_lookahead_sweep --device cuda:0 \
-      --targets contact_order --modes baseline --lambdas $WS --seeds $SEEDS >/dev/null 2>&1 || true
+  echo "[$(date -u +%FT%TZ)] === baseline (no-throttle, beta=0) contact_order w=$WS ==="
   for w in $WS; do
-    OUT_BASE=$ROOT "$PY" script_utils/run_scrmsd_steering.py \
-        --cfgs "contact_order_baseline_w${w}" --seeds $SEEDS --lengths $LENGTHS || true
+    bcfg=$(write_cfg geometric "$w" 0.0 false "baseline_w${w}")
+    gen_eval "contact_order_baseline_w${w}" "$bcfg"
   done
 fi
 
