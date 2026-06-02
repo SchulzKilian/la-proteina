@@ -55,15 +55,27 @@ class SteeringThrottle:
         if self.type not in ("rama", "aa_prior"):
             raise ValueError(f"Unknown throttle.type {self.type!r}")
         if predictor is None or not hasattr(predictor, "models"):
-            raise ValueError("throttle requires a loaded CBM SteeringPredictor")
-        # g1 lives on the CBM model(s). Single fold uses models[0]; an ensemble
-        # is averaged at the bottleneck.
-        self._models = [m for m in predictor.models]
+            raise ValueError("throttle requires a loaded SteeringPredictor")
+        device = predictor.device
+
+        # g1 (latent -> AA + torsion bottleneck) must come from a CBM. When the
+        # STEERING predictor is itself a CBM, reuse it. When steering with a
+        # non-CBM predictor, set throttle.g1_checkpoint to a CBM ckpt — the
+        # throttle then loads it separately and reads g1 from there, while the
+        # guidance gradient still comes from the (non-CBM) steering predictor.
+        g1_ckpt = tcfg.get("g1_checkpoint", None)
+        if g1_ckpt is not None:
+            from steering.predictor import SteeringPredictor
+            self._g1_pred = SteeringPredictor(g1_ckpt, device=device)
+            self._models = [m for m in self._g1_pred.models]
+        else:
+            self._models = [m for m in predictor.models]
         for m in self._models:
             if not hasattr(m, "encode_bottleneck"):
-                raise ValueError("throttle requires a CBM predictor (encode_bottleneck missing)")
-
-        device = predictor.device
+                raise ValueError(
+                    "throttle requires a CBM (encode_bottleneck). When steering with a "
+                    "non-CBM predictor, set throttle.g1_checkpoint to a CBM ckpt."
+                )
         priors_path = tcfg.get("priors_path", "steering/throttle_priors/priors.pt")
         priors = torch.load(priors_path, map_location=device, weights_only=False)
         self.nbins = int(priors["nbins"])

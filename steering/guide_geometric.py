@@ -105,7 +105,7 @@ class GeometricLookaheadGuide:
         #                     model re-evaluated at x1_base / x1_guided via
         #                     flow_step_fn_bb_ca. +2 model forwards/step (B).
         self.proxy_type = config.get("proxy_type", "geometric")
-        if self.proxy_type not in ("geometric", "score_algebraic", "score_faithful"):
+        if self.proxy_type not in ("geometric", "score_algebraic", "score_faithful", "rama"):
             raise ValueError(f"Unknown proxy_type {self.proxy_type!r}")
         # Fixed near-clean probe time for convention B (x̂₁ is treated as a
         # near-clean object, NOT as a sample at the current noisy t).
@@ -124,6 +124,18 @@ class GeometricLookaheadGuide:
         self.clash_min_sep = int(proxy.get("clash_min_sep", 2))
         self.proxy_eps = float(proxy.get("eps", 1e-6))
 
+        # --- Cα pseudo-Ramachandran proxy (loaded only if used) ---
+        # Manifoldness from Cα backbone conformation: per-residue pseudo-bond-angle
+        # + pseudo-dihedral (4 consecutive Cα), scored against a training-data density.
+        # No N/C, no decode. Complementary to bond/clash (sterics) and score (model manifold).
+        self._rama_logp = None
+        if self.proxy_type == "rama":
+            rama_path = proxy.get("rama_priors_path", "steering/throttle_priors/ca_pseudo_rama.pt")
+            rp = torch.load(rama_path, map_location="cpu", weights_only=False)
+            self._rama_logp = rp["logp"]
+            self._rama_n_theta = int(rp["n_theta"])
+            self._rama_n_tau = int(rp["n_tau"])
+
         # --- Contact-order knobs (only used if a contact_order objective is set) ---
         co = config.get("contact_order", {}) or {}
         self.co_threshold = float(co.get("threshold_nm", 0.80))
@@ -140,6 +152,11 @@ class GeometricLookaheadGuide:
         self.beta = float(config.get("beta", 1.0))
         self.gate_threshold = float(config.get("gate_threshold", 0.0))
         self.t_floor = config.get("t_floor", None)
+        # Per-residue throttle: damp guidance per residue (s is [B,L]) using the
+        # per-residue bond/clash load, instead of a per-protein scalar s[B].
+        # Only meaningful with proxy_type='geometric'. Changes the step DIRECTION
+        # (selectively damps high-strain residues), not just its magnitude.
+        self.per_residue = bool(config.get("per_residue", False))
 
     # ----------------------------------------------------------------------- #
     @property
@@ -187,6 +204,24 @@ class GeometricLookaheadGuide:
             lambda_clash=self.lambda_clash,
             clash_min_sep=self.clash_min_sep,
             eps=self.proxy_eps,
+        )
+
+    def _p_rama(self, c: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Cα pseudo-Ramachandran energy (mean -log p over interior residues). [B]."""
+        if self._rama_logp.device != c.device:
+            self._rama_logp = self._rama_logp.to(c.device)
+        return geom.p_pseudo_rama(
+            c, mask, self._rama_logp,
+            n_theta=self._rama_n_theta, n_tau=self._rama_n_tau,
+        )
+
+    def _p_rama_perres(self, c: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Per-residue Cα pseudo-Ramachandran energy -log p(theta_i,tau_i). [B,L]."""
+        if self._rama_logp.device != c.device:
+            self._rama_logp = self._rama_logp.to(c.device)
+        return geom.p_pseudo_rama_perresidue(
+            c, mask, self._rama_logp,
+            n_theta=self._rama_n_theta, n_tau=self._rama_n_tau,
         )
 
     def _score_mag(
@@ -318,10 +353,54 @@ class GeometricLookaheadGuide:
         with torch.no_grad():
             x1_guided = x1_base + (1.0 - t) * lam0 * g  # [B,L,3]
 
-            if self.proxy_type == "geometric":
+            if self.per_residue:
+                # Per-residue throttle: s is [B,L]; damp guidance only at residues
+                # the step pushes off-manifold (per-residue proxy load).
+                if self.proxy_type == "geometric":
+                    pb = geom.p_geom_perresidue(
+                        x1_base, m, bond_target=self.bond_target, clash_radius=self.clash_radius,
+                        lambda_clash=self.lambda_clash, clash_min_sep=self.clash_min_sep, eps=self.proxy_eps)
+                    pg = geom.p_geom_perresidue(
+                        x1_guided, m, bond_target=self.bond_target, clash_radius=self.clash_radius,
+                        lambda_clash=self.lambda_clash, clash_min_sep=self.clash_min_sep, eps=self.proxy_eps)
+                elif self.proxy_type == "rama":
+                    pb = self._p_rama_perres(x1_base, m)
+                    pg = self._p_rama_perres(x1_guided, m)
+                else:
+                    raise ValueError(
+                        f"per_residue supports proxy_type in (geometric, rama), got {self.proxy_type!r}")
+                dP_pr = torch.relu(pg - pb)  # [B,L]
+                if self.mode == "baseline":
+                    s_pr = torch.ones_like(dP_pr)
+                elif self.mode == "lookahead_gated":
+                    s_pr = (dP_pr <= self.gate_threshold).float()
+                else:
+                    s_pr = self._f(dP_pr)  # [B,L], elementwise
+                if self.t_floor is not None and t < float(self.t_floor):
+                    s_pr = torch.ones_like(dP_pr)
+                guidance = (s_pr * lam0).unsqueeze(-1) * g  # [B,L,3]
+                # scalar summaries for the shared diagnostics block
+                mfb = m.float()
+                nz = mfb.sum(-1).clamp(min=1.0)
+                p_base = (pb * mfb).sum(-1) / nz
+                p_guided = (pg * mfb).sum(-1) / nz
+                dP = p_guided - p_base
+                s = (s_pr * mfb).sum(-1) / nz
+                lam_eff = s * lam0
+                v0 = m[0].bool()
+                self._pr_s_min = float(s_pr[0][v0].min().item()) if v0.any() else 1.0
+                self._pr_frac = float((s_pr[0][v0] < 0.99).float().mean().item()) if v0.any() else 0.0
+                _pos = dP_pr[0][v0]
+                _pos = _pos[_pos > 0]
+                self._pr_dP_p90 = float(torch.quantile(_pos, 0.9).item()) if _pos.numel() else 0.0
+            elif self.proxy_type == "geometric":
                 # Bond+clash geometry of the candidate clean Cα estimates.
                 p_base = self._p_geom(x1_base, m)      # [B]
                 p_guided = self._p_geom(x1_guided, m)  # [B]
+            elif self.proxy_type == "rama":
+                # Cα pseudo-Ramachandran (backbone-conformation manifoldness).
+                p_base = self._p_rama(x1_base, m)      # [B]
+                p_guided = self._p_rama(x1_guided, m)  # [B]
             elif self.proxy_type == "score_algebraic":
                 # Convention A: model score implied by the velocity AT x_t. The
                 # guided "velocity" is v_theta + λ0·g (the unthrottled push). No
@@ -347,22 +426,23 @@ class GeometricLookaheadGuide:
                 p_base = self._score_mag(x1_base, v_at_base, tp, m)       # [B]
                 p_guided = self._score_mag(x1_guided, v_at_guided, tp, m)  # [B]
 
-            dP = p_guided - p_base  # [B]
-            dP_pos = torch.relu(dP)  # [B]
+            if not self.per_residue:
+                dP = p_guided - p_base  # [B]
+                dP_pos = torch.relu(dP)  # [B]
 
-            if self.mode == "baseline":
-                s = torch.ones(B, device=c0.device)
-            elif self.mode == "lookahead_gated":
-                s = (dP_pos <= self.gate_threshold).float()
-            else:  # lookahead_proportional
-                s = self._f(dP_pos)
+                if self.mode == "baseline":
+                    s = torch.ones(B, device=c0.device)
+                elif self.mode == "lookahead_gated":
+                    s = (dP_pos <= self.gate_threshold).float()
+                else:  # lookahead_proportional
+                    s = self._f(dP_pos)
 
-            # Optional time floor: below t_floor disable the throttle (full step).
-            if self.t_floor is not None and t < float(self.t_floor):
-                s = torch.ones(B, device=c0.device)
+                # Optional time floor: below t_floor disable the throttle (full step).
+                if self.t_floor is not None and t < float(self.t_floor):
+                    s = torch.ones(B, device=c0.device)
 
-            lam_eff = s * lam0  # [B]
-            guidance = lam_eff[:, None, None] * g  # [B,L,3]
+                lam_eff = s * lam0  # [B]
+                guidance = lam_eff[:, None, None] * g  # [B,L,3]
 
         diag = None
         if self.log_diagnostics:
@@ -386,6 +466,10 @@ class GeometricLookaheadGuide:
                 "grad_norm_raw": float(raw_norms[0].item()),
                 "predicted_properties": prop_base,
             }
+            if self.per_residue:
+                diag["pr_s_min"] = getattr(self, "_pr_s_min", 1.0)
+                diag["pr_frac_throttled"] = getattr(self, "_pr_frac", 0.0)
+                diag["pr_dP_p90"] = getattr(self, "_pr_dP_p90", 0.0)
             # Stage-1 calibration: log all proxies along this (baseline) trajectory.
             if self.calibration_probe:
                 cal = self._calibration_proxies(

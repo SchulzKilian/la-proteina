@@ -185,6 +185,50 @@ def run_proteinmpnn(
     else:
         command = base_command
 
+    # In-process fast path (env MPNN_INPROCESS=1): execute protein_mpnn_run.py via runpy
+    # in the current interpreter so `import torch` hits the already-cached module instead of
+    # re-importing it from (possibly slow NFS) storage on every protein. Uses the script's own
+    # argparser (same argv tokens as the subprocess command) -> byte-identical parsing/behavior.
+    if os.environ.get("MPNN_INPROCESS") == "1":
+        import runpy
+
+        mpnn_dir = os.path.join(os.getcwd(), "ProteinMPNN")
+        argv = [
+            "protein_mpnn_run.py",
+            "--pdb_path", str(pdb_file_path),
+            "--pdb_path_chains", " ".join(pdb_path_chains),
+            "--out_folder", str(out_dir_root),
+            "--num_seq_per_target", str(num_seq_per_target),
+            "--sampling_temp", str(sampling_temp),
+            "--omit_AAs", str(omit_AAs),
+            "--batch_size", "1",
+            "--suppress_print", str(0 if verbose else 1),
+        ]
+        if ca_only:
+            argv.append("--ca_only")
+        if seed is not None:
+            argv += ["--seed", str(seed)]
+        if fix_pos:
+            argv += ["--fixed_positions_jsonl", fixed_positions_path]
+
+        old_argv, old_path = sys.argv, list(sys.path)
+        sys.argv = argv
+        if mpnn_dir not in sys.path:
+            sys.path.insert(0, mpnn_dir)
+        try:
+            runpy.run_path(
+                os.path.join(mpnn_dir, "protein_mpnn_run.py"), run_name="__main__"
+            )
+        except SystemExit:
+            pass
+        except Exception as e:
+            logger.error(f"In-process ProteinMPNN failed: {e}")
+            raise RuntimeError(f"In-process ProteinMPNN failed: {e}")
+        finally:
+            sys.argv = old_argv
+            sys.path = old_path
+        return extract_gen_seqs(os.path.join(out_dir_root, "seqs", name + ".fa"))
+
     try:
         result = subprocess.run(
             command, shell=True, check=True, capture_output=True, text=True

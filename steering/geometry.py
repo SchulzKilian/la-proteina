@@ -117,6 +117,138 @@ def p_geom(
     return lb + lambda_clash * lc
 
 
+def p_geom_perresidue(
+    c: Tensor,
+    mask: Tensor,
+    *,
+    bond_target: float = 0.38,
+    clash_radius: float = 0.40,
+    lambda_clash: float = 1.0,
+    clash_min_sep: int = 2,
+    eps: float = 1e-6,
+) -> Tensor:
+    """Per-residue bond+clash load. Returns [B, L] (higher = worse local geometry
+    at that residue). Bond deviation of each Cα-Cα bond is assigned to BOTH its
+    endpoints; clash load of residue i = sum over non-adjacent j of relu(d0-d_ij)^2.
+    Per-protein sum of this ~ p_geom (up to the bond double-count / mean-vs-sum)."""
+    B, L, _ = c.shape
+    mf = mask.float()
+    diff = c[:, 1:, :] - c[:, :-1, :]
+    d = torch.sqrt((diff ** 2).sum(-1) + eps)            # [B,L-1]
+    bdev = (d - bond_target) ** 2 * (mf[:, 1:] * mf[:, :-1])  # [B,L-1]
+    bond_res = torch.zeros(B, L, device=c.device, dtype=c.dtype)
+    bond_res[:, :-1] = bond_res[:, :-1] + bdev
+    bond_res[:, 1:] = bond_res[:, 1:] + bdev
+    dist = torch.cdist(c, c)                              # [B,L,L]
+    ar = torch.arange(L, device=c.device)
+    sep_ok = (ar[None, :] - ar[:, None]).abs() >= clash_min_sep   # [L,L]
+    pv = sep_ok[None] & mask[:, None, :].bool() & mask[:, :, None].bool()
+    clash_res = (torch.relu(clash_radius - dist) ** 2 * pv.float()).sum(-1)  # [B,L]
+    return (bond_res + lambda_clash * clash_res) * mf     # [B,L]
+
+
+def ca_pseudo_torsions(c: Tensor, mask: Tensor, eps: float = 1e-8):
+    """Cα-only backbone descriptors at each interior residue i (needs i-1..i+2):
+      theta_i = pseudo-bond-angle at CA_i  (CA_{i-1}, CA_i, CA_{i+1})       in [0, pi]
+      tau_i   = pseudo-dihedral            (CA_{i-1}, CA_i, CA_{i+1}, CA_{i+2}) in [-pi, pi]
+    Returns (theta [B,L], tau [B,L], valid [B,L]) aligned at i; positions without a
+    full 4-Cα window (or with any padded residue in it) are marked invalid.
+    No N/C atoms needed — computable from the Cα channel alone (no decode).
+    """
+    B, L, _ = c.shape
+    p0, p1, p2, p3 = c[:, :-3], c[:, 1:-2], c[:, 2:-1], c[:, 3:]  # each [B, L-3, 3]
+    # pseudo-bond-angle at p1
+    v1 = p0 - p1
+    v2 = p2 - p1
+    cos = (v1 * v2).sum(-1) / (v1.norm(dim=-1) * v2.norm(dim=-1) + eps)
+    theta = torch.arccos(cos.clamp(-1 + 1e-6, 1 - 1e-6))                 # [B,L-3]
+    # pseudo-dihedral over (p0,p1,p2,p3)
+    b0, b1, b2 = p1 - p0, p2 - p1, p3 - p2
+    n1 = torch.cross(b0, b1, dim=-1)
+    n2 = torch.cross(b1, b2, dim=-1)
+    b1n = b1 / (b1.norm(dim=-1, keepdim=True) + eps)
+    m1 = torch.cross(n1, b1n, dim=-1)
+    x = (n1 * n2).sum(-1)
+    y = (m1 * n2).sum(-1)
+    tau = torch.atan2(y, x)                                              # [B,L-3]
+    # valid where all four residues are real
+    mf = mask.float()
+    win = (mf[:, :-3] * mf[:, 1:-2] * mf[:, 2:-1] * mf[:, 3:]) > 0.5     # [B,L-3]
+    # pad back to length L (align at index i = position 1.. ; we key by the window start)
+    pad = (0, 0)
+    theta_f = torch.zeros(B, L, device=c.device, dtype=c.dtype)
+    tau_f = torch.zeros(B, L, device=c.device, dtype=c.dtype)
+    valid_f = torch.zeros(B, L, device=c.device, dtype=torch.bool)
+    theta_f[:, : L - 3] = theta
+    tau_f[:, : L - 3] = tau
+    valid_f[:, : L - 3] = win
+    return theta_f, tau_f, valid_f
+
+
+def p_pseudo_rama(
+    c: Tensor,
+    mask: Tensor,
+    logp_table: Tensor,
+    *,
+    n_theta: int,
+    n_tau: int,
+    eps: float = 1e-8,
+) -> Tensor:
+    """Per-protein Cα pseudo-Ramachandran energy: mean over interior residues of
+    -log p(theta_i, tau_i) under a precomputed [n_theta, n_tau] density table.
+    Higher = more off the Cα backbone manifold. Length-normalised. Returns [B].
+
+    BILINEAR interpolation (theta clamped, tau circular) — NOT nearest-bin: the
+    throttle needs the proxy to respond to the small per-step Cα perturbation, and
+    a nearest-bin lookup quantises that to exactly zero (p_guided==p_base)."""
+    import math
+    theta, tau, valid = ca_pseudo_torsions(c, mask, eps=eps)            # [B,L] each
+    tbl = logp_table.to(c.device)
+    # fractional (center-aligned) bin coordinates
+    fi = (theta / math.pi) * n_theta - 0.5                              # theta: [0,pi]
+    fj = ((tau + math.pi) / (2 * math.pi)) * n_tau - 0.5               # tau: [-pi,pi]
+    i0 = torch.floor(fi); wi = (fi - i0)
+    j0 = torch.floor(fj); wj = (fj - j0)
+    i0 = i0.long().clamp(0, n_theta - 1)
+    i1 = (i0 + 1).clamp(0, n_theta - 1)                                 # theta: clamp at edges
+    j0 = j0.long() % n_tau
+    j1 = (j0 + 1) % n_tau                                               # tau: circular
+    flat = tbl.reshape(-1)
+    def g(ii, jj): return flat[ii * n_tau + jj]
+    lp = (g(i0, j0) * (1 - wi) * (1 - wj) + g(i0, j1) * (1 - wi) * wj
+          + g(i1, j0) * wi * (1 - wj) + g(i1, j1) * wi * wj)            # [B,L]
+    e = -lp * valid.float()
+    n = valid.float().sum(-1).clamp(min=1.0)
+    return e.sum(-1) / n                                                 # [B]
+
+
+def p_pseudo_rama_perresidue(
+    c: Tensor,
+    mask: Tensor,
+    logp_table: Tensor,
+    *,
+    n_theta: int,
+    n_tau: int,
+    eps: float = 1e-8,
+) -> Tensor:
+    """Per-residue Cα pseudo-Ramachandran energy -log p(theta_i, tau_i). [B,L].
+    Same bilinear lookup as p_pseudo_rama, returned per residue (not pooled)."""
+    import math
+    theta, tau, valid = ca_pseudo_torsions(c, mask, eps=eps)
+    tbl = logp_table.to(c.device)
+    fi = (theta / math.pi) * n_theta - 0.5
+    fj = ((tau + math.pi) / (2 * math.pi)) * n_tau - 0.5
+    i0 = torch.floor(fi); wi = (fi - i0)
+    j0 = torch.floor(fj); wj = (fj - j0)
+    i0 = i0.long().clamp(0, n_theta - 1); i1 = (i0 + 1).clamp(0, n_theta - 1)
+    j0 = j0.long() % n_tau; j1 = (j0 + 1) % n_tau
+    flat = tbl.reshape(-1)
+    def g(ii, jj): return flat[ii * n_tau + jj]
+    lp = (g(i0, j0) * (1 - wi) * (1 - wj) + g(i0, j1) * (1 - wi) * wj
+          + g(i1, j0) * wi * (1 - wj) + g(i1, j1) * wi * wj)
+    return (-lp) * valid.float()                                        # [B,L]
+
+
 # --------------------------------------------------------------------------- #
 # Steering target properties (all differentiable on Cα coords)
 # --------------------------------------------------------------------------- #
