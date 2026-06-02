@@ -59,10 +59,13 @@ done
 echo "[ok] checkpoints present: $LD_CKPT , $AE_CKPT"
 
 # --- grid ---
-PROXIES="${PROXIES:-geometric rama}"   # override via --export to split the job
-WS="4 8 16 32"
-SEEDS="42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57"
-LENGTHS="300 400"
+# All grid dims are env-overridable via --export=ALL,VAR=... (or `VAR=... bash <script>`).
+# Fast decisive subset (~1h on 1 A100): PROXIES="geometric rama" WS=16 SEEDS="42 43 44 45 46 47 48 49" LENGTHS=300
+PROXIES="${PROXIES:-geometric rama}"
+WS="${WS:-4 8 16 32}"
+SEEDS="${SEEDS:-42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57}"
+LENGTHS="${LENGTHS:-300 400}"
+RUN_BASELINE="${RUN_BASELINE:-1}"   # set 0 to skip the no-throttle baseline cells
 NSTEPS=400
 ROOT=results/geom_lookahead_sweep
 PRIORS=steering/throttle_priors/ca_pseudo_rama.pt
@@ -120,13 +123,15 @@ run_cell () {  # $1=proxy $2=w $3=beta
 }
 
 # --- no-throttle baseline reference (so the frontier has its lower curve) ---
-echo "[$(date -u +%FT%TZ)] === baseline (no-throttle) contact_order w4/8/16/32 ==="
-"$PY" -m steering.run_geom_lookahead_sweep --device cuda:0 \
-    --targets contact_order --modes baseline --lambdas 4 8 16 32 --seeds $SEEDS >/dev/null 2>&1 || true
-for w in $WS; do
-  OUT_BASE=$ROOT "$PY" script_utils/run_scrmsd_steering.py \
-      --cfgs "contact_order_baseline_w${w}" --seeds $SEEDS --lengths $LENGTHS || true
-done
+if [ "$RUN_BASELINE" = "1" ]; then
+  echo "[$(date -u +%FT%TZ)] === baseline (no-throttle) contact_order w=$WS ==="
+  "$PY" -m steering.run_geom_lookahead_sweep --device cuda:0 \
+      --targets contact_order --modes baseline --lambdas $WS --seeds $SEEDS >/dev/null 2>&1 || true
+  for w in $WS; do
+    OUT_BASE=$ROOT "$PY" script_utils/run_scrmsd_steering.py \
+        --cfgs "contact_order_baseline_w${w}" --seeds $SEEDS --lengths $LENGTHS || true
+  done
+fi
 
 # --- throttle cells ---
 for proxy in $PROXIES; do
