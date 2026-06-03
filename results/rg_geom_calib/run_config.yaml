@@ -1,0 +1,31 @@
+device: cuda:0
+lengths:
+- 200
+nsteps: 400
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+steering:
+  beta: 0.0
+  channel: bb_ca
+  device: cuda:0
+  enabled: true
+  f_map: exp
+  gradient_clip: 0.0
+  gradient_norm: unit
+  log_diagnostics: true
+  method: geometric_lookahead
+  mode: baseline
+  objectives:
+  - direction: maximize
+    property: rg
+    weight: 1.0
+  proxy:
+    bond_target_nm: 0.38
+  proxy_type: geometric
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    type: linear_ramp
+    w_max: 32.0
+steering_config: steering/config/geometric_lookahead/rg_geom_calib.yaml

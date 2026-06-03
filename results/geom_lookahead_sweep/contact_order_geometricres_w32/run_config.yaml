@@ -1,0 +1,50 @@
+device: cuda:0
+lengths:
+- 300
+- 400
+nsteps: 400
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+- 43
+- 44
+- 45
+- 46
+- 47
+- 48
+- 49
+- 50
+- 51
+- 52
+- 53
+- 54
+- 55
+- 56
+- 57
+steering:
+  beta: 171.4809
+  channel: bb_ca
+  device: cuda:0
+  enabled: true
+  f_map: exp
+  gradient_clip: 0.0
+  gradient_norm: unit
+  log_diagnostics: true
+  method: geometric_lookahead
+  mode: lookahead_proportional
+  objectives:
+  - direction: minimize
+    property: contact_order
+    weight: 1.0
+  per_residue: true
+  proxy:
+    bond_target_nm: 0.38
+    clash_radius_nm: 0.4
+    lambda_clash: 1.0
+  proxy_type: geometric
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    type: linear_ramp
+    w_max: 32.0
+steering_config: steering/config/geometric_lookahead/perres_frontier/geometricres_w32.yaml

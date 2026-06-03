@@ -1,0 +1,23 @@
+# Stage-1 calibration: Rg maximize, rama proxy, NO throttle (s=1) — logs rama dP.
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: baseline
+  proxy_type: geometric
+  f_map: exp
+  beta: 0.0
+  objectives:
+    - property: rg
+      direction: maximize
+      weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+  proxy:
+    bond_target_nm: 0.38
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true

@@ -1,0 +1,32 @@
+device: cuda:0
+lengths:
+- 300
+nsteps: 400
+proteina_config: inference_ucond_notri_long
+seeds:
+- 42
+- 43
+steering:
+  channel: local_latents
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_cbm/20260531_121832/checkpoints/fold_2_best.pt
+  device: cuda:0
+  enabled: true
+  gradient_clip: 10.0
+  gradient_norm: unit
+  log_diagnostics: true
+  objectives:
+  - direction: minimize
+    property: tango
+    weight: 1.0
+  schedule:
+    t_end: 0.8
+    t_start: 0.3
+    t_stop: 0.9
+    type: linear_ramp
+    w_max: 128.0
+  throttle:
+    beta: 40.0
+    priors_path: steering/throttle_priors/priors.pt
+    type: aa_prior
+steering_config: steering/config/sweep_throttle_smoke/tango_min_w128_aaprior.yaml
