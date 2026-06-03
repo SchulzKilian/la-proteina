@@ -1,0 +1,60 @@
+# Dynamic-K sparse variant of the canonical CA-only baseline.
+#
+# Architecture is byte-equivalent to `ca_only_sparse_160M.yaml` (and thus to
+# the dense baseline `ca_only_score_nn_160M.yaml`) EXCEPT for the two
+# dynamic_k_* keys at the bottom. Do not change anything else here without
+# bumping the run_name_ in the training config.
+#
+# Dynamic-K: instead of a fixed neighbor budget (K=40), each protein gets
+# K_b = clamp(round(dynamic_k_fraction * L_b), dynamic_k_min, L_b) neighbors —
+# i.e. the budget scales with each protein's own length. The four sparse keys
+# (n_seq/n_spatial/n_random) below are reused ONLY as the seq:spatial:random
+# RATIO (16:8:16 = 2:1:2) for splitting K_b; their absolute values are not a
+# budget under dynamic-K. See local_latents_transformer._build_dynamic_k_neighbor_idx.
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# Sparse attention (SALAD-style neighbor list), dynamic per-protein budget.
+sparse_attention: true
+n_seq_neighbors: 8       # ratio seed: 16 sequential slots (2 per side × 8)
+n_spatial_neighbors: 8   # ratio seed: 8 spatial slots
+n_random_neighbors: 16   # ratio seed: 16 random slots
+
+# K_b = clamp(round(0.5 * L_b), dynamic_k_min, L_b), per protein, every forward.
+dynamic_k_fraction: 0.5
+dynamic_k_min: 16

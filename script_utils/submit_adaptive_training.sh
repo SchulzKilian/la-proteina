@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
-#SBATCH -A COMPUTERLAB-SL2-GPU
+#SBATCH -A COMPUTERLAB-SL3-GPU
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=256G
 #SBATCH --time=5:00:00

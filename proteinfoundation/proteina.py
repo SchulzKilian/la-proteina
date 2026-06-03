@@ -596,6 +596,24 @@ class Proteina(L.LightningModule):
                         add_dataloader_idx=False,
                     )
 
+                # Dynamic-K trace. `train/sparse_k` is the per-forward tensor K
+                # (set by the longest protein in the batch); `train/sparse_k_mean`
+                # is the mean per-protein budget K_b = fraction * L_b, the quantity
+                # that governs inference compute.
+                if getattr(self.nn, "dynamic_k_fraction", None) is not None:
+                    self.log(
+                        "train/sparse_k", float(getattr(self.nn, "_last_sampled_k", 0)),
+                        on_step=True, on_epoch=False, prog_bar=False,
+                        logger=True, batch_size=bs, sync_dist=False,
+                        add_dataloader_idx=False,
+                    )
+                    self.log(
+                        "train/sparse_k_mean", float(getattr(self.nn, "_last_dyn_k_mean", 0.0)),
+                        on_step=True, on_epoch=False, prog_bar=False,
+                        logger=True, batch_size=bs, sync_dist=False,
+                        add_dataloader_idx=False,
+                    )
+
             return train_loss
         
         except RuntimeError as e:

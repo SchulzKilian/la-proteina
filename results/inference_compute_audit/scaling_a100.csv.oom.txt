@@ -1,0 +1,1 @@
+[OOM] arm=canonical_dense L=2400 n=2 (peak before OOM ~79406 MB on NVIDIA A100-SXM4-80GB); stopping arm — all longer L would OOM too.

@@ -89,9 +89,10 @@
 | P34 | v2 | Variant ablation booktabs | `P34_v2_variant_ablation_booktabs.pdf` | rendered | LaTeX-styled rules. |
 | P35 | v1 | Finding–experiment table | `P35_v1_finding_exp_map_table.pdf` | rendered | Role-colored last column. |
 | P35 | v2 | Finding–experiment dot matrix | `P35_v2_finding_exp_dot_matrix.pdf` | rendered | Primary vs supporting dots. |
+| P36 | v1 | Dense vs sparse-K40 inference scaling | `P36_v1_inference_scaling_a100.pdf` | rendered | Real CSV (E120), A100-80GB. Mem + wall-clock vs L; dense OOM at L=2400. |
 
 **Counts:**
-- 35/35 P-IDs covered.
-- 71 PDFs produced (P12 has 3 versions; all others have 2).
+- 36/36 P-IDs covered.
+- 72 PDFs produced (P12 has 3 versions; P36 has 1; all others have 2).
 - 0 fallbacks needed; all native pdflatex.
 - 0 P-IDs skipped.

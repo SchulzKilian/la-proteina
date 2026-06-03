@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J multitask_t1
-#SBATCH -A COMPUTERLAB-SL2-GPU
+#SBATCH -A COMPUTERLAB-SL3-GPU
 #SBATCH -p ampere
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1

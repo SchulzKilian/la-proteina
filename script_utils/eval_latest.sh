@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J gen_eval_test
-#SBATCH -A COMPUTERLAB-SL2-GPU
+#SBATCH -A COMPUTERLAB-SL3-GPU
 #SBATCH -p ampere
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1

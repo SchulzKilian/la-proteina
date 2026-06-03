@@ -4,6 +4,21 @@ import ssl
 import wget
 import time
 ssl._create_default_https_context = ssl._create_unverified_context
+
+# --- DEBUG: dump all thread stacks if a forward/backward wedges --------------
+# Gated on WEDGE_FAULTHANDLER=<seconds>. faulthandler runs IN-PROCESS, so it
+# does NOT need ptrace (py-spy was blocked by ptrace_scope=2 on the live job).
+# When the dynamic-K spin-hang fires, after <seconds> of no Python progress the
+# interpreter dumps every thread's stack to stderr (the slurm log), pinpointing
+# the exact line stuck launching the spinning CUDA kernel. repeat=True keeps
+# dumping so we see it even across the grace period.
+if os.environ.get("WEDGE_FAULTHANDLER"):
+    import faulthandler
+    _wfh = float(os.environ["WEDGE_FAULTHANDLER"])
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(_wfh, repeat=True)
+    print(f"[wedge-debug] faulthandler dump_traceback_later({_wfh}s, repeat=True) armed", flush=True)
+# -----------------------------------------------------------------------------
 root = os.path.abspath(".")
 sys.path.insert(0, root)  # Adds project's root directory
 # --- MONKEYPATCH FIX FOR BROKEN CATH URL ---

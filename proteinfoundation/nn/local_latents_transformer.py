@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Optional
 
 import torch
@@ -165,6 +166,24 @@ class LocalLatentsTransformer(torch.nn.Module):
         self.n_spatial_neighbors = kwargs.get("n_spatial_neighbors", 8)
         self.n_random_neighbors  = kwargs.get("n_random_neighbors",  16)
 
+        # Dynamic-K: set the neighbor budget per protein as a fraction of its own
+        # valid length, K_b = round(dynamic_k_fraction * L_b), capped at L_b and
+        # floored at dynamic_k_min. When None (default) behavior is unchanged.
+        # The absolute (n_seq, n_spatial, n_random) above are ignored as a budget
+        # and reused only as the seq:spatial:random *ratio* for splitting K_b.
+        # Mutex with curriculum_neighbors / stochastic_k / router-sparse / globals
+        # / downsampling (asserted below, once those flags are set). Note: training
+        # batches pad to max_padding_size, so the per-forward tensor K dimension is
+        # set by the longest protein in the batch; the *learned* per-protein budget
+        # (and hence inference compute) is K_b = fraction * L_b.
+        self.dynamic_k_fraction = kwargs.get("dynamic_k_fraction", None)
+        if self.dynamic_k_fraction is not None:
+            self.dynamic_k_fraction = float(self.dynamic_k_fraction)
+        self.dynamic_k_min = int(kwargs.get("dynamic_k_min", 16))
+        self._last_dyn_k_mean = float(2 * self.n_seq_neighbors
+                                      + self.n_spatial_neighbors
+                                      + self.n_random_neighbors)
+
         # Fix C2: optionally build the sparse neighbor list from the self-conditioning
         # coordinates (x_sc) instead of the noisy x_t when t is below a threshold. Plumbed
         # in from cfg_exp.training in proteina.py — source of truth lives next to self_cond.
@@ -279,6 +298,37 @@ class LocalLatentsTransformer(torch.nn.Module):
             print(
                 f"[BigBird globals] n_global_tokens={G}: learnable CLS tokens "
                 f"appended at indices [N, N+{G}); K_total = K_canonical + {G}."
+            )
+
+        if self.dynamic_k_fraction is not None:
+            assert self.sparse_attention, (
+                "dynamic_k_fraction requires sparse_attention=True."
+            )
+            assert 0.0 < self.dynamic_k_fraction <= 1.0, (
+                f"dynamic_k_fraction must be in (0, 1], got {self.dynamic_k_fraction}."
+            )
+            assert not self.curriculum_neighbors, (
+                "dynamic_k_fraction and curriculum_neighbors are mutually exclusive."
+            )
+            assert not self.stochastic_k_enabled, (
+                "dynamic_k_fraction and stochastic_k_enabled are mutually exclusive."
+            )
+            assert self._router_sparse_K is None, (
+                "dynamic_k_fraction and router_sparse_K are mutually exclusive."
+            )
+            assert self.n_global_tokens == 0, (
+                "dynamic_k_fraction and BigBird globals (n_global_tokens>0) "
+                "are mutually exclusive."
+            )
+            assert not self.use_downsampling, (
+                "dynamic_k_fraction and use_downsampling are mutually exclusive."
+            )
+            print(
+                f"[dynamic-K] dynamic_k_fraction={self.dynamic_k_fraction}, "
+                f"dynamic_k_min={self.dynamic_k_min}: per-protein neighbor budget "
+                f"K_b = clamp(round({self.dynamic_k_fraction}*L_b), {self.dynamic_k_min}, L_b); "
+                f"seq:spatial:random ratio = "
+                f"{2*self.n_seq_neighbors}:{self.n_spatial_neighbors}:{self.n_random_neighbors}."
             )
 
         self.latent_dim = kwargs.get("latent_dim", None)
@@ -483,6 +533,12 @@ class LocalLatentsTransformer(torch.nn.Module):
         n_sp = self.n_spatial_neighbors
         n_rd = self.n_random_neighbors
 
+        # Dynamic-K (mutex with curriculum / stochastic-K, enforced in __init__):
+        # per-protein budget K_b proportional to that protein's own valid length.
+        # Used at both training and inference, so it does NOT gate on self.training.
+        if self.dynamic_k_fraction is not None:
+            return self._build_dynamic_k_neighbor_idx(ca_coors, mask)
+
         # Stochastic-K (training-only, mutex with curriculum_neighbors).
         # Per forward pass: with prob p_full, swap to a full-coverage split
         # (n_seq = ceil(N/2) per side, n_spatial = n_random = 0). With
@@ -550,6 +606,82 @@ class LocalLatentsTransformer(torch.nn.Module):
             )
             out_idx[bidx] = sub_idx
             out_valid[bidx] = sub_valid
+        return out_idx, out_valid
+
+    def _split_K_dynamic(self, K: int) -> tuple:
+        """Split a budget K into (n_seq_per_side, n_spatial, n_random) preserving the
+        architecture's seq:spatial:random ratio. Guarantees 2*n_seq + n_sp + n_rd == K
+        with every component >= 0. Sequential slots are rounded first (the t-invariant
+        backbone of the neighbor set) and the random group absorbs all rounding."""
+        base_seq = 2 * self.n_seq_neighbors
+        base_sp = self.n_spatial_neighbors
+        base_rd = self.n_random_neighbors
+        base_tot = base_seq + base_sp + base_rd
+        seq_slots = max(0, min(int(round(base_seq / base_tot * K)), K))
+        n_seq = seq_slots // 2          # per side; odd slot (if any) falls to random
+        seq_slots = 2 * n_seq
+        n_sp = max(0, min(int(round(base_sp / base_tot * K)), K - seq_slots))
+        n_rd = K - seq_slots - n_sp     # remainder absorbs all rounding
+        assert n_rd >= 0, (n_seq, n_sp, n_rd, K)
+        return n_seq, n_sp, n_rd
+
+    def _build_dynamic_k_neighbor_idx(
+        self,
+        ca_coors: torch.Tensor,   # [B, N, 3]
+        mask: torch.Tensor,       # [B, N] bool
+    ) -> tuple:
+        """Per-protein dynamic-K neighbor list.
+
+        Each protein b gets K_b = clamp(round(f * L_b), dynamic_k_min, L_b) neighbors,
+        built at its own budget (split by the architecture's seq:spatial:random ratio),
+        then right-padded with invalid slots to the batch-max K so the output is a dense
+        [B, N, K] tensor. Building per-protein at K_b <= L_b guarantees every requested
+        slot lands on a real residue (the seq group cannot overrun into padding), so
+        slot_valid is True exactly on [0, K_b) and False on [K_b, K). The downstream
+        attention treats slot order as semantically irrelevant, so right-padding is safe.
+
+        Returns (neighbor_idx [B, N, K], slot_valid [B, N, K]); K = max_b K_b.
+        """
+        B, N, _ = ca_coors.shape
+        device = ca_coors.device
+        f = self.dynamic_k_fraction
+        kmin = self.dynamic_k_min
+
+        lengths = mask.sum(dim=-1).long().tolist()  # single host sync for the batch
+        kb_list = []
+        for L in lengths:
+            if L <= 0:
+                kb_list.append(0)
+                continue
+            kb = int(round(f * L))
+            kb = min(max(kb, kmin), L)  # floor at kmin, then never exceed L
+            kb_list.append(max(kb, 1))
+
+        nz = [k for k in kb_list if k > 0]
+        K_batch = max(nz) if nz else 1
+
+        if os.environ.get("WEDGE_FAULTHANDLER"):
+            print(f"[wedge-debug] dynK build: lengths={lengths} kb={kb_list} "
+                  f"K_batch={K_batch} dev={device}", flush=True)
+
+        out_idx = ca_coors.new_zeros(B, N, K_batch, dtype=torch.long)
+        out_valid = torch.zeros(B, N, K_batch, dtype=torch.bool, device=device)
+
+        for b, kb in enumerate(kb_list):
+            if kb <= 0:
+                continue
+            n_seq_b, n_sp_b, n_rd_b = self._split_K_dynamic(kb)
+            sub_idx, sub_valid = build_neighbor_idx(
+                ca_coors[b:b + 1], mask[b:b + 1],
+                n_seq=n_seq_b, n_spatial=n_sp_b, n_random=n_rd_b,
+            )  # [1, N, kb]
+            kb_actual = sub_idx.shape[-1]
+            out_idx[b:b + 1, :, :kb_actual] = sub_idx
+            out_valid[b:b + 1, :, :kb_actual] = sub_valid
+
+        self._last_sampled_k = K_batch
+        self._last_sampled_full = False
+        self._last_dyn_k_mean = float(sum(nz)) / max(1, len(nz))
         return out_idx, out_valid
 
     def _attach_globals(
