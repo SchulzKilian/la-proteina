@@ -30,8 +30,13 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 | [E119](#e119--dynamic-k-chain-resume-29892422-ran-clean-no-re-wedge--continuation-slot-29925618-2026-05-31) | 2026-05-31 | in progress | Outcome check on the E118 resubmit (job 29892422) — did the dynamic-K branch re-wedge with the same 2%-mem-util spin signature, or run clean? Per E118's decision rule, debug if re-wedged, else submit the next continuation slot. | **Ran clean — no re-wedge.** 29892422 ran the full 6h to TIMEOUT (not killed); slurm log shows active cluster-sampling/validation cycles throughout (21:55, 22:46, 23:58, 02:00, 02:02) — the E118 wedge was *silent* after 17:16 with zero sampling, so the contrast is decisive. No NaN/error/traceback. Advanced **step 377 → 503** (+126 steps in 6h ≈ 21 opt-steps/h, consistent with the K≈128–256 gather load; new `best_val_00000004_000000000503.ckpt` at epoch 4, 02:00). `fetch_last_ckpt` excludes `-EMA.ckpt`, so the continuation resumes from the raw step-503 ckpt (highest on disk, no replay). Queue empty → no dependency needed. Submitted continuation **29925618** (`submit_train_ca_only_1gpu.sh -n training_ca_only_sparse_dynamicK`, SL3 `gpu2` 6h, `--exclude=gpu-q-43`), RUNNING on gpu-q-10. | non-narrative — operational; resolves E118's open hang question for this slot (the dataloader-reshuffle "pray" worked) and advances the E117 chain. The deterministic-hang hypothesis is *not* refuted — a reshuffled batch order can still skate past a triggering input; watch for the 2%-mem-util signature on 29925618 and later slots. |
 | [E118](#e118--dynamic-k-training-slot-29880295-gpu-wedge-spin-hang-and-sl2-misroute-on-resubmit-2026-05-30) | 2026-05-30 | failed (slot wedged) / resubmitted | Slot 3 (job 29880295) of the [E117](#e117--dynamic-k-sparse-attention-infrastructure-per-protein-k-half-length-build-plus-cpu-smoke-2026-05-29) dynamic-K chain hung ~17:16 and spun the GPU for ~1.5h producing nothing; diagnosed live, killed, resubmitted. Also caught that a naive resubmit routes to the dead SL2 account. | **Wedge confirmed, not slowness.** Live GPU sample: `utilization.gpu=100%` but `utilization.memory=2%`, power ≈90W, SM clock 1155MHz — a busy-wait spin, not the memory-bound sparse compute (which pegs mem-util + 250-400W). Main thread `R` pinned at 95% of one core (CUDA sync spin); all 24+ dataloader workers `S` (asleep, no data demanded). No stdout since 17:16, no checkpoint since step 377 (13:28), empty `wandb-summary.json`, one val point logged then nothing for ~3.5h of the 8h slot. wandb was online and healthy (ruled out offline-push). Killed 29880295; resubmit 29892417 silently landed on `computerlab-sl2-gpu` (MaxJobs=0, would pend forever) → cancelled, resubmitted **29892422** on `computerlab-sl3-gpu` (QOS gpu2, 6h), resumes from `best_val_…377.ckpt`. | non-narrative — negative-result/operational. Informs: (1) the dynamic-K branch may have a deterministic hang (debug `_build_dynamic_k_neighbor_idx`/`_attn_sparse` if 29892422 re-wedges with the same 2%-mem-util signature); (2) `submit_train_ca_only_1gpu.sh` hardcodes `-A COMPUTERLAB-SL2-GPU` and MUST be overridden with `-A COMPUTERLAB-SL3-GPU` on every resubmit. |
 | [E117](#e117--dynamic-k-sparse-attention-infrastructure-per-protein-k-half-length-build-plus-cpu-smoke-2026-05-29) | 2026-05-29 | in progress (see [E118](#e118--dynamic-k-training-slot-29880295-gpu-wedge-spin-hang-and-sl2-misroute-on-resubmit-2026-05-30) for slot-3 wedge) | Infrastructure + 15h training: per-protein **dynamic** neighbor budget K_b = clamp(round(0.5·L_b), 16, L_b) for SALAD-style sparse attention, replacing the fixed K=40/64. New code in `local_latents_transformer.py` (`_build_dynamic_k_neighbor_idx`, `_split_K_dynamic`, dispatch branch, mutex asserts), K logging in `proteina.py`, configs `ca_only_sparse_dynamicK_160M` + `training_ca_only_sparse_dynamicK` (recipe-locked old recipe, f=0.5). CPU smoke verifies builder correctness + forward/backward through real `_attn_sparse`; full model builds (158.3M). | **Smoke PASS + de-risk.** Per-protein K_b exact for L∈{50,100,200,333,512} → K_b∈{25,50,100,166,256}; every valid slot points to a real residue; padding slots all invalid; batch tensor K = 256 (set by longest), mean K_b = 119. `_split_K_dynamic` preserves 2:1:2 ratio, sums to K for K∈{1,16,25,40,100,256}. Forward/backward finite grads. Model build 158.3M params (matches baseline). 15h SL3 training submitted. | non-narrative — infrastructure + de-risking smoke; the quality/compute result comes from the training run + designability probe (separate future entry). |
+| [E116](#e116--external-camsol-validation-of-the-solubility-steering-sweeps-vendruscolo-ph7-2026-06-01) | 2026-06-01 | finished | **Independent CamSol (pH 7) validation** of the latent solubility-steering sweeps. Vendruscolo-computed CamSol scores for the full 6419-sequence submission joined back (via `camsol_submission_full_2026_05_27.index.tsv`, key = unique header) onto the per-protein property CSVs (`script_utils/join_camsol_results.py`; consolidated `results/camsol_ph7_full_2026_05_27.csv`). Seed-paired (seed,L) ΔCamSol vs the unguided baseline `sanity_unsteered_seed42_45/unguided` (48 cells, seeds42–57×L{300,400,500}); cross-referenced with codesign cost-audit. | **External CamSol confirms a clean monotonic dose-response; free-lunch ceiling = w=32.** camsol_max @w32: CamSol **1.62→2.56 (+0.94, +58%), 100% of proteins beat their seed-matched unguided counterpart**, codesign flat (41.7% vs 43.3%). Above w32 codesign collapses (48:27%, 64:19%, 128:2%) while CamSol keeps climbing (+118%/+191%/+331%) → unconstrained inflation. combo_camsol_tango & combo_devel4 similar (w32: +50% / +37%, codesign tracked separately). Upgrades [E072](#e072--4-objective-developability-cocktail-steering-scout-camsol--tango--sap--scm-positive-2026-05-15)/[E042](#e042--codesignability-validation-of-the-noise-aware-ensemble-sweep-2026-05-07) from in-house proxy to third-party metric. **Finding-candidate** (Finding 10 / steering). |
+| [E115](#e115--residue-level-large-n-biochemical-axis-probe-held-out-protein-split-2026-06-01) | 2026-06-01 | finished | Large-n companion to E114: per-residue ridge probe of 4 biochemical axes from the 8-d latent, held-out-PROTEIN split (3000 train / 1000 test proteins, 1.56M residues), bootstrap-over-test-proteins 95% CI. Removes E114's intrinsic n=20 (only 20 AAs) caveat. | **Quotable test R²: volume 0.543, hydrophobicity 0.503, net_charge 0.387, helix 0.263 (CI ±0.003).** Higher than E114's n=20 LOO because residue-level = identity-decode→lookup (ceiling = 99.4% identity decode), not centroid-geometry. KEY: volume/hydrophobicity high BOTH residue-level AND centroid-LOO (0.40/0.37) → genuine latent-geometry axes; charge/helix high residue-level but centroid-LOO 0.12/−0.10 → recoverable only via identity, NOT organizing axes. Refines [E114](#e114--aa-latent-clustering-does-the-8-dim-latent-organize-amino-acids-by-biochemistry-2026-06-01) / Findings 3 & 4. Non-narrative. |
+| [E114](#e114--aa-latent-clustering-does-the-8-dim-latent-organize-amino-acids-by-biochemistry-2026-06-01) | 2026-06-01 | finished | Mean 8-d latent vector per amino acid (2000 proteins / 781K residues from `processed_latents_300_800`); Ward clustering + nearest-neighbour class purity + leave-one-out ridge probes for 4 biochemical axes. Tests whether the per-residue identity code (E001/E002 interpretability: residue identity 99.4%-decodable, spatial context R²≈0) also organizes AAs *biochemically*. | **Latent organizes AAs by INTRINSIC identity chemistry, not structural tendency.** NN class-purity 35% (vs ~14% chance); Ward k=6 recovers aliphatic {I,L,V}, aromatic {F,W,Y}, small {A,G}, amide {E,Q}. LOO-ridge R²: volume **0.40**, hydrophobicity **0.37**, net_charge 0.12, helix-propensity **−0.10** (not encoded). β-branched (1/3), hydroxyl (0/3), helix-former (3/7) are NOT latent clusters. Refines [Finding 3](content_masterarbeit.md) dims-3/7 categorical hypothesis + [Finding 4](content_masterarbeit.md) identity-vs-structure split. Non-narrative (candidate refinement to F3/F4). |
 | [E110](#e110--concept-bottleneck-cbm-property-predictor-aatorsion-bottleneck-anti-goodhart-2026-05-31) | 2026-05-31 | in progress | **CBM property predictor** to fix the E109 gradient-hacking: `latent → (AA identity + torsion angles) bottleneck → 14 properties`. g2 sees only the supervised AA/torsion concepts, so latent gradients must route through them. Fresh-trained, AA-only-decodable concepts (no coords from latent — that'd be dishonest), all 13/14 props kept, same data/splits/hparams as no-bottleneck NA-v1 (full processed_latents_300_800, 5-fold). Smoke OK (AA CE=ln21, torsions unit). Training launched 2026-05-31 12:18. | Anti-Goodhart fix for [E109](#e109--single-objective-steering-sweep-iupred3_fraction_disordered-target--0123-natural-setpoint-down-regulation-2026-05-31); compare CBM vs NA-v1 R² + (later) re-run iupred steering through it. |
 | [E111](#e111--toy-ring-λ-sweep-at-what-guidance-strength-does-plain-constant-w-leave-the-manifold-and-do-throttleschedule-hold-2026-05-31) | 2026-05-31 | finished | Toy **ring λ-sweep** (`toy_lookahead_ring_lam_sweep.py`): renders the look-ahead throttle toy's ring clouds across λ∈{0..32} for plain/throttle/sched, decomposing the single-λ `lam_show=8.0` panel. plain on-manifold only to λ≈2, knee at λ=4 (P=0.18), fully off-ring by λ=8 (P=2.48); throttle (β=20) + sched (p=2) stay on the ring across the whole sweep. | Confirms the toy's "plain flies off" message is partly a strength artifact (λ=8 was already past the cliff); presentation/decomposition asset for the look-ahead figure. Non-narrative. |
+| [E114](#e114--cα-pseudo-rama-as-a-throttle-manifoldness-proxy-rg-blind-contact-order-live-2026-06-01) | 2026-06-01 | in progress | Use **Cα pseudo-Ramachandran** (pseudo-bond-angle + pseudo-dihedral from 4 consecutive Cα, no N/C, no decode) as the manifoldness proxy in the Cα `GeometricLookaheadGuide` throttle. New `geom.ca_pseudo_torsions`/`p_pseudo_rama` (BILINEAR — nearest-bin quantises ΔP to 0) + `proxy_type="rama"` in guide_geometric; density `steering/throttle_priors/ca_pseudo_rama.pt` (helix peak θ92/τ−55, 243K residues). **Key calib finding: rama is BLIND to Rg (ΔP≡0 — Rg's gradient is a radial homothety, pseudo-torsions scale-invariant; bond proxy DOES see it). rama FIRES on contact_order (ΔP median +0.09, p90 3.0) → β0.5.** Head-to-head running: CO maximize, no-throttle vs geometric(bond) vs rama, 6 seeds × L{100,200,300}. | Pending CO-vs-codesign frontier. The Rg-blindness (scale-invariance) is already a clean result: a proxy only helps for targets whose damage lives in its domain. |
+| [E113](#e113--non-cbm-steering--cbm-g1-throttle-rescue-tango_min-w64128-2026-06-01) | 2026-06-01 | finished | Throttle as a RESCUE for the Goodhart-prone non-CBM predictor: steer tango_min with the 5-fold `multitask_t1_noise_aware` ensemble (same predictor as the existing no-throttle baseline `noise_aware_high_w_scout`), throttle reads a SEPARATE CBM g1 (decoupled via `throttle.g1_checkpoint`). Arms rama (β=0.25) + aa_prior (β=13), w{64,128}, 16 seeds × L{300,400,500}, nsteps=400, B=1 GPU5, codesign pipelined on GPU6. Non-CBM Stage-1 calibration: rama ΔP_max-tail 6.94 → β0.23; **aa_prior ΔP +0.057 median / 0.108 tail — 3× more active than under CBM steering (β13 not 40)** — the non-CBM drives composition off-background harder (the failure aa_prior should catch). No-throttle arm reused (not regenerated). | Pending audit (codesign + real TANGO vs existing non-CBM no-throttle baseline). Non-narrative until then. |
 | [E112](#e112--latent-channel-cbm-throttle-rama--aa-prior-blockers-on-tango-steering-smoke--calibration-2026-06-01) | 2026-06-01 | finished (smoke) | New **latent-channel guidance throttle** (`steering/throttle.py`, forward-only blocker damping guidance by `s=exp(-β·relu(ΔP))`, wired into `SteeringGuide`). Two proxies from CBM g1: **rama** (per-residue AA-conditional Ramachandran energy `-E_aa[log p(φ,ψ\|aa)]`) and **aa_prior** (per-protein composition KL vs natural background). Stage-1 β=0 calibration on a real tango_min/w128 trajectory: rama ΔP_mean median **−0.22** (guidance mostly *improves* rama!) with action in the per-residue tail (ΔP_max 5–9) → β=0.25; aa_prior global-KL ΔP≈±0.03 → β=40. Smoke (single CBM fold_2, tango_min, w128, nsteps400, L300, s42/43): rama damps worst residue/step to s≈0.1–0.26 (~34% residues) with objective intact (pred tango 891→1.5); aa_prior damps worst ~14% of steps, blunter (891→34.4). | Non-narrative (tuning/infra) — establishes the throttle works + per-proxy β calibration. **Corrected mistake**: first called aa_prior "dead, no β works" — wrong, β absorbs ΔP scale (β=40 fires fine); real caveat is granularity (global = blunt per-step), not firing. Needs codesign+real-TANGO eval before any Finding. |
 | [E109](#e109--single-objective-steering-sweep-iupred3_fraction_disordered-target--0123-natural-setpoint-down-regulation-2026-05-31) | 2026-05-31 | finished | iupred3_fraction_disordered **target=0.123** sweep w∈{8,16,24,32}, 16 seeds, L∈{300,400,500}. **Steering-time OVER-OPTIMIZATION / Goodhart, dose-dependent**: predictor converges to 0.121≈target (textbook setpoint like E105) but real IUPred3 lands 0.176 AND per-sample proxy↔truth corr collapses **r 0.84→0.43** (Spearman 0.85→0.49, within-length) as w 8→32 — predicted σ squeezed to setpoint while real σ persists. NOT a constant offset (Spearman falls), NOT adversarial (pred & real both rise). Contrast net_charge E105 (LINEAR predictor → honest, real matched −5). iupred NONLINEAR → hackable (TANGO family). → Finding-grade: properties split honest(linear)/hackable(nonlinear); re-targeting does NOT fix; need real-in-loop / retrain on off-manifold latents. (Two earlier readings — "adversarial", then "simple calibration offset" — both corrected after diagnostics + correlation analysis.) |
 | [E108](#e108--net_charge-target--50-higher-n-l400-w32-extension-resolves-e105s-12pp-designability-hint-2026-05-31) | 2026-05-31 | finished | net_charge **target=−5.0** w32 **higher-n L400 extension** (48 fresh seeds 58–105, paired seed-matched unguided) to resolve E105's L400 +12pp hint (needed ~80 seeds). **Resolved = NOISE**: guided 21/48 (44%) vs unguided 20/48 (42%), McNemar +2/−1, p≈1.0. Predictor-side charge regulated tight to −5.0 (median pred −5.0, clustered −4.6..−5.6). Confirms E105's break-even conclusion. | non-narrative — power top-up confirming E105 null. |
@@ -9286,6 +9291,352 @@ CBM delivers ~5× less SWI per w (tops out +0.54σ vs NA-v1's +2.58σ) BUT prese
 - **Two β mistakes during setup, both corrected:** (1) judged calibration from a *random-tensor* unit test where rama looked violent (s_min 0.003) and aa_prior inert — random input is off-manifold for both and tells you nothing about on-manifold calibration; (2) then called aa_prior "dead, no β works" — wrong: β absorbs ΔP scale (β=40 fires correctly). The real, weaker caveat is **granularity**: global-KL aa_prior gives a per-protein scalar so it damps whole steps bluntly and has lower SNR for *localized* low-complexity than a windowed/per-residue measure would; windowing is an improvement, not a necessity.
 - rama prior built from a 2000-file convenience sample (first by rglob), not a curated Top8000; per-AA bins for rare residues (<50 obs) fall back to uniform.
 
+## E113 — Non-CBM steering + CBM-g1 throttle (rescue): tango_min w64/128 (2026-06-01)
+
+**Status:** in progress (generation running GPU5; codesign pipelined GPU6; audit pending).
+
+**Why ran:** The E112 throttle was wired on a CBM predictor (which is already anti-Goodhart, so the throttle's marginal effect is small). The sharper test is whether the rama / aa_prior blocker can **rescue codesignability on the Goodhart-prone non-CBM predictor** — the one whose codesign collapses at high w (E066/noise_aware_high_w: tango_min codesignΔ −17pp@w64, −34pp@w128). Decision (user): steer with the non-CBM ensemble, throttle reads a separate CBM g1, reuse the existing non-CBM no-throttle baseline as the control (so only rama+aa_prior arms are generated).
+
+**Configs:**
+- Code: `steering/throttle.py` gains `throttle.g1_checkpoint` — loads a separate CBM for g1 while the guidance gradient comes from the (non-CBM) steering predictor. CPU-validated (steering predictor = 5-fold non-CBM, g1 = CBM, throttle fires).
+- Steering predictor: 5-fold `laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt` (identical to `results/noise_aware_high_w_scout/` baseline). Objective tango minimize. `feed_z_t_directly` default (False), schedule linear_ramp t0.3→0.8 t_stop0.9, gradient_norm unit, clip 10, channel local_latents.
+- Throttle g1: CBM `multitask_cbm/20260531_121832/checkpoints/fold_2_best.pt`; priors `steering/throttle_priors/priors.pt`.
+- Arms: rama (β=0.25), aa_prior (β=13). w{64,128}. 16 seeds (42–57) × L{300,400,500}. nsteps=400. B=1 (L4 GPU5). Configs auto-written to `steering/config/sweep_throttle_noncbm/`. Driver `script_utils/run_throttle_noncbm_sweep.sh`; codesign watcher `script_utils/watch_codesign_noncbm_gpu6.sh`. Out: `results/throttle_noncbm/{rama,aaprior}/tango_min_w{64,128}`.
+- No-throttle control: reused `results/noise_aware_high_w_scout/tango_min_w{64,128}` (48 PDBs each, codesign already computed).
+
+**Results (so far):**
+- Non-CBM Stage-1 β=0 calibration (real non-CBM tango_min/w128 trajectory, s42, L300):
+  - rama: ΔP_mean median **−0.352** (guidance improves rama on average, as under CBM), per-residue ΔP_max p90 ≈ **6.94** → β=0.23 (≈ CBM's 0.25; β stable across predictors — step magnitude + rama density unchanged).
+  - aa_prior: ΔP_mean median **+0.057**, p90 tail **0.108** → β=12.9 (≈13). **~3× larger ΔP than under CBM steering** (CBM: median −0.02, tail 0.034 → β40). The non-CBM predictor drives composition off the natural background harder — the degeneracy the aa_prior throttle is designed to block. Reusing the CBM β=40 would have over-damped ~3×.
+- **w128 codesign (full 48/48):** no-throttle baseline **6.2%** (3/48); **rama 6.2%** (3/48) — zero rescue; **aa_prior 37.5%** (18/48) — **+31 pp, back to ~the 40% unsteered level**. The composition guard rescues codesignability on the Goodhart-prone predictor; the geometric (rama) guard does nothing (the high-w collapse is compositional/off-manifold, not AA↔backbone misfit). Not trivial reversion: mean predicted-tango at end-of-steering = aa_prior **447** (~half the drop from ~893) vs rama **−60** / no-throttle ~0 (full drop) — aa_prior keeps real steering while blocking the codesign-killing moves.
+- **Decisive comparison (pending real-TANGO audit):** aa_prior-w128 (37.5% codesign) vs no-throttle **w48** (37.5% codesign, measured tango **588.9**). The throttle beats "just lower w" only if aa_prior's *measured* tango < 588.9 at equal codesign. Predicted tango (447) suggests yes but is Goodhart-inflated.
+- **DECISIVE real-TANGO (w128, mean tango_total, n=48, lower=more reduction):** no-throttle w48 **588.9** @ 37.5% codesign; **aa_prior w128 578.2 @ 37.5% codesign** — SAME frontier point (Δ ~2%, within noise; per-L mixed: aa_prior worse L300 397 vs 332, better L400 547 vs 635, tied L500 791 vs 799). rama w128 **255.9** @ 6.2% (≈ no-throttle w128 235.7 @ 6.2% — dead on both axes). Unsteered anchor ~893.
+- **VERDICT (w128): the throttle does NOT move the codesign–TANGO frontier.** aa_prior "rescues" codesign at high w only by acting as an implicit w-reduction — it slides along the existing no-throttle frontier to exactly the w=48 point (same codesign AND same tango). rama is fully dead (no rescue, no tango benefit). Mechanism: the codesign–property tradeoff is set by *effective steering magnitude*; a blocker reduces effective magnitude on the damaging steps, which is what lowering w does too → same curve. A guardrail keeps you ON the best tradeoff, it can't beat the tradeoff.
+- w64 cells PENDING — second frontier point to confirm aa_prior w64 also lands on the no-throttle curve (expected).
+
+**Possible narrative:** NEGATIVE Finding (candidate, pending w64 confirmation): the latent-channel throttle does **not** move the codesign–TANGO frontier on the Goodhart-prone non-CBM predictor. aa_prior rescues codesign at w128 but lands exactly on the no-throttle w48 point (same codesign + same real TANGO) — i.e. it is an implicit w-reduction, not a free lunch; rama does nothing. The defensible claim: *a cheap concept-bottleneck guardrail keeps you on the best codesign–property tradeoff but cannot beat it; reducing guidance strength achieves the same point more simply.* Still-useful side result: a non-CBM predictor's composition-degradation signal is ~3× a CBM's at matched steering strength (throttle's-eye quantification of the CBM's anti-Goodhart effect).
+
+**Methodological caveats:**
+- In progress — no codesign/TANGO numbers yet; predicted-tango preservation (E112) is necessary not sufficient.
+- β anchored at p90-tail→s≈0.2–0.25 (heuristic starting β, not outcome-optimized); a β-sweep vs codesignability is the proper next step.
+- Throttle g1 is a single CBM fold (fold_2), not the CBM ensemble.
+- No-throttle control is reused from a prior run (same predictor/recipe/seeds/lengths/nsteps) rather than co-generated — valid because recipe matches exactly, but not the same wall-clock/session.
+
+---
+
+## E114 — AA-latent clustering: does the 8-dim latent organize amino acids by biochemistry? (2026-06-01)
+
+**Status:** finished.
+
+**Why ran:** E001/E002's interpretability probes established that the 8-dim per-residue latent decodes residue *identity* at 99.4% while carrying essentially no spatial context (`dist_to_com` R²=0.008, `neighbour_count` R²=0.036), and that dims 3 & 7 are the two multimodal/categorical axes (Finding 3). Open question raised in conversation: does that identity code also organize the 20 amino acids *biochemically* (hydrophobic/polar/charged/aromatic; β-branched vs helix), or is the per-AA `top_dim` argmax table (which loosely suggested groupings) just a lossy projection of distributed information? This is the proper full-8-d-geometry test that the argmax table cannot answer.
+
+**Configs:**
+- Data: `data/pdb_train/processed_latents_300_800/` (local, /home — NOT Lustre). Subsample N=2000 proteins (seed=42 shuffle), 781,084 residues. `mean[L,8]` field; `residue_type[L]` in OpenFold restype order (A R N D C Q E G H I L K M F P S T W Y V).
+- Script: `analysis_aa_latent/aa_latent_clustering.py`. Env: `~/.conda/envs/laproteina_env` (torch 2.5.1, scipy 1.15.3, sklearn 1.7.2). CPU only, ~90 s.
+- Method: per-AA mean 8-d vector → z-scored by global per-dim residue std → (a) Ward hierarchical clustering, (b) nearest-latent-neighbour per AA + biochem-class purity, (c) leave-one-out RidgeCV (n=20) + best single-dim |Pearson| for 4 biochemical scalars (Kyte-Doolittle hydrophobicity, Zamyatnin residue volume, net charge @pH7, Pace-Scholtz helix propensity), (d) NN purity for β-branched / hydroxyl / helix-former / aromatic groupings.
+- Outputs: `analysis_aa_latent/mean_latent_per_aa.csv`, `analysis_aa_latent/aa_dendrogram.png`.
+
+**Results:**
+
+Nearest-latent-neighbour biochem-class purity: **7/20 = 35%** (chance ≈ 14% given class sizes) — weak-but-real biochemical signal.
+
+Ward flat clusters:
+- k=4: {A,G} | {F,H,K,R,T,W,Y} | {C,D,M,N,P,S} | {E,I,L,Q,V}
+- k=5: {A,G} | {F,H,K,R,T,W,Y} | {C,D,M,N,P,S} | {E,Q} | {I,L,V}
+- k=6: {A,G} | {H,K,R,T} | {C,D,M,N,P,S} | {E,Q} | {I,L,V} | {F,W,Y}
+
+Clean recovered subgroups: aliphatic {I,L,V} (at every k), aromatic {F,W,Y} (k=6), smallest {A,G}, amide/acid pair {E,Q}. {C,D,M,N,P,S} is a mixed leftover.
+
+Biochemical-axis recovery (LOO-ridge R², n=20 / best single dim):
+
+| Axis | LOO-R² | best dim (|r|) |
+|---|---|---|
+| residue_volume | **+0.40** | dim 6 (0.56) |
+| KD_hydrophobicity | **+0.37** | dim 4 (0.51) |
+| net_charge | +0.12 | dim 5 (0.45) |
+| helix_propensity | **−0.10** | dim 6 (0.49) |
+
+User-asked groupings (fraction whose NN is in-group):
+- β-branched (V,I,T): **1/3** — Thr splits to the polar/basic side; not a cluster.
+- hydroxyl (S,T,Y): **0/3** — scatter; the `top_dim` "dim3≈hydroxyl" reading does NOT survive full geometry.
+- helix-formers (A,L,M,E,Q,K,R): **3/7** — consistent with helix LOO-R²≈0.
+- aromatic (F,Y,W,H): **2/4** — F↔Y cluster; His (charged) separates.
+
+**Possible narrative:** candidate refinement to **Finding 3** (confirms dims 3/7 categorical hypothesis but shows the per-dim argmax is lossy; the real biochemical structure is distributed and recovers size/hydrophobicity/aromaticity subgroups) and **Finding 4** (sharpens the identity-vs-structure split: latent encodes intrinsic residue chemistry — volume R²=0.40, hydrophobicity 0.37 — but NOT context/secondary-structure tendency — helix-propensity R²≈0, matching the spatial-blindness result). Defensible sentence: *the 8-dim latent's geometry weakly-but-significantly organizes the 20 amino acids by intrinsic physicochemical identity (volume LOO-R²=0.40, hydrophobicity 0.37; recovers aliphatic/aromatic/small subgroups) while carrying no per-residue secondary-structure information (helix-propensity LOO-R²≈0); β-branched and helix-former residues do not form latent clusters.*
+
+**Methodological caveats:**
+- N=20 amino-acid points; LOO-ridge is the overfit-honest metric but R² values are still small-sample. Per-AA mean vectors are very stable (each AA 10K–66K residues).
+- Mean-vector collapses all positional/structural context per AA by construction — this measures the AA's central latent location, which is the right object for "does identity respect biochemistry", but says nothing about within-AA latent spread (which E003 showed is large: within-protein variance ≫ between).
+- Biochemical scalars are standard literature values, not dataset-derived; net_charge uses H=+0.1.
+- 2000-protein subsample (length 300–800, AE2 latents); not the full 63K corpus (per-AA means already saturated).
+
+---
+
+## E115 — Residue-level large-n biochemical-axis probe (held-out-protein split) (2026-06-01)
+
+**Status:** finished.
+
+**Why ran:** E114's biochemical-axis R² values (volume 0.40, hydrophobicity 0.37, net_charge 0.12, helix −0.10) are leave-one-out over the **20 amino-acid centroids** — intrinsically n=20 (there are only 20 AAs), so they cannot be quoted without a small-sample caveat. This is the large-n companion: regress each biochemical scalar onto the **per-residue** latent (property is identity-determined), with a held-out-protein split and a bootstrap CI, to get quotable numbers and to separate "encoded as latent geometry" from "recoverable only via identity decode".
+
+**Configs:**
+- Data: `data/pdb_train/processed_latents_300_800/`, N=4000 proteins (seed=42 shuffle), 1,558,936 residues. `mean[L,8]`, `residue_type[L]` (OpenFold order, idx 20=X dropped).
+- Split: by PROTEIN (no within-protein leakage). 3000 train (1,166,776 res) / 1000 test (392,160 res). Standardize on train stats.
+- Probe: `RidgeCV(alphas=[.01,.1,1,10,100])` per axis; test R² = 1−SS_res/SS_tot on held-out residues. Bootstrap 300× resampling **test proteins** for 95% CI.
+- Axes: Kyte-Doolittle hydrophobicity, Zamyatnin residue volume, net charge @pH7 (H=+0.1), Pace-Scholtz helix propensity.
+- Script: `analysis_aa_latent/residue_level_biochem_probe.py`. Env `~/.conda/envs/laproteina_env`. CPU, ~3 min.
+
+**Results — residue-level test R² (held-out 1000 proteins / 392K residues):**
+
+| Axis | test R² | 95% CI |
+|---|---|---|
+| residue_volume | **0.543** | [0.539, 0.546] |
+| KD_hydrophobicity | **0.503** | [0.500, 0.505] |
+| net_charge | **0.387** | [0.383, 0.390] |
+| helix_propensity | **0.263** | [0.259, 0.266] |
+
+AA-centroid n=20 in-sample (same data, context only): volume 0.83, hydrophobicity 0.74, net_charge 0.56, helix 0.41 (in-sample → optimistic with 8 params on 20 pts; the honest centroid-generalization numbers are E114's LOO 0.40/0.37/0.12/−0.10).
+
+**Interpretation (the substantive part):**
+- Residue-level R² > centroid-LOO because residue-level ≈ **identity-decode → property-lookup** (all 20 AAs seen in train; ceiling set by 99.4% identity decodability), a different and larger-n question than "do the 20 AA centroids align along a latent property axis".
+- **Volume & hydrophobicity score high BOTH ways** (residue 0.54/0.50, centroid-LOO 0.40/0.37) → genuinely **encoded as latent-geometry axes**.
+- **Net charge & helix propensity score moderate at residue level but ~0 in centroid-LOO** (0.12 / −0.10) → **recoverable only through amino-acid identity, NOT as organizing directions of the latent**. So "helix isn't encoded" (from E114) should be stated precisely: helix is per-residue-readable at R²=0.26 via identity, but is not a geometric axis.
+
+**Possible narrative:** quotable large-n refinement of E114 / Findings 3 & 4. Defensible: *from the per-residue latent, a linear probe predicts volume R²=0.54, hydrophobicity 0.50, net charge 0.39, helix propensity 0.26 on held-out proteins (n=392K, CI ±0.003); volume and hydrophobicity are genuine latent-geometry axes (also generalize across held-out AAs, LOO 0.40/0.37), while charge and helix are recoverable only via identity, not as organizing axes.*
+
+**Methodological caveats:**
+- Residue-level R² is ceilinged by identity-decodability and is dominated by it — it measures linear *readability* of the property per residue, not an identity-independent continuous axis. The centroid-LOO (E114) is the cleaner "is there a property axis" test; the two together give the full picture.
+- Property scalars are standard literature values, not dataset-derived; net_charge uses H=+0.1, so its number is sensitive to that choice.
+- Single train/test split (bootstrap is over test proteins only, not over the split); point estimates are stable to ±0.003 but a repeated-split CV would also vary the train set.
+
+## E114 — Cα pseudo-rama as a throttle manifoldness proxy: Rg blind, contact-order live (2026-06-01)
+
+**Status:** in progress (CO head-to-head generating; codesign on GPU6).
+
+**Why ran:** User idea (scoped narrow): keep the *established* Cα structural throttle (`GeometricLookaheadGuide`, steers Rg/contact_order on bb_ca) but swap its manifoldness proxy from bond/clash or model-score to **Ramachandran validity**. Since the Cα channel has no N/C and the guide is decode-free, use a **Cα pseudo-Ramachandran**: pseudo-bond-angle θ (3 consecutive Cα) + pseudo-dihedral τ (4 consecutive Cα), scored against a training-data density.
+
+**Configs / code:**
+- `steering/geometry.py`: `ca_pseudo_torsions` (θ∈[0,π], τ∈[−π,π], per interior residue, masked) + `p_pseudo_rama` (per-protein mean −log p, **bilinear** interp — θ clamp, τ circular). Bilinear is REQUIRED: nearest-bin quantises the per-step ΔP to exactly 0.
+- `steering/guide_geometric.py`: `proxy_type="rama"` + `_p_rama` + dispatch.
+- Density `script_utils/build_ca_pseudo_rama.py` → `steering/throttle_priors/ca_pseudo_rama.pt` ([36,36] logp, 243,161 interior residues / 2000 proteins, CA=atom1). Sanity: peak density θ=92° τ=−55° (α-helix basin), 50% mass in 50/1296 cells (concentrated), forbidden acute angles empty.
+- Head-to-head: contact_order MAXIMIZE, w_max=32, t0.3→0.8, arms `contact_order_{baseline, lookahead_prop(geometric β20), lookahead_rama(β0.5)}`, 6 seeds × L{100,200,300}, nsteps=400. Driver `script_utils/run_co_throttle_probe.sh`. Out `results/co_probe/`.
+
+**Results:**
+- **Rg + rama: ΔP ≡ 0 over 738 steps (rama p_base=6.64, nonzero — proxy works).** Cause: the Rg-maximize gradient is a radial homothety (each Cα pushed ∝ its distance from centroid), and pseudo-bond-angles/dihedrals are **scale-invariant** → rama cannot see Rg steering. Control: the **geometric (bond) proxy DOES see** the same Rg trajectory (ΔP p90=0.0053) — Rg's real damage is bond stretching, not conformation.
+- **contact_order + rama: ΔP median +0.093, p90 3.02, max 4.05** (p_base 7.68) → rama FIRES. CO steering distorts local backbone conformation (forming/breaking contacts bends the chain), which pseudo-torsions register. Calibrated β=0.5 (s≈0.2 at the p90 tail).
+- **CO frontier (CO maximize @ w32, 6 seeds × L{100,200,300}, codesign = coScRMSD_ca<2Å):** no-throttle CO **0.93 / 0%** codesign; rama (β0.5) CO **0.57 / 5.6%**; geometric/bond (β20) CO **0.17 / 72.2%**. rama's point sits BELOW the no-throttle→geometric line (interp ~34% codesign at CO0.57; rama gives 5.6%) ⇒ **rama is a WORSE proxy than bond/clash even on CO** (its matched target). Mechanism: CO steering's codesign-killing damage is STERIC (forced contacts → clashes/bond strain), caught directly by bond/clash; rama catches conformational change that's real but less predictive of codesign failure. Confound: β not matched (geom β20 heavy-damp vs rama β0.5 light) — clean test is a β-sweep to matched CO; suggestive not airtight.
+- **VERDICT (preliminary):** rama-as-manifoldness-proxy didn't help tango (E113), is mathematically blind to Rg (scale-invariance), and is dominated by bond/clash on contact_order. It hasn't beaten the simpler proxy/lower-w anywhere. The reusable principle: a throttle proxy must match the *codesign-killing* damage (sterics for structure, composition for sequence), not merely be "in the same domain" as the objective.
+
+**Possible narrative:** the deciding principle for a throttle proxy is **domain match between the steering gradient's damage and the proxy's sensitivity**. rama (local conformation) is blind to Rg (global scale) but live for contact_order (conformational). Whether it *moves the frontier* on CO (vs bond/clash or vs just lower w) is the pending test — and given E113's lesson (a guardrail can't beat the magnitude tradeoff) the prior is that it lands on the frontier; the open question is whether a *better-matched* proxy does better than the bond proxy at equal CO.
+
+**Methodological caveats:**
+- In progress — no codesign/CO frontier yet.
+- Pseudo-rama density is AA-agnostic (geometric prior) and from a 2000-file convenience sample; β anchored at p90→s≈0.2 (heuristic).
+- geometric arm uses the existing default β=20 (not CO-recalibrated) — rama-vs-geometric is approximate until both are matched-damping; rama-vs-baseline is the clean comparison.
+
+### E114-addendum — Is the latent-steering codesign collapse Ramachandran-driven? NO (2026-06-01)
+
+Direct retrospective test on E066/`noise_aware_high_w_scout` tango_min (the best-characterised collapse). Computed Cα pseudo-rama energy (`geom.p_pseudo_rama`, mean −log p) per generated backbone across w, vs the known codesign rates:
+
+| w | pseudo-rama energy | codesign |
+|---|---|---|
+| 32 | 5.153 | 45.8% |
+| 48 | 5.152 | 37.5% |
+| 64 | 5.152 | 22.9% |
+| 128 | 5.149 | 6.2% |
+
+**Rama energy is flat (Δ 0.08%) while codesign collapses 7.5×.** The steered backbone stays equally on the Ramachandran manifold across the entire collapse ⇒ the codesign failure is **NOT** backbone/conformational; it is sequence/structure decoupling (confirms E066's MPNN-backbone-holds-77% finding from the backbone side, and was never measured before — only sequence-composition collapse was checked in E064/E065). Mechanistically explains why the latent rama throttle (E113) couldn't help tango: the failure it guards against doesn't occur. Caveat: pseudo-rama is AA-agnostic Cα geometry; a real-φ/ψ check would be marginally sharper but the flatness is unambiguous.
+
+### E114-addendum-2 — MPNN-NLL as a collapse proxy + throttle ceiling test (2026-06-01)
+
+Follow-up to the rama-null addendum: if the latent-steering codesign collapse is sequence↔structure decoupling, does a cheap sequence-given-backbone proxy detect it, and could a throttle on it help? Tested on E066 tango_min cells.
+
+- **Proxy ranking (per-sample point-biserial corr with designable, pooled across w):** MPNN-NLL (CA-ProteinMPNN `--score_only`, global_score) **+0.224** > hydrophobicity-burial Pearson **+0.158** > pseudo-rama **~0 (flat)**. MPNN-NLL tracks the collapse strongly cross-w: mean NLL 1.27 (w32, codesign 45.8%) → 1.42 → 1.61 → 1.96 (w128, 6.2%). Confirms the mechanism (positional seq↔structure mismatch) with the field-standard cheap proxy.
+- **Throttle ceiling test (decisive, ~0 compute): NLL-selection WITHIN a fixed w gives ~no benefit at matched tango.** w64 (knee): low-NLL half codesign 20.8% / tango 424 vs high-NLL half 25.0% / 384 (full 22.9% / 404) — no separation (slightly inverted, noise). w128: low-NLL half 12.5% vs high-NLL 0.0% at ~equal tango — weak. The +0.224 was almost entirely the cross-w trend; within a fixed steering strength (where a per-step throttle operates) NLL barely discriminates. ⇒ **an MPNN-NLL throttle cannot move the tango frontier** (best-case selection already fails at the knee). In-loop MPNN throttle NOT built — ceiling test gates it out.
+
+**Net:** the collapse is sequence↔structure decoupling (ruled IN), not rama/composition (ruled OUT). MPNN-NLL is the best cheap detector of it on average but doesn't discriminate within-w sharply enough to throttle. 4th converging negative for the throttle-as-frontier-mover hypothesis (rama-tango/Rg/CO + NLL-tango). Throttle = over-steering guardrail, not a frontier-mover.
+
+---
+
+### E116 — External CamSol validation of the solubility-steering sweeps (Vendruscolo, pH 7) (2026-06-01)
+
+**Status:** finished.
+
+**Why ran.** Every solubility-steering result to date (E032/E042/E066/E068/E072) used the **in-house developability proxy** (SWI, TANGO, SAP, SCM) and the in-loop predictor — `camsol_intrinsic` was always-NaN in the pipeline (CLAUDE.md). M. Vendruscolo computed real **CamSol (pH 7)** scores for a 6419-sequence submission spanning the full steering campaign. Question: does an *independent, third-party* solubility metric confirm the steering effect, and where is the codesign-preserving ("free-lunch") ceiling in real CamSol units — not σ?
+
+**Configs / data plumbing.**
+- Input: `CamSolpH_submission_full_2026_05_27.txt` (6419 records, cols `Name | pH | protein variant score | intrinsic solubility profile`, pH=7.00, CRLF).
+- `Name` == FASTA submission header. Mapped via `camsol_submission_full_2026_05_27.index.tsv` (`header → subrun, orig_id, length, source_path`). **Key = unique `header`**; `(subrun,orig_id)` is NOT unique (1488 collisions — same label submitted from multiple parent runs), so all joins go through header / source_path, never subrun+id.
+- Joiner: `script_utils/join_camsol_results.py` (idempotent, atomic writes). Produces (1) consolidated `results/camsol_ph7_full_2026_05_27.csv` (all 6419, keyed by header) and (2) a `camsol_ph7` column back-filled into all **100** existing `properties_guided.csv` (4800 rows, 48/48 each, 0 misses). 1619 records have no property CSV on disk (1000 = `stratified` unconditional set in `generated_stratified_300_800_nsteps400`; rest = sequence-only sweeps) — still captured in the consolidated CSV.
+- Baseline = `results/sanity_unsteered_seed42_45/unguided` (subrun `sanity_seed42_45_u`): 48 cells = seeds 42–57 × L{300,400,500}, genuinely unguided, mean CamSol **1.624**. Seed-paired ΔCamSol on (seed,L); length-binned (per-L + pooled). Steered campaigns restricted to their **noise-aware** parent dirs (`noise_aware_ensemble_sweep` w1–16 + `noise_aware_high_w_scout` w32–128; `combo_camsol_tango_scout`; `combo_devel4_scout`) so the fixt1/L500 replicate parents are not pooled in.
+- Codesign cross-reference: `results/noise_aware_{ensemble_sweep,high_w_scout}/steering_cost_audit.csv` (use_pdb_seq codesign vs unguided anchor).
+
+**Results — camsol_max (direct solubility steering), seed-paired vs unguided (pooled over L, n=48):**
+
+| w | base CamSol | steered | ΔCamSol | % change | % > seed-matched baseline | codesign (anchor 43.3%) |
+|---|---|---|---|---|---|---|
+| 1   | 1.624 | 1.647 | +0.023 | +1.4%  | 48%  | 43.3% (PASS) |
+| 2   | 1.624 | 1.652 | +0.028 | +1.7%  | 48%  | 43.3% (PASS) |
+| 4   | 1.624 | 1.697 | +0.072 | +4.5%  | 67%  | 40.0% (PASS) |
+| 8   | 1.624 | 1.796 | +0.172 | +10.6% | 83%  | 40.0% (PASS) |
+| 16  | 1.624 | 1.977 | +0.353 | +21.7% | 92%  | 40.0% (PASS) |
+| **32** | 1.624 | **2.563** | **+0.939** | **+57.8%** | **100%** | **41.7% (PASS, −1.7pp)** |
+| 48  | 1.624 | 3.539 | +1.915 | +117.9% | 100% | 27.1% (WARN, −16pp) |
+| 64  | 1.624 | 4.723 | +3.099 | +190.8% | 100% | 18.8% (WARN, −25pp) |
+| 128 | 1.624 | 7.005 | +5.381 | +331.3% | 100% | 2.1% (FAIL, −41pp) |
+
+Per-L the effect is monotonic at every length; L=500 starts lower (base 1.126) and shows the largest % gains. Multi-objective combos (pooled, w32): **combo_camsol_tango** +0.81 (+50%, 100%>base); **combo_devel4** (the 4-property cocktail) +0.60 (+37%, 94%>base). Full per-L/per-w table reproducible from the consolidated CSV.
+
+**Headline / framing (σ-free, per the supervisor's preference).** At the codesign-preserving ceiling **w=32**: independent CamSol rises **+0.94 units (+58%)** and **100% of steered proteins are more soluble (higher CamSol) than their seed-matched unguided counterpart**, with codesignability statistically flat (41.7% vs 43.3%). This is the free-lunch operating point. Everything above w=32 buys more CamSol only by sacrificing foldability (codesign 27%→19%→2%), so the >w32 CamSol numbers are off-manifold inflation, not usable solubility.
+
+**Why this is a genuine (not circular) validation — and the right caveats.** The steering optimizes a *learned* CamSol predictor: head `camsol_intrinsic` of the 5-fold `multitask_t1_noise_aware` predictor, trained on **real CamSol labels** (stats_mean[13]=0.179, stats_std[13]=0.919 — finite, sensible; this is the steerability predictor's own CamSol computation, NOT the always-NaN `compute_developability` column) with **held-out R²=0.91 on all 5 folds**. The *actual CamSol algorithm* (Vendruscolo) never entered the generation loop, yet independently confirms the gain on the **novel, off-distribution steered sequences** — agreeing with the May-2026 web-server *intrinsic* check at **Pearson r=0.90 (w32), 0.95 (w128)** on identical proteins (pH-7 runs ~0.18 higher). This is a real generalization test, and it is the **opposite of the E109 Goodhart failure** (there predictor↔reality decoupled r0.84→0.43; here they AGREE) — CamSol is honest/linear-like steering (cf. net_charge E105), not the hackable iupred/TANGO family. **The charged-residue mechanism is correct, not a loophole:** solubility *is* composition-driven, so steering CamSol via charged-fraction enrichment (baseline 26.3% → w32 30.1%, still natural-range; → w128 45.1%, degenerate) is the predictor and the real metric agreeing on the physics. The earlier check's "≈+0.65 at w32" vs this entry's +0.94 is **purely the baseline**: the old check used the *unmatched* stratified `un` set (pH-7 mean 1.782); this entry uses the *seed+length-matched* sanity control (1.624, lower because it includes the low-CamSol L=500 cells).
+
+**Possible narrative.** Written into **Finding 13 (full seed-paired pH-7 addendum, 2026-06-01)** in `content_masterarbeit.md` — extends the original 296-seq web-server Finding to the full seed-paired batch, resolving its population-vs-paired caveat: steering a learned CamSol predictor (R²=0.91) produces sequences whose *real* CamSol (independent algorithm) is +58% higher / 48-of-48 proteins improved (95% CI ≥93%), monotonic in w, foldable up to w=32. Cross-refs E072 (4-property cocktail), E042/E066 (codesign + high-w Pareto), E109/E105 (honest-vs-hackable predictor split).
+
+**Methodological caveats.**
+- CamSol is itself a *predictor*, not a wet-lab measurement — "independent" means it never entered the steering loop (the in-loop target was a *learned* CamSol head), not experimental ground truth.
+- Foldable operating range is **w≤32**; above it the charged-composition shift becomes degenerate (45% charged at w128) and codesign collapses (2%).
+- Seed-pairing assumes the noise-aware steered runs share the noise seed with `sanity_seed42_45_u` (same ckpt/seed grid); pairing is on (seed,L). n=16 seeds × 3 L = 48 cells per w. **Pairing verified**: both arms run through `steering/generate.py` with `L.seed_everything(seed)` on the same `inference_ucond_notri_long` config, so seed s draws the same initial noise x₀ and shares the pre-guidance trajectory (guidance starts t=0.3); it is same-initial-condition pairing, not bit-identical per-step SDE noise.
+
+**Matched-seed %-improved per target, single- vs multi-objective (2026-06-01 follow-up).** Baseline TANGO/SAP/SCM⁺ computed on the 48 unguided sanity structures (`results/sanity_unsteered_seed42_45/unguided/properties_unguided.csv`, `steering/evaluate_samples_dir.py`); CamSol external. Paired on (seed,L), n=48. Script `script_utils/combo_devel4_paired_proportions.py`. Favorable: CamSol/SWI ↑, TANGO/SAP/SCM⁺ ↓.
+
+| run | target | improved | % | 95% CI lo |
+|---|---|---|---|---|
+| camsol_max single w32 | CamSol↑ (ext) | 48/48 | 100% | 93% |
+| tango_min single w32 | TANGO↓ | 46/48 | 96% | 86% |
+| tango_min single w48 | TANGO↓ | 48/48 | 100% | 93% |
+| combo_camsol_tango (2-obj) w32 | CamSol↑ (ext) | 48/48 | 100% | 93% |
+| combo_camsol_tango (2-obj) w32 | TANGO↓ | 47/48 | 98% | 89% |
+| combo_devel4 (4-obj) w32 | CamSol↑ (ext) | 45/48 | 94% | 83% |
+| combo_devel4 (4-obj) w32 | TANGO↓ | 45/48 | 94% | 83% |
+| combo_devel4 (4-obj) w32 | SCM⁺↓ | 44/48 | 92% | 80% |
+| combo_devel4 (4-obj) w32 | SAP↓ | **34/48** | **71%** | 57% |
+
+The clean **48/48** is single-objective at the free-lunch weight (CamSol w32, TANGO w48). The 2-objective run holds both targets ≥98%. The **4-objective run dilutes**: CamSol/TANGO/SCM⁺ stay 92–94% but **SAP drops to 71%** — the weakest 3D-coupled axis is sacrificed when the gradient splits four ways. **Honesty rider:** only CamSol is independent/external; TANGO/SAP/SCM⁺ are in-house metrics from the same family as the in-loop predictor, so their %-improved is by-our-own-scoring, not independent validation.
+- Codesign anchor (43.3%) is the use_pdb_seq joint-head rate (E042), intrinsically below MPNN-redesign designability; the relevant signal is the *flatness through w32 then collapse*, which is clean.
+- combo_devel4 / combo_camsol_tango codesign not re-pulled here (tracked in their own audits); only camsol_max codesign annotated.
+- The unguided 296-record *intrinsic* CamSol file (`CamSol_intrinsicschulzqwerbw6_*.txt`) is a different scoring mode (no pH column) and different id scheme — not used as the baseline here; the pH-7 `sanity_*_u` set is the matched control.
+
+### E114-addendum-3 — MPNN-NLL throttle for structural (Rg/CO) steering? NO — within-w discrimination ~0 (2026-06-01)
+
+User hypothesis: structural steering (Rg/CO) drifts the BACKBONE off-manifold (vs tango's sequence drift), so MPNN-NLL (sequence|backbone consistency = backbone designability) should be a better-matched throttle proxy there. Tested on existing geom_lookahead_sweep CO/Rg structures (CA-ProteinMPNN score_only, native seq) by within-w discrimination of designability (scRMSD_ca_min<2):
+
+| target,w | n | designable | point-biserial(−NLL, designable) |
+|---|---|---|---|
+| contact_order w8 | 36 | 86% | +0.101 |
+| **contact_order w16 (knee)** | 28 | 29% | **+0.002** |
+| rg w8 | 24 | 21% | +0.044 |
+| rg w16 | 24 | 0% | (no contrast) |
+
+**Within a fixed steering strength, MPNN-NLL does NOT separate designable from non-designable backbones (CO knee +0.002, Rg +0.04) — same null as tango.** The hypothesis (backbone drift → MPNN-visible) is reasonable but empirically the within-w designability variation isn't captured. 5th converging negative.
+
+**Generalised conclusion (the clean finding):** NO cheap proxy tested (pseudo-rama, hydrophobicity-burial, MPNN-NLL) discriminates designability WITHIN a fixed steering strength — they track it only CROSS-w (on average). A per-step throttle needs within-strength signal to selectively spare good trajectories; there is none, so it can only act on the average = equivalent to lowering w. This is the mechanistic reason throttles cannot beat the property–designability frontier. The sole different mechanism is the bond/clash LOOK-AHEAD throttle (damps state-dependent dangerous steps, not outcome-prediction) on CO — n=32 confirmation pending.
+
+### E114-addendum-4 — Is the steered-sample collapse predictable at all? Only by w. (2026-06-01)
+
+Capstone analysis tying the throttle negatives into one statement. Per-protein table over the E066 tango steered set (n=192, w∈{32,48,64,128} × L{300,400,500} × 16 seeds): features = [w, length, MPNN-NLL, hydrophobicity-burial r], target = designable (coScRMSD_ca<2). 5-fold CV AUC (LogisticRegression, standardized):
+
+| features | AUC |
+|---|---|
+| w only | **0.871** |
+| w + length | 0.866 |
+| w + length + MPNN-NLL + hydro-burial | **0.867** |
+| MPNN-NLL + hydro-burial only | 0.728 |
+
+Univariate corr(designable, ·): w −0.323, length −0.355, MPNN-NLL −0.224, hydro-burial +0.158.
+
+**Result: designability of a steered sample is determined by the steering strength w (AUC 0.87 alone); cheap structural/sequence proxies add ΔAUC ≈ 0 (0.866→0.867) on top of w+length.** The proxies' standalone AUC (0.728) is entirely w-confounding — conditional on w they carry no information. **Conditional on steering magnitude, which individual sample collapses is effectively unpredictable from any cheap feature.**
+
+This is THE mechanistic explanation for the whole throttle line: a throttle needs within-strength signal to selectively spare good trajectories; there is none (ΔAUC≈0), so every throttle reduces to "pick the right w" — exactly what was observed across tango/Rg/CO × rama/MPNN-NLL/bond-clash. Reframes the negatives into a positive claim: **steered-sample designability is set by the steering magnitude and is otherwise stochastic w.r.t. cheap proxies; no guardrail can beat choosing the magnitude.** (Caveat: "cheap proxies" = the 3 tested; a learned model on raw latents/structure might do better, untested. w-AUC 0.87 is partly a base-rate effect since w shifts the rate 46%→6%.)
+
+### E114-addendum-5 — CO throttle at n=32: on the frontier, not above it (CO win RETRACTED) (2026-06-01)
+
+Seed top-up of the contact_order geometric-throttle knee (seeds 48-57 added → n=32; driver gained `--seeds`; MPNN-designability appended via run_scrmsd_steering). Final designability vs DELIVERED contact-order:
+
+| cell | designable | n | delivered |
+|---|---|---|---|
+| prop w8 | 81.2% | 32 | 0.98σ |
+| baseline w8 | 78.1% | 32 | 1.09σ |
+| prop w16 | 59.4% | 32 | 1.56σ |
+| baseline w16 | 6.2% | 32 | 2.08σ |
+
+prop_w16 HELD at ~59% (did not wash out), and is +15pp over the baseline w8→w16 CHORD at 1.56σ. **But all four points lie on ONE convex designability-vs-delivered-CO curve** (slopes steepen −27/−40/−102 %/σ); prop_w16 sits ON it, where a no-throttle run at w≈11 (delivering 1.56σ) would land. **⇒ implicit w-reduction, NOT a frontier move.** The n=12 "+10–15pp" (E114 body) was a chord-under-convex-curve artifact + baseline_w16's lucky n=12 0% (true 6%).
+
+**RETRACTION:** E114's "CO is the one place the throttle looks positive at matched delivery" does not survive n=32 + plotting against delivery. The throttle is implicit magnitude-reduction on CO too. Verdict now uniform across tango (E113), Rg, CO: throttle moves you ALONG the designability–property frontier, never above it. Fully consistent with the addendum-4 capstone (designability set by delivered magnitude; cheap proxies add ΔAUC≈0). Methodological note for self: always plot vs DELIVERED property and avoid chord interpolation across a convex frontier — that's what made CO look positive at n=12.
+
+### E114-addendum-6 — Residue-based throttle viability for tango: DEAD (help=harm collocate at buried core) (2026-06-01)
+
+Tests whether a per-residue throttle could beat the scalar one by sparing folding-critical residues while steering the rest — i.e. are the tango-driving residues spatially separable from the folding-breaking residues? Partial-revert experiment on E066 tango_min w64+w128 (n=96): for each steered protein, find positions where steered AA ≠ seed-matched-unsteered AA (mean 140 changed/protein), split by burial (steered Cα, neighbors<10Å), revert each half to unsteered, measure tango_total fraction-of-reduction retained.
+
+- Revert EXPOSED half (keep buried changes): **0.72** of reduction retained.
+- Revert BURIED half (keep exposed changes): **0.34** retained.
+
+⇒ **The tango reduction comes predominantly (~⅔) from the BURIED residues, which are the folding-critical ones.** Help (tango↓) and harm (folding break) are the SAME residues (the buried aggregation-prone core that needs hydrophobicity to fold). A per-residue throttle that protects folding-critical residues necessarily reverts the tango benefit → cannot separate → **residue throttle DEAD for tango.** Deepest negative in the series: not "no per-residue proxy signal" but "property and damage are physically the same positions." All proxies (rama, geometric/bond-clash, burial, hydro-burial, MPNN) ARE cheaply per-residue, but per-residue availability is not the bottleneck — separability is, and it's absent for tango.
+
+Remaining untried variant: per-residue bond/clash throttle for contact_order (structural; only the per-protein scalar was run). Prior: likely same collocation (the Cα displacement that forms a contact is the one that strains the backbone) + capstone (designability set by delivered magnitude). Not yet run.
+
+### E114-addendum-7 — Per-residue throttle on contact_order (the addendum-6 open variant): on the frontier, within noise (2026-06-02)
+
+**Status:** finished for w∈{4,8,16} (n=26–32); geometric/rama w32 + ramares_w8 still generating at log time (pattern already unambiguous). This is the literal "remaining untried variant" flagged at the end of addendum-6: a **per-residue** (not per-protein-scalar) look-ahead throttle on contact_order, run for BOTH per-residue proxies — geometric bond/clash (β=171.4809) and Cα pseudo-rama (β=0.8721). Tests the explicit ~20% bet that going per-residue could lift the throttle ABOVE the designability–delivered-CO frontier.
+
+**Configs (re-runnable):** local L4 box `gxp-l4-0`, GPUs 0/3/5, env `~/.conda/envs/laproteina_env`. Driver `script_utils/run_perres_co_local.sh` (CUDA=<gpu> CELLS="<kind>:<w> ..."). ckpts `checkpoints_laproteina/{LD3_ucond_notri_800,AE2_ucond_800}.ckpt` via `inference_ucond_notri_long`; steering `geometric_lookahead`, mode `lookahead_proportional`, `per_residue: true`, objective contact_order minimize, schedule linear_ramp w_max=w t0.3–0.8, **nsteps=400**, seeds 42–57, L∈{300,400}. Baseline cells = same pipeline at **β=0** (s≡1 ⇒ no throttle). Eval `script_utils/run_scrmsd_steering.py`: N=8 ProteinMPNN (`use_pdb_seq=False`, in-process via `MPNN_INPROCESS=1`), ESMFold, designable = scRMSD_ca_min < 2.0 Å. Significance `script_utils/throttle_significance.py`.
+
+**Results — honest matched-CO test (pool actual baseline samples within ±0.015 of the throttle cell's delivered CO; Fisher exact; ALL L, baseline pool n=117):**
+
+| throttle cell | n | designable | delivered CO | baseline @ same CO (n) | Fisher p | verdict |
+|---|---|---|---|---|---|---|
+| geometricres_w4 | 26 | 80.8% | 0.109 | 81.8% (11) | 1.0 | within noise |
+| geometricres_w8 | 32 | 87.5% | 0.093 | 77.8% (9) | 0.60 | within noise |
+| geometricres_w16 | 32 | 75.0% | 0.075 | 68.2% (22) | 0.76 | within noise |
+| ramares_w4 | 26 | 92.3% | 0.110 | 81.8% (11) | 0.57 | within noise |
+| ramares_w16 | 32 | 65.6% | 0.071 | 64.5% (31) | 1.0 | within noise |
+| perres_w16 | 11 | 72.7% | 0.074 | 69.6% (23) | 1.0 | within noise |
+
+Three estimators on the w16 cells (the decisive cliff, baseline_w16 = 6.2% designable, n=32):
+- **T1 same-w** (throttle_w16 vs baseline_w16): geometric 75% vs 6.2% p=1.8e-8; rama 66% vs 6.2% p=9e-7. Hugely significant **but confounded** — throttle delivers CO≈0.07 vs baseline_w16's 0.048, i.e. it just steered less hard.
+- **T2 matched-CO** (above table, assumption-free): every cell p≥0.57. **On the frontier.**
+- **T3 logistic** designable~CO+throttle: geometric OR≈2.9 p=0.037, rama p=0.15 — marginal/borderline, but leans on a linear-in-CO fit across the convex cliff (same fragility as chord interp); discounted in favor of T2.
+
+**Verdict: within noise for ALL proxies at ALL w — the per-residue throttle sits ON the designability–delivered-CO frontier = implicit w-reduction, not a frontier move.** The 20% bet does NOT pay off. Uniform with addendum-5 (per-protein CO), E113 (tango), Rg, and addendum-6 (residue separability absent). Going per-residue does not help — consistent with addendum-6's "help and harm are the same positions."
+
+**Methodological caveat (repeat of addendum-5's lesson):** `failfast_verdict.py` builds the baseline curve by **linear chord interpolation across the abrupt w8→w16 cliff**, which invents a phantom-low baseline (~55–72%) in the throttle's CO band and made the throttle look "+34 pp ABOVE" at first read. Using actual baseline samples at matched delivered CO, the gap vanishes (68% vs 75%). Always plot/compare vs DELIVERED property with real samples in-band; never chord-interpolate across a convex frontier. Other caveats: w32 + ramares_w8 incomplete at log time; metric is MPNN-redesign **designability** (use_pdb_seq=False), appropriate here since steering touches only `bb_ca` (sequence not steered); CO band ±0.015.
+
+**Possible narrative:** non-narrative reinforcement of the existing negative Finding (throttle never beats the property–designability frontier). No new paper claim; closes the last open throttle variant. See [[project_throttle_doesnt_move_frontier]].
+
+### E114-addendum-8 — Multi-property throttle-viability gate: solubility props are the FIRST with separable buried damage; charge/structural/aggregation dead (2026-06-03)
+
+**Status:** finished. Reference-free, existing-data probe asking, across 8 steered properties, whether a per-residue burial-gated throttle has any signal to exploit — i.e. is the designability-breaking damage *localized to buried residues* (protectable) or *global*? Two phases. **Driver code:** `script_utils/throttle_viability_overnight.py` (`phase1`=gate CPU, `phase2`=GPU revert-refold). Outputs `results/throttle_viability/{phase1_gate.csv,phase2_recovery.csv}`. Ran on local L4 `gxp-l4-0` GPU5, env `~/.conda/envs/laproteina_env`, ESMFold codesign via `scRMSD(num_seq_per_target=1, use_pdb_seq=True, folding_models=["esmfold"], keep_outputs=True)`. Budget-guarded 7.5h (`THROTTLE_BUDGET_S`); finished 624 folds in 6.9h. Burial = per-CA neighbors within 10 Å, buried := above per-protein median.
+
+**Phase 1 — within-w separability gate** (AUC of buried-driver-burden predicting NON-codesignability, coScRMSD_ca≥2; per-property driver: charge props→K/R or D/E, "polarize" solubility props→polar set, tango→agg-prone). Existing latent-steered sweeps, 48/cell:
+
+| property | family | gate AUC (by w) | call |
+|---|---|---|---|
+| camsol_max | polarize | 0.73(w32) 0.57(w48) 0.64(w64) 1.00(w128,n≈1) | **POSITIVE** |
+| hydpatch_min | polarize | 0.83(w32) 0.63(w48) 0.69(w64) 0.47(w128) | **POSITIVE** |
+| iupred_max | polarize | 0.69(w16) 0.71(w32) 0.47(w64) | positive low-w (objective fights folding) |
+| net_charge_max | charge+ | 0.46 0.44 0.47 0.42 0.41 | dead |
+| net_charge_min | charge- | 0.61(w16) 0.61(w32) 0.46(w64) | dead at collapse w |
+| tango_min | aggregation | 0.45 0.44 0.65 0.50 | dead (control OK) |
+| sap_min (coord) | coord | 0.38 0.63 0.64 | coord-channel = structural throttle (dead tonight) |
+| rg_min (coord) | structural | ~0.5 | dead (control OK) |
+
+**Phase 2 — revert buried driver residues → L, refold (codesign recovery), + matched-random-buried control:**
+
+| property | collapsed | recovered (driver-revert) | random ctrl | median co before→revert |
+|---|---|---|---|---|
+| camsol_max w64/128 | 39/47 | 0% / 0% | 0% / 0% | 12.6→23 / 21.5→24 |
+| hydpatch_min w64/128 | 31/45 | 0% / 0% | 0% / 0% | 7.1→24 / 16.5→23 |
+| iupred_max w32 | 30 | 0% | 0% | 6.0→24 |
+| net_charge_max w128 | 45 | 0% | – | 13.1→13.7 |
+| net_charge_min w128 | 48 | 0% | – | 28→18 |
+| tango_min w128 (ctrl) | 45 | 2% | – | 7.7→9.7 |
+
+**Verdict (two-tier):**
+- **Charge / structural / aggregation: throttle DEAD, confirmed two ways.** Gate AUC≤0.5 AND Phase-2 recovery 0%. For net_charge the revert is *gentle* (~9–13 residues) and folding is unchanged (13.1→13.7) — a faithful, clean negative. Collapse is global/compositional (w128 net_charge seq is K/R/A-flooded), not buried-localizable. Consistent with the capstone (add-4) and all prior throttle results.
+- **Solubility (camsol_max, hydpatch_min): the FIRST live lead — gate POSITIVE, Phase-2 INCONCLUSIVE (not a kill).** Gate shows buried-polar burden predicts within-w collapse at AUC 0.73–0.83 (reliable-w cells). Mechanism: solubility steering over-strips hydrophobics and polarizes the *buried core*, and that polarization correlates with collapse — the localizable, protectable damage a throttle needs. Phase-2's revert-refold *cannot validate* it: reverting all ~80 buried polar→L is a sledgehammer that breaks folding by itself, and the matched-random control proves it (random-80-revert equally destructive, ~22 Å). Magnitude swamped polar-specificity.
+
+**Methodological caveats:** (1) Phase-2 post-hoc revert ≠ a throttle; an in-loop burial-gated throttle *prevents* polarizing buried positions *during* steering (keeps the unguided hydrophobic), not a bulk 80-residue post-hoc rewrite. The right test for the solubility lead is that new in-loop infra, not this probe. (2) Reverting to L (no seed-matched unguided sequence available — net_charge_max_sweep has 0 unguided pdbs) is a crude stand-in for "what unguided would place." (3) High-w gate AUCs (camsol w128=1.00) are small-n (≈1 designable) — the trustworthy cells are w32/w64. (4) iupred_max objective inherently fights folding (maximize disorder), so its gate signal is hard to attribute. (5) sap/rg are coord-channel ⇒ their throttle is the structural one already killed in addendum-7.
+
+**Possible narrative:** updates [[project_throttle_doesnt_move_frontier]] — the blanket "throttle dead" now has ONE documented exception-candidate: **solubility-property steering has buried-localized, separable collapse** (gate AUC 0.73–0.83), unlike charge/structural/aggregation. Not yet a Finding (unproven — needs the in-loop burial throttle). Logged as the concrete next-experiment lead. Non-narrative for now.
 ---
 
 ## E117 — Dynamic-K sparse attention infrastructure, per-protein K half-length, build plus CPU smoke (2026-05-29)

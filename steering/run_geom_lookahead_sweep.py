@@ -81,6 +81,8 @@ def main():
                     choices=["rg", "contact_order"])
     ap.add_argument("--modes", type=str, nargs="+", default=list(MODES.keys()),
                     choices=list(MODES.keys()), help="baseline and/or prop")
+    ap.add_argument("--seeds", type=int, nargs="+", default=SEEDS,
+                    help="seeds to generate (default 42-47; extend to add samples, resumable)")
     args = ap.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -97,7 +99,7 @@ def main():
 
     sel_modes = {ms: MODES[ms] for ms in args.modes}
     arms = [(t, ms, mf, lam) for t in args.targets for ms, mf in sel_modes.items() for lam in args.lambdas]
-    total = len(arms) * len(LENGTHS) * len(SEEDS)
+    total = len(arms) * len(LENGTHS) * len(args.seeds)
     print(f"[sweep] {len(arms)} arms x {len(LENGTHS)} L x {len(SEEDS)} seeds = {total} guided gens", flush=True)
 
     done = 0
@@ -119,7 +121,7 @@ def main():
         print(f"\n[sweep] === ARM {arm} (mode={mode_full}, w_max={lam}) ===", flush=True)
 
         for length in LENGTHS:
-            for seed in SEEDS:
+            for seed in args.seeds:
                 done += 1
                 pid = f"s{seed}_n{length}"
                 pt_path = guided_dir / f"{pid}.pt"

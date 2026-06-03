@@ -1,0 +1,15 @@
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: lookahead_proportional
+  proxy_type: geometric
+  per_residue: true
+  f_map: exp
+  beta: 130.0
+  objectives: [{property: contact_order, direction: minimize, weight: 1.0}]
+  schedule: {type: linear_ramp, w_max: 16.0, t_start: 0.3, t_end: 0.8}
+  proxy: {bond_target_nm: 0.38, clash_radius_nm: 0.40, lambda_clash: 1.0}
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true

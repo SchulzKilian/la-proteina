@@ -52,8 +52,21 @@ class SteeringThrottle:
 
         if not self.enabled:
             return
-        if self.type not in ("rama", "aa_prior"):
+        if self.type not in ("rama", "aa_prior", "burial"):
             raise ValueError(f"Unknown throttle.type {self.type!r}")
+
+        # "burial" throttle: protect the buried CORE from steering. Needs ONLY the
+        # CA coordinates (passed into apply()), NO CBM / g1 / priors — so it drops
+        # into ANY steering predictor (CBM or not). Damps per-residue guidance at
+        # positions with above-quantile CA neighbor count by s_i = exp(-beta *
+        # relu(nbr_i - nbr_q)) => "steer the surface, spare the fold-core". This is
+        # the one proxy the E114-addendum-8 gate flagged separable for solubility
+        # steering (camsol/hydpatch). beta=0 -> s=1 (off).
+        if self.type == "burial":
+            self.radius_nm = float(tcfg.get("radius_nm", 1.0))   # 1.0 nm = 10 A
+            self.quantile = float(tcfg.get("quantile", 0.5))     # buried := above per-protein median
+            return
+
         if predictor is None or not hasattr(predictor, "models"):
             raise ValueError("throttle requires a loaded SteeringPredictor")
         device = predictor.device
@@ -119,12 +132,44 @@ class SteeringThrottle:
 
     # ------------------------------------------------------------------ #
     @torch.no_grad()
-    def apply(self, guidance, z_t, v_theta, t_scalar, mask):
+    def _burial_apply(self, guidance, mask, bb_ca, v_bb_ca, t_bb):
+        """Damp guidance at buried CA positions. s_i = exp(-beta*relu(nbr_i-nbr_q))."""
+        if bb_ca is None:
+            return guidance, {"throttle": "burial", "skipped_no_bb_ca": True, "s_mean": 1.0}
+        ca = bb_ca
+        if v_bb_ca is not None and t_bb is not None:
+            ca = bb_ca + (1.0 - float(t_bb)) * v_bb_ca       # clean-CA look-ahead estimate
+        mf = mask.float()
+        d = torch.cdist(ca, ca)                              # [B,L,L]
+        within = (d < self.radius_nm).float() * mf.unsqueeze(1)
+        nbr = within.sum(-1) - 1.0                           # exclude self [B,L]
+        B = ca.shape[0]
+        s = torch.ones_like(nbr)
+        for b in range(B):
+            valid = mf[b].bool()
+            if valid.sum() < 3:
+                continue
+            q = torch.quantile(nbr[b][valid], self.quantile)
+            s[b] = torch.exp(-self.beta * F.relu(nbr[b] - q))
+        s = s * mf + (1.0 - mf)                              # s=1 on padding
+        guidance = guidance * s.unsqueeze(-1)
+        sv = s[mf.bool()]
+        diag = {"throttle": "burial", "beta": self.beta,
+                "s_mean": sv.mean().item(), "s_min": sv.min().item(),
+                "frac_throttled": (sv < 0.99).float().mean().item()}
+        return guidance, diag
+
+    @torch.no_grad()
+    def apply(self, guidance, z_t, v_theta, t_scalar, mask,
+              bb_ca=None, v_bb_ca=None, t_bb=None):
         """Damp `guidance` by the look-ahead throttle. Returns (guidance, diag)."""
         if not self.enabled:
             return guidance, {"throttle": "none"}
         if self.t_floor is not None and t_scalar < float(self.t_floor):
             return guidance, {"throttle": self.type, "skipped_t_floor": True, "s_mean": 1.0}
+
+        if self.type == "burial":
+            return self._burial_apply(guidance, mask, bb_ca, v_bb_ca, t_bb)
 
         B = z_t.shape[0]
         if self.feed_z_t_directly:

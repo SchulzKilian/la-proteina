@@ -280,7 +280,10 @@ class SteeringGuide:
         throttle_diag = None
         if self.throttle.enabled:
             guidance, throttle_diag = self.throttle.apply(
-                guidance, z_t.detach(), v_theta.detach(), t_scalar, mask
+                guidance, z_t.detach(), v_theta.detach(), t_scalar, mask,
+                bb_ca=_extra_kwargs.get("bb_ca"),
+                v_bb_ca=_extra_kwargs.get("v_bb_ca"),
+                t_bb=_extra_kwargs.get("t_bb_ca"),
             )
 
         # Final norms for diagnostics (AFTER throttle, so they reflect damping)

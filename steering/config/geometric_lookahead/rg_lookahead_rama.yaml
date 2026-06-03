@@ -1,0 +1,25 @@
+# Rg steering, PROPORTIONAL look-ahead with the Cα pseudo-RAMA manifoldness proxy.
+# Same as rg_lookahead_prop but P = Cα pseudo-Ramachandran energy (backbone-conformation
+# plausibility) instead of bond+clash. beta from Stage-1 calibration (mode=baseline).
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: lookahead_proportional
+  proxy_type: rama
+  f_map: exp
+  beta: 1.0                 # PLACEHOLDER — set from calibration
+  objectives:
+    - property: rg
+      direction: maximize
+      weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 32.0
+    t_start: 0.3
+    t_end: 0.8
+  proxy:
+    rama_priors_path: steering/throttle_priors/ca_pseudo_rama.pt
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true

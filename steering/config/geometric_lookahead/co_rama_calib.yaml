@@ -1,0 +1,17 @@
+steering:
+  method: geometric_lookahead
+  enabled: true
+  channel: bb_ca
+  mode: baseline
+  proxy_type: rama
+  f_map: exp
+  beta: 0.0
+  objectives:
+    - property: contact_order
+      direction: maximize
+      weight: 1.0
+  schedule: {type: linear_ramp, w_max: 32.0, t_start: 0.3, t_end: 0.8}
+  proxy: {rama_priors_path: steering/throttle_priors/ca_pseudo_rama.pt}
+  gradient_norm: unit
+  gradient_clip: 0.0
+  log_diagnostics: true
