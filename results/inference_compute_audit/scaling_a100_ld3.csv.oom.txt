@@ -1,0 +1,1 @@
+[OOM] arm=official_LD3 L=2400 n=2 (peak before OOM ~80384 MB on NVIDIA A100-SXM4-80GB); stopping arm — all longer L would OOM too.

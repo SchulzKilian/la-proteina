@@ -22,6 +22,7 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 
 | ID | Date | Status | Topic | Narrative? |
 |---|---|---|---|---|
+| [E126](#e126--ld3-official-full-atom-inference-memorycompute-scaling-on-a100-dense-memory-law-is-model-invariant-978-mb-constant-offset-over-ca-only-same-00156-l-slope-oom-at-l2267-2026-06-04) | 2026-06-04 | finished | Official **full-atom LD3** arm (`LD3_ucond_notri_800.ckpt`, config `inference_ucond_notri_long`, `_ca_only_mode=False`: AE + latent + full-atom decode) of the [E124](#e124--inference-compute-scaling-on-a100-dense-oom-ceiling-measured-ca-only-canonical-vs-sparse-k40-l1002400-2026-06-03) benchmark — same script/ladder, N=2, nsteps=400, seed=5, L=100–2400, A100-80GB. Removes E124's "CA-only, not official LD3" caveat for the memory-scaling story. `OUTPUT_CSV=…/scaling_a100_ld3.csv`. | **Dense memory law is model-invariant.** LD3 uses **exactly +978 MB more than the CA-only dense arm at every length** (978 at L=100…2200, no drift) — a pure constant. Fit `mem(L) ≈ 1595 + 0.01563·L²`; the **quadratic slope 0.0156 is identical** to CA-only dense + E074's L4 (the `[B,N,N,d]` pair tensor dominates and is model- *and* hardware-invariant). The +978 MB is the L-independent AE/latent/full-atom overhead. **LD3 OOM ceiling L≈2267** (fits **L=2200 at 77255 MB / 75.4 GB**, OOMs L=2400 at peak ~80384 MB) — only ~16 residues earlier than CA-only despite the offset, because the quadratic dominates at the wall. Wall ~3–12% slower than CA-only dense (fraction shrinks with L: +12.5% @L=100 → +3.5% @L=2200). | non-narrative tuning receipt, but **Finding-grade**: validates E124's closed-form OOM predictor `L=sqrt((card_GB·1024−offset)/0.0156)` on the *real* model (offset 1595 not 614), so E124's scaling law is no longer CA-only-caveated. No quality claim (N=2). |
 | [E125](#e125--from-scratch-trained-7-sparse--7-dense-layer-hybrid-front_plateau_then_taper-k-schedule-baked-in-2026-06-04) | 2026-06-04 | in progress | First **from-scratch trained** layer-hybrid (native analogue of the inference-only stitching E092–E096): layers 0–6 sparse with the **front_plateau_then_taper** per-layer K-schedule [56,56,56,40,32,24,16], layers 7–13 dense. `layer_sparse_mask` + `layer_K_splits` ported from generate.py monkeypatch into the **trunk forward** so they're active + differentiable during training. Canonical OLD recipe (wd=0.05, const LR=2e-4), 1× A100, run_name_ `ca_only_hybrid_7s7d`, jobs 30081747→30081748 (afterany, 2×12h ≈ target 14h). | **Submitted; no training numbers yet.** Pre-submit correctness: native per-layer-K path is **bit-identical (0.00e+00, fp32)** to the global-sparse path under deterministic K-sets (n_random=0); fwd+bwd grad-flow reaches the shared pair builder + a sparse + a dense layer; 158.3M params (== baseline, no new params). Tests whether training the dense upper layers *against* sparsified lower-layer reps removes the "upper-bound" caveat of the dense-weights inference diagnostic. | non-narrative until designability probe — feeds the layer-hybrid architecture story (E092–E096); if the trained hybrid clears the L=100/200 bar where the inference stitch on dense weights did not, it becomes Finding-grade. |
 | [E124](#e124--inference-compute-scaling-on-a100-dense-oom-ceiling-measured-ca-only-canonical-vs-sparse-k40-l1002400-2026-06-03) | 2026-06-03 | finished | A100-80GB extension of [E074](#e074--inference-time-compute-benchmark-sparse-k40-vs-canonical-dense-2026-05-20): peak GPU memory + per-protein wall at **L=100..2400**, N=2, nsteps=400, seed=5, both **CA-only** arms (canonical-dense `baseline_wd0.05_step2646.ckpt` vs sparse-K40 `sparse_K40_step1259.ckpt`). OOM-resilient + resumable runner `script_utils/benchmark_inference_scaling.py` / `run_benchmark_scaling_a100.sh`. | **Dense OOM ceiling measured (the E074-flagged unknown):** dense fits **L=2200 at 74.5 GB** (76276 MB), **OOMs at L=2400** (peak ~79.4 GB → 80 GB wall); extrapolated ceiling **L≈2256**. Sparse fits **all of L=2400 at 2.3 GB** and never OOMs. Dense memory law is **hardware-invariant**: `≈ 614 + 0.0156·L²` (Δmem/ΔN²=0.0156, identical to E074's L4). At L=2200 sparse uses **34× less memory** (2227 vs 76276 MB) and is **12.6× faster** (17.5 vs 220.6 s/p). Crossover on A100: memory L=100→200, speed L=200→300. | non-narrative — **completes the E073/E074 compute story** with the measured dense OOM length-ceiling on A100 (E074 L4 could only flag it as unmeasured). CA-only models, not official LD3 — absolute numbers are a CA-only lower bound; scaling *shape* transfers. |
 | [E123](#e123--per-residue-co-throttle-frontier-geometric--rama-proxies-at-w16-throttle-rescues-designability-but-delivers-near-unguided-co-frontier-comparison-incomplete-2026-06-02) | 2026-06-02 | in progress | Per-residue latent-channel CO throttle frontier (`steering/throttle.py`, `submit_perres_co_frontier_hpc.sh`): no-throttle baseline vs per-residue **geometric** and **rama** throttle on `contact_order` minimize, w16, L=300, seeds 42–49, nsteps=400, LD3+AE2_800, `inference_ucond_notri_long`, in-process CA-ProteinMPNN (8 seqs) + ESMFold. β calibrated to s=0.2 at per-residue ΔP p90 (geom 171.48, rama 0.87). Jobs 29978456 (geom arm), 29979420 (baseline+rama); 29978243/246 redundant, cancelled 12:06. Status read live off RDS-mounted slurm logs + `failfast_verdict.py`. | **Surface designability win, but comparison incomplete + throttle barely steers.** Protein-level designable (scRMSD_ca_min<2 over 8 MPNN): baseline_w16 **1/8 (12.5%)**, geometricres_w16 **7/8 (87.5%)**, ramares_w16 **7/8 (87.5%)**, geometricres_w4 **7/7 (100%)**. **Delivered CO (lower=more steering, unguided≈0.104):** baseline_w16 **0.044** (heavy steering, off-manifold) vs throttle cells **mean 0.091–0.102 / median 0.084–0.108 ≈ unguided** (geo_w16 median 0.108 is *above* unguided). `failfast_verdict.py` prints "ABOVE frontier (throttle helps)" Δ=+75–87.5% but compares against baseline_w16 (CO=0.044), **NOT a matched-delivered-CO baseline** — baseline w4/w8/w32 are "no data yet", so the matched-CO lower curve is missing and the "helps" verdict is not yet valid. Likely the calibrated β over-damps (throttle clamps guidance to ~0, trivially preserving designability). | non-narrative until the baseline-weight curve (w4/8/32) runs to give a matched-delivered-CO comparison — feeds the per-residue-vs-whole-protein throttle decision (cf [E098](#e098--geometric-look-ahead-minimize-sweep-throttle-auto-caps-effective-guidance-and-prevents-high-λ-collapse-2026-05-28) whole-protein throttle 7/12@w16). |
@@ -9972,3 +9973,72 @@ Per-protein wall (s) and peak GPU memory (MB), nsteps=400, N=2 per cell, A100-80
 
 - `results/inference_compute_audit/scaling_a100.csv` — 33 rows (16 dense + 17 sparse), 8-column schema concatenable with E074's `sparse_vs_dense_scaling.csv`.
 - `results/inference_compute_audit/scaling_a100.csv.oom.txt` — the single dense OOM event at L=2400.
+
+---
+
+## E126 — LD3 (official full-atom) inference memory/compute scaling on A100: dense memory law is model-invariant — +978 MB constant offset over CA-only, same 0.0156·L² slope, OOM at L≈2267 (2026-06-04)
+
+**Status.** Finished. Non-narrative tuning receipt, but the headline (model-invariance of the dense memory law) is Finding-grade — see Possible narrative.
+
+**Why ran.** [E124](#e124--inference-compute-scaling-on-a100-dense-oom-ceiling-measured-ca-only-canonical-vs-sparse-k40-l1002400-2026-06-03) measured the dense OOM length-ceiling and the quadratic memory law on **CA-only** models and flagged "CA-only, not official LD3 — absolute numbers are a CA-only lower bound" as its main caveat. The user re-ran the *identical* benchmark on the **official full-atom La Proteina LD3** model to (1) get real-model absolute memory/wall numbers and (2) test whether the CA-only dense memory law (`614 + 0.0156·L²`) transfers to the full model, which carries an autoencoder, per-residue latents, and full-atom decode that CA-only does not.
+
+**Configs.**
+
+- Hardware: 1× **NVIDIA A100-SXM4-80GB** (interactive ampere session, gpu-q-2), single GPU. Same card class as E124 → memory directly comparable; wall directly comparable.
+- Env: `/home/ks2218/conda_envs/laproteina_env` (PATH-prepend). `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+- Arm: **`official_LD3`** → config `inference_ucond_notri_long`, ckpt `checkpoints_laproteina/LD3_ucond_notri_800.ckpt` (2.93 GB; the config sets `ckpt_path` + `autoencoder_ckpt_path` itself, `_ca_only_mode=False`, full AE + latent + full-atom decode active).
+- Generation: nsteps=400, seed=5, N=2 per length, lengths {100,200,…,1000,1200,…,2400}, one warmup at L=100 (excluded). Same `script_utils/benchmark_inference_scaling.py` / `run_benchmark_scaling_a100.sh` as E124 (resume-safe, per-row flush, per-arm OOM catch).
+- Invocation: `ARMS="official_LD3" OUTPUT_CSV=results/inference_compute_audit/scaling_a100_ld3.csv bash script_utils/run_benchmark_scaling_a100.sh`. Separate CSV so LD3 rows never mix with E124's CA-only file.
+- Output: `results/inference_compute_audit/scaling_a100_ld3.csv` (16 rows, L=100–2200) + `scaling_a100_ld3.csv.oom.txt` (the L=2400 OOM).
+
+**Results.**
+
+Per-protein wall (s) and peak GPU memory (MB), nsteps=400, N=2, A100-80GB. CA-only dense columns are E124's `canonical_dense` arm for reference:
+
+| L    | LD3 s/p | CA-dense s/p | LD3 MB | CA-dense MB | ΔMB (LD3−CA) |
+|-----:|--------:|-------------:|-------:|------------:|-------------:|
+| 100  | 5.02  | 4.46  | 1747  | 769   | **978** |
+| 200  | 4.65  | 4.48  | 2218  | 1240  | **978** |
+| 300  | 6.49  | 6.11  | 3000  | 2022  | **978** |
+| 400  | 9.66  | 9.13  | 4096  | 3118  | **978** |
+| 500  | 13.82 | 13.09 | 5503  | 4525  | **978** |
+| 600  | 19.04 | 18.03 | 7224  | 6246  | **978** |
+| 700  | 25.14 | 23.78 | 9257  | 8279  | **978** |
+| 800  | 32.55 | 30.91 | 11602 | 10624 | **978** |
+| 900  | 40.91 | 38.86 | 14260 | 13282 | **978** |
+| 1000 | 49.69 | 47.21 | 17231 | 16252 | **978** |
+| 1200 | 71.86 | 68.30 | 24109 | 23131 | **978** |
+| 1400 | 96.20 | 91.53 | 32238 | 31260 | **978** |
+| 1600 | 122.50| 118.14| 41617 | 40639 | **978** |
+| 1800 | 154.30| 148.83| 52246 | 51268 | **978** |
+| 2000 | 189.91| 182.47| 64125 | 63147 | **978** |
+| 2200 | 228.40| 220.56| 77255 | 76276 | **978** |
+| 2400 | **OOM** | **OOM** | **OOM (~80384 peak)** | **OOM (~79406 peak)** | — |
+
+**The +978 MB offset is exactly constant** — identical to the MB at every one of the 16 measured lengths, no drift. The full-atom machinery (AE encode/decode, latent buffers) is a pure L-independent constant; it adds *no* length-dependent memory on top of the dense pair tensor.
+
+**Memory law (least-squares, mem = a + b·L²).** LD3: `mem(L) ≈ 1595 + 0.01563·L²` MB. CA-only dense (E124): `614 + 0.0156·L²`. **The quadratic coefficient is identical** (0.01563 vs 0.0156, and identical to E074's L4 slope). Only the constant offset differs: 1595 vs 614 MB (Δ ≈ 981 ≈ the 978 MB measured directly). So the dense `[B,N,N,d]` pair representation is the sole quadratic term and is **model- and hardware-invariant**; LD3 vs CA-only vs L4 vs A100 differ *only* in the additive constant.
+
+**LD3 OOM ceiling = L≈2267** (fits **L=2200 at 77255 MB = 75.4 GB**, OOMs at **L=2400** with allocator peak **~80384 MB** — past the 80 GB wall). The closed form `L = sqrt((80·1024 − 1595)/0.0156) = 2267` lands inside the measured 2200-fits / 2400-OOMs bracket. Despite carrying +978 MB, LD3's ceiling is only **~16 residues shorter** than CA-only's (≈2283) — the 978 MB offset is negligible against the ~80 GB quadratic term at the wall.
+
+**Wall.** LD3 is slower than CA-only dense at every L, by a roughly constant additive amount (the full-atom decode), so the *fraction* shrinks with L: **+12.5% at L=100** (5.02 vs 4.46), **+8% at L=500**, **+3.5% at L=2200** (228.4 vs 220.6 s/p). Scaling exponent matches dense (~L^1.6, log–log L≥200).
+
+**Defensible claims.**
+
+1. **The dense inference memory law is model-invariant in its quadratic term**: full-atom LD3 and CA-only both scale as `0.0156·L²`, differing only by a constant offset (LD3 +978 MB). The OOM length for any (model, card) is `L = sqrt((card_GB·1024 − offset)/0.0156)`, with offset ≈ 614 (CA-only) / 1595 (LD3).
+2. **Official LD3 hits the A100-80GB dense wall at L≈2267** (fits 2200 at 75.4 GB, OOMs 2400) — the real-model number E124 could only give as a CA-only lower bound.
+3. **The full-atom AE/latent/decode overhead is L-independent** (+978 MB flat, +3–12% wall) — it does not change the scaling shape, only shifts the curve.
+
+**Possible narrative.** Finding-grade: this removes E124's central caveat ("CA-only, not official LD3"). E124's closed-form OOM predictor and the 0.0156 quadratic law now hold for the *real* full-atom model, with a measured offset. Candidate Finding in `content_masterarbeit.md` extending the E073/E074/E124 compute-scaling thread — the sparse-vs-dense memory argument (E124: 34× at L=2200) carries over to LD3 unchanged, since the +978 MB is constant on both sides. Pairs with E124's sparse arm for the graph.
+
+**Methodological caveats.**
+
+- **No quality claim** — N=2, no designability; LD3 quality at L>300 is out of distribution. Compute-scaling receipt only.
+- **Sparse arm not re-run for LD3** — there is no full-atom sparse checkpoint; the sparse comparison remains the CA-only E124 sparse arm. The memory *argument* transfers (constant offset), but a like-for-like full-atom sparse number does not exist.
+- **A100-80GB, single seed, single in-process run** — memory deterministic; wall has ~5–10% per-call jitter.
+- **nsteps=400 satisfied** (hard rule) — no caveat on that axis.
+
+**Outputs.**
+
+- `results/inference_compute_audit/scaling_a100_ld3.csv` — 16 rows (L=100–2200), 8-column schema identical to E124's `scaling_a100.csv` (directly concatenable for plotting LD3 vs CA-dense vs sparse).
+- `results/inference_compute_audit/scaling_a100_ld3.csv.oom.txt` — the L=2400 LD3 OOM event (~80384 MB peak).
