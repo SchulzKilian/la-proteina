@@ -351,16 +351,63 @@ class LocalLatentsTransformer(torch.nn.Module):
             torch.nn.Linear(self.token_dim, 3, bias=False),
         )
 
-        # Inference-only diagnostic hook: per-layer sparse/dense routing.
-        # When None (default), behavior is bit-identical to the pre-existing
-        # forward path. When set to a list of `nlayers` bools, each layer i
-        # uses the sparse attention path iff layer_sparse_mask[i] is True.
-        # Requires sparse_attention=True at construction so the neighbor list
-        # is built; mutex with use_downsampling, n_global_tokens>0, router-sparse,
-        # and update_pair_repr=True. Set after construction by the diagnostic
-        # script — not plumbed through hydra.
-        self.layer_sparse_mask = None
+        # Per-layer sparse/dense routing. When None (default), behavior is
+        # bit-identical to the pre-existing forward path. When set to a list of
+        # `nlayers` bools, each layer i uses the sparse attention path iff
+        # layer_sparse_mask[i] is True. Requires sparse_attention=True at
+        # construction so the neighbor list is built; mutex with use_downsampling,
+        # n_global_tokens>0, router-sparse, and update_pair_repr=True.
+        #
+        # Two ways to set it:
+        #   (a) inference diagnostic — set after construction by generate.py
+        #       (`cfg.generation.args.layer_sparse_mask`); kwargs absent → None.
+        #   (b) TRAINING — pass `layer_sparse_mask` (and optionally
+        #       `layer_K_splits`) as nn-config keys so the per-layer routing is
+        #       baked into the model and active + differentiable from step 0.
+        #       This is how the from-scratch 7-sparse/7-dense hybrid is trained
+        #       (the native analogue of the inference-time stitching in
+        #       generate.py). See configs/nn/ca_only_hybrid_7s7d_160M.yaml.
+        #
+        # `layer_K_splits` is a list of (n_seq, n_spatial, n_random) triples —
+        # one per SPARSE layer (in mask order) — so each sparse layer can use a
+        # different content-free K-budget (the `front_plateau_then_taper`
+        # schedule [56,56,56,40,32,24,16] from E094). None → every sparse layer
+        # shares the model's uniform (n_seq, n_spatial, n_random).
+        _mask_cfg = kwargs.get("layer_sparse_mask", None)
+        if _mask_cfg is not None:
+            _mask_cfg = [bool(b) for b in _mask_cfg]
+            assert len(_mask_cfg) == self.nlayers, (
+                f"layer_sparse_mask must have len {self.nlayers}, got {len(_mask_cfg)}"
+            )
+            assert self.sparse_attention, (
+                "layer_sparse_mask requires sparse_attention=True at construction."
+            )
+            assert self._router_sparse_K is None, (
+                "layer_sparse_mask is mutually exclusive with router_sparse_K."
+            )
+            assert not self.use_downsampling, "layer_sparse_mask + use_downsampling not supported."
+            assert self.n_global_tokens == 0, "layer_sparse_mask + BigBird globals not supported."
+            assert not self.update_pair_repr, "layer_sparse_mask + update_pair_repr not supported."
+        self.layer_sparse_mask = _mask_cfg
         self._layer_mask_logged = False
+
+        _ksplits_cfg = kwargs.get("layer_K_splits", None)
+        if _ksplits_cfg is not None:
+            assert self.layer_sparse_mask is not None, (
+                "layer_K_splits requires layer_sparse_mask to be set."
+            )
+            _ksplits_cfg = [tuple(int(x) for x in s) for s in _ksplits_cfg]
+            _n_sparse = sum(self.layer_sparse_mask)
+            assert len(_ksplits_cfg) == _n_sparse, (
+                f"layer_K_splits has {len(_ksplits_cfg)} entries but layer_sparse_mask "
+                f"has {_n_sparse} sparse layers."
+            )
+            for s in _ksplits_cfg:
+                assert len(s) == 3 and all(v >= 0 for v in s), (
+                    f"each layer_K_splits entry must be (n_seq, n_spatial, n_random) "
+                    f"non-negative ints; got {s}"
+                )
+        self.layer_K_splits = _ksplits_cfg
 
     def attach_router(self, router: torch.nn.Module):
         """Register a frozen router as a submodule for Move-2 router-sparse
@@ -976,10 +1023,12 @@ class LocalLatentsTransformer(torch.nn.Module):
                             seqs, pair_rep, mask, neighbor_idx=None, slot_valid=None
                         )
         elif self.layer_sparse_mask is not None:
-            # Per-layer sparse/dense routing (inference-only diagnostic).
-            # `pair_rep` above was built sparse (since sparse_attention=True is
-            # required by the asserts below); we additionally build the dense
-            # pair_rep from the same `pair_repr_builder` module.
+            # Per-layer sparse/dense routing. Runs in BOTH training (set via the
+            # `layer_sparse_mask` nn-config key) and inference (set after
+            # construction by generate.py). `pair_rep` above was built sparse
+            # (since sparse_attention=True is required by the asserts below); we
+            # additionally build the dense pair_rep from the same
+            # `pair_repr_builder` module so the dense layers get full N×N bias.
             assert self.sparse_attention, "layer_sparse_mask requires sparse_attention=True"
             assert len(self.layer_sparse_mask) == self.nlayers, (
                 f"layer_sparse_mask must have len {self.nlayers}, "
@@ -989,26 +1038,78 @@ class LocalLatentsTransformer(torch.nn.Module):
             assert self.n_global_tokens == 0, "layer_sparse_mask + BigBird globals not supported"
             assert not self.update_pair_repr, (
                 "layer_sparse_mask + update_pair_repr not supported "
-                "(dense baseline has update_pair_repr=False; diagnostic targets that)"
+                "(dense baseline has update_pair_repr=False; hybrid targets that)"
             )
-            pair_rep_sparse = pair_rep
             pair_rep_dense = self.pair_repr_builder(
                 input, neighbor_idx=None, slot_valid=None,
             )
+
+            # Per-layer K: with layer_K_splits set, each sparse layer rebuilds
+            # its own content-free neighbor list + pair_rep_sparse from that
+            # layer's (n_seq, n_spatial, n_random) budget (the
+            # front_plateau_then_taper schedule). This is the native,
+            # differentiable analogue of generate.py's inference-time per-layer
+            # K-ramp monkeypatch — gradients flow through every pair_repr_builder
+            # call. Without layer_K_splits, all sparse layers share the uniform
+            # neighbor_idx / pair_rep built upstream (bit-identical to the
+            # original diagnostic path). The neighbor-INDEX build is non-
+            # differentiable (int gather) so it sits under no_grad; the pair_rep
+            # build does NOT.
+            per_layer_sparse = None
+            if self.layer_K_splits is not None:
+                sparse_idxs = [i for i, s in enumerate(self.layer_sparse_mask) if s]
+                ca_nbr = input["x_t"]["bb_ca"]
+                t_nbr = input["t"]["bb_ca"]
+                _saved_knn = (self.n_seq_neighbors, self.n_spatial_neighbors,
+                              self.n_random_neighbors)
+                per_layer_sparse = {}
+                try:
+                    for li, (ns, nsp, nr) in zip(sparse_idxs, self.layer_K_splits):
+                        self.n_seq_neighbors = ns
+                        self.n_spatial_neighbors = nsp
+                        self.n_random_neighbors = nr
+                        with torch.no_grad():
+                            nbr_i, sv_i = self._build_neighbor_idx(ca_nbr, mask, t=t_nbr)
+                        pair_i = self.pair_repr_builder(
+                            input, neighbor_idx=nbr_i, slot_valid=sv_i,
+                        )
+                        per_layer_sparse[li] = (nbr_i, sv_i, pair_i)
+                finally:
+                    (self.n_seq_neighbors, self.n_spatial_neighbors,
+                     self.n_random_neighbors) = _saved_knn
+
             if not self._layer_mask_logged:
-                print("[layer_sparse_mask] per-layer attention mode:")
+                _ks_by_layer = (
+                    dict(zip([j for j, m in enumerate(self.layer_sparse_mask) if m],
+                             self.layer_K_splits))
+                    if self.layer_K_splits is not None else {}
+                )
+                print("[layer_sparse_mask] per-layer attention mode"
+                      + (" (per-layer K)" if self.layer_K_splits is not None else "") + ":")
                 for li, s in enumerate(self.layer_sparse_mask):
-                    print(f"  layer {li:2d}: {'sparse' if s else 'dense'}")
+                    ktxt = ""
+                    if s and li in _ks_by_layer:
+                        _sp = _ks_by_layer[li]
+                        ktxt = f"  K={2 * _sp[0] + _sp[1] + _sp[2]} (n_seq,n_sp,n_rd)={_sp}"
+                    print(f"  layer {li:2d}: {'sparse' if s else 'dense'}{ktxt}")
                 self._layer_mask_logged = True
+
             for i in range(self.nlayers):
                 use_sparse_i = bool(self.layer_sparse_mask[i])
-                seqs = self.transformer_layers[i](
-                    seqs,
-                    pair_rep_sparse if use_sparse_i else pair_rep_dense,
-                    c, mask,
-                    neighbor_idx=neighbor_idx if use_sparse_i else None,
-                    slot_valid=slot_valid if use_sparse_i else None,
-                )
+                if use_sparse_i:
+                    if per_layer_sparse is not None:
+                        nbr_i, sv_i, pair_i = per_layer_sparse[i]
+                    else:
+                        nbr_i, sv_i, pair_i = neighbor_idx, slot_valid, pair_rep
+                    seqs = self.transformer_layers[i](
+                        seqs, pair_i, c, mask,
+                        neighbor_idx=nbr_i, slot_valid=sv_i,
+                    )
+                else:
+                    seqs = self.transformer_layers[i](
+                        seqs, pair_rep_dense, c, mask,
+                        neighbor_idx=None, slot_valid=None,
+                    )
         else:
             for i in range(self.nlayers):
                 seqs = self.transformer_layers[i](

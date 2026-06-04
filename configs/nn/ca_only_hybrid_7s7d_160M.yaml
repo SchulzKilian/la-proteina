@@ -1,0 +1,89 @@
+# Layer-hybrid CA-only variant: 7 sparse layers (0-6) + 7 dense layers (7-13),
+# trained FROM SCRATCH with the per-layer K schedule baked in.
+#
+# This is the native, trained analogue of the inference-time layer-selective
+# stitching (E092-E096). Instead of taking a dense- or sparse-trained checkpoint
+# and forcing per-layer sparse/dense + per-layer K at inference (monkeypatched
+# in generate.py), the schedule is a property of the model and is active +
+# differentiable from step 0, so the dense upper layers learn against the
+# sparsified lower-layer representations rather than being surprised by them at
+# test time (the "upper bound" caveat from notes/layer_selective_sparse_inference.md).
+#
+# Architecture is byte-equivalent to `ca_only_sparse_160M.yaml` EXCEPT the two
+# new keys at the bottom (layer_sparse_mask + layer_K_splits). Parameter count
+# is identical to the dense/sparse baselines — MultiheadAttnAndTransition runs
+# both the dense and sparse paths (switched by neighbor_idx), so no new params.
+#
+# Schedule provenance:
+#   - lower_half_sparse (layers 0-6 sparse, 7-13 dense) is the uniquely-best
+#     arrangement of 7 sparse + 7 dense (E096: 22/36 vs all alternatives ≤17).
+#   - front_plateau_then_taper K=[56,56,56,40,32,24,16] is the best content-free
+#     per-layer K schedule (E094: 22/36, perfect 12/12 at L=100, first non-zero
+#     L=200 of any K=40-budget schedule). Sum K = 280 (matched flat-K=40 budget).
+#   - K_DECOMP (script_utils/schedule_sweep.py) maps each K-total to a
+#     (n_seq, n_spatial, n_random) triple with K = 2*n_seq + n_spatial + n_random.
+name: local_latents_transformer
+
+output_parameterization:
+  bb_ca: v
+
+nlayers: 14
+token_dim: 768
+nheads: 12
+parallel_mha_transition: False
+
+strict_feats: False
+
+feats_seq: ["xt_bb_ca", "x_sc_bb_ca", "optional_ca_coors_nm_seq_feat", "optional_res_type_seq_feat"]
+feats_cond_seq: ["time_emb_bb_ca"]
+
+dim_cond: 256
+idx_emb_dim: 256
+t_emb_dim: 256
+
+feats_pair_repr: ["rel_seq_sep", "xt_bb_ca_pair_dists", "x_sc_bb_ca_pair_dists", "optional_ca_pair_dist"]
+feats_pair_cond: ["time_emb_bb_ca"]
+
+xt_pair_dist_dim: 30
+xt_pair_dist_min: 0.1
+xt_pair_dist_max: 3
+x_sc_pair_dist_dim: 30
+x_sc_pair_dist_min: 0.1
+x_sc_pair_dist_max: 3
+seq_sep_dim: 127
+pair_repr_dim: 256
+
+# Match baseline: no pair update, no triangular multiplication, no downsampling.
+# update_pair_repr MUST stay False — the layer_sparse_mask path asserts it
+# (the dense baseline didn't use it, and pair_update.py:65 raises with sparse).
+update_pair_repr: False
+update_pair_repr_every_n: 3
+use_tri_mult: False
+use_downsampling: False
+
+use_qkln: True
+
+# Sparse attention machinery must be ON so the neighbor list is built. The
+# uniform (n_seq, n_spatial, n_random) below is the K=40 fallback used only if
+# layer_K_splits were absent — with layer_K_splits set, every sparse layer
+# overrides it with its own budget, so these three values are not load-bearing.
+sparse_attention: true
+n_seq_neighbors: 8
+n_spatial_neighbors: 8
+n_random_neighbors: 16
+
+# --- Layer-hybrid schedule (the only delta from ca_only_sparse_160M) ---
+# 7 sparse (layers 0-6) then 7 dense (layers 7-13).
+layer_sparse_mask: [true, true, true, true, true, true, true,
+                    false, false, false, false, false, false, false]
+
+# Per-sparse-layer K-budget, front_plateau_then_taper [56,56,56,40,32,24,16].
+# One (n_seq, n_spatial, n_random) triple per sparse layer, in mask order.
+layer_K_splits:
+  - [8, 16, 24]   # layer 0  K=56
+  - [8, 16, 24]   # layer 1  K=56
+  - [8, 16, 24]   # layer 2  K=56
+  - [8,  8, 16]   # layer 3  K=40
+  - [4,  8, 16]   # layer 4  K=32
+  - [4,  4, 12]   # layer 5  K=24
+  - [4,  4,  4]   # layer 6  K=16
