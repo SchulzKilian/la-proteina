@@ -57,3 +57,6 @@ results/dense_attn_audit/canonical_2646_grad_per_query.json
 # Small non-checkpoint .pt artifacts explicitly tracked
 !steering/throttle_priors/priors.pt
 
+
+# local toy virtualenv (do not commit)
+.venv_toy/

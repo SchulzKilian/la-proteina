@@ -61,8 +61,8 @@
 | P20 | v2 | Predictor:real gap (gap only) | `P20_v2_predictor_real_gap_only.pdf` | rendered | All 5 fix variants. |
 | P21 | v1 | Negative results lollipop | `P21_v1_neg_results_lollipop.pdf` | rendered | Horizontal lollipop. |
 | P21 | v2 | Negative results grouped bar | `P21_v2_neg_results_grouped_bar.pdf` | rendered | Per-w bars. |
-| P22 | v1 | Codesign Pareto | `P22_v1_codesign_pareto.pdf` | rendered | Production-knee annotated. |
-| P22 | v2 | Codesign dual-axis | `P22_v2_pareto_dual_axis.pdf` | rendered | Trade-off as twin lines. |
+| P22 | v1 | Codesign Pareto (camsol_max) | `P22_v1_codesign_pareto.pdf` | rendered | x = **real CamSol intrinsic solubility (pH 7)** per cell from E116 (`camsol_ph7_full_2026_05_27.csv`); codesign from NA-v1 audit, n=48 anchor (E070). Was SWI proxy; now the actual CamSol algorithm. No title (caption underneath), no knee. |
+| P22 | v2 | Codesign dual-axis | `P22_v2_pareto_dual_axis.pdf` | rendered | Trade-off as twin lines. (Older F13 inline numbers — not yet refreshed to E070.) |
 | P23 | v1 | CamSol per-length strip | `P23_v1_camsol_per_length_strip.pdf` | rendered | Synthesized distribution. |
 | P23 | v2 | CamSol per-length d-bar | `P23_v2_camsol_per_length_bar.pdf` | rendered | Cohen's d per L. |
 | P24 | v1 | Steering anatomy 3-panel | `P24_v1_steering_anatomy.pdf` | rendered | Schedule + data-flow + trace. |
@@ -90,9 +90,22 @@
 | P35 | v1 | Finding–experiment table | `P35_v1_finding_exp_map_table.pdf` | rendered | Role-colored last column. |
 | P35 | v2 | Finding–experiment dot matrix | `P35_v2_finding_exp_dot_matrix.pdf` | rendered | Primary vs supporting dots. |
 | P36 | v1 | Dense vs sparse-K40 inference scaling | `P36_v1_inference_scaling_a100.pdf` | rendered | Real CSV (E120), A100-80GB. Mem + wall-clock vs L; dense OOM at L=2400. |
+| P38 | v1 | K=40 neighbor halo (one residue) | `P38_v1_kneighbor_halo.pdf` | rendered | Synthetic folded CA trace (worm-like chain). Three-color halo of one query's K=40 set: 16 seq ($\pm$8) + 8 spatial + 16 random ($\propto 1/d^3$) + self (slot 0). |
+| P38 | v2 | Dense $N\times N$ vs sparse $N\times K$ mask | `P38_v2_dense_vs_sparse_matrix.pdf` | rendered | Synthetic, N=160. (a) dense uniform fill; (b) sparse group-coded mask (seq band + spatial scatter + 1/d^3 spray). |
+| P39 | v1 | Codesign Pareto (tango_min) | `P39_v1_codesign_pareto_tango.pdf` | rendered | Sibling of P22_v1. x = TANGO score (property units; axis inverted, lower=better). Gentle knee. |
+| P40 | v1 | Codesign Pareto (iupred_max) | `P40_v1_codesign_pareto_iupred.pdf` | rendered | Sibling of P22_v1. x = IUPred disordered fraction (property units; 0.16→1.0). Sharp knee (free at w=32, collapsed by w=64; w$\in${32,64,128}). |
+| P41 | v1 | Codesign Pareto (2-obj combo) | `P41_v1_codesign_pareto_combo.pdf` | rendered | Sibling of P22_v1. x = **real CamSol (pH 7)**, combo's solubility component only (the simultaneous TANGO gain is off-axis; see header). E116 + combo audit. w=32 above baseline (noise per E070). |
+| P42 | v1 | Codesign Pareto (hydpatch_min) | `P42_v1_codesign_pareto_hydpatch.pdf` | rendered | Sibling of P22_v1. x = hydrophobic patch area (\AA$^2$, axis inverted, lower=better; E102 audit). **Gentlest knee of all properties** — codesign 50/40/35 % at w=32/48/64, above/near baseline. |
+| P43 | v1 | CBM fixes iupred Goodhart hack | `P43_v1_cbm_vs_hack_iupred.pdf` | rendered | E109 (NA-v1, hacked) vs E110 (CBM, honest) on iupred target=0.123 down-regulation. Real (solid, from `properties_guided.csv`) vs predicted (dashed, from diagnostics) — normal predictor claims target while real disorder rises to 0.18; CBM lands real at 0.128. Predicted shown only as labelled contrast. |
+| P44 | v1 | Steering Pareto row (hydpatch\|CamSol\|TANGO), no bands | `P44_v1_steering_pareto_row.pdf` | rendered | 3 panels, shared codesign axis + single legend. Real property means per cell; hydpatch/TANGO x inverted (lower=better). Combines P42/P22/P39. Anchor = seed-matched unguided control. |
+| P44 | v2 | Steering Pareto row, $\pm$1 SEM | `P44_v2_steering_pareto_row_sem.pdf` | rendered | Same as P44_v1 with horizontal $\pm$1 SEM error bars. hydpatch SEM wide (means overlap across w=32/48/64); CamSol/TANGO tight. |
+| P45 | v1 | Sparse vs canonical: quality + compute, 3-panel | `P45_v1_sparse_vs_canonical_quality_compute.pdf` | rendered | (A) N=30 matched-seed scRMSD mean bars + best-of-30 ceiling markers (E014/E019) — gap ~2-3× on mean (vs 20× on the hard rate), best-of-30 within ~0.35 Å at L=50/100; (B) wall $L^{1.72}$ dense vs $L^{0.91}$ sparse, crossover L≈200-300, 12.6× at L=2200; (C) peak GPU mem, dense OOM at 80 GB wall (L≈2256), sparse 34× less at L=2200. Panels B/C real CSV (`scaling_a100.csv`, E124). **Caveat: panel A at nsteps=200 (pre-400-rule) + sparse step 1259 vs canonical 2646 — relative/under-trained, not absolute.** |
+| P47 | v1 | Sparse vs canonical: per-$t$ val loss, 2-panel | `P47_v1_sparse_vs_canonical_per_t_val.pdf` | rendered | The "marginally behind at the velocity-field level" story (E043/F11). (A) per-$t$ FM val loss canonical vs sparse — **parallel, not crossing**, sparse a small constant offset above; (B) the offset (sparse−canonical) per bucket — bounded +0.09..+0.18 nat, **+12% (+0.132 nat) at the loss-min bucket** $t\in[0.6,0.8)$. Message: the small loss offset is what the hard 2 Å threshold amplifies into P45-A's 67%→3.3% rate gap. Real JSON (`results/per_t_val/{canonical_2646,sparse_vanilla_1259}.json`), 600-protein paired subset seed=42. **Caveat: sparse step 1259 vs canonical 2646 — offset is an upper bound (conflates architecture w/ ~1400 fewer steps).** |
+| P46 | v1 | Layer-arrangement map for hybrid sampling at L=100 | `P46_v1_layer_sparsification_L100.pdf` | rendered | Single panel. Budget-matched 7-sparse/7-dense layer strips (14 cells, layers 0–13, dense=blue/sparse=amber, sum K=280), ranked by L=100 designability (k/12). Only contiguous dense at the output end (lower_half_sparse) survives 12/12; output-end sparse (dense_middle, bookends) → 0/12. L=100, nsteps=400, inference-only sparse substitution on dense ckpt (best_val_..._2646). Hardcoded from experiments.md E096 (N=12). |
 
 **Counts:**
-- 36/36 P-IDs covered.
-- 72 PDFs produced (P12 has 3 versions; P36 has 1; all others have 2).
-- 0 fallbacks needed; all native pdflatex.
+- 36/36 P-IDs covered (plus P37–P44 added later).
+- 82 PDFs intended (P38 has 2, P44 has 2; P36/P37/P39/P40/P41/P42/P43 have 1 each; P12 has 3; all others 2).
+- All native pdflatex (P38–P44 rendered via the local TinyTeX install at `~/Library/TinyTeX`).
+- Steering Pareto family: x-axes are property scores in native units. P22_v1/P41 (camsol & combo) plot real CamSol pH 7 from E116 (`camsol_ph7_full_2026_05_27.csv`); P39 plots TANGO, P40 IUPred disordered fraction, P42 hydrophobic patch area (from the NA-v1 `steering_cost_audit.csv` files). Codesign unsteered anchor = n=48 paired baseline (47.9 %, E070).
 - 0 P-IDs skipped.

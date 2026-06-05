@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Example pipeline diagram</title>
+  <!-- Override the global --fraction for this figure only. -->
+  <meta name="paper-fraction" content="0.7">
+  <style>
+    body {
+      padding: 18pt 16pt;
+    }
+    .pipeline {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10pt;
+    }
+    .box {
+      border: var(--paper-axis-width) solid black;
+      padding: 7pt 12pt;
+      text-align: center;
+      min-width: 64pt;
+    }
+    .box code { font-size: var(--paper-font-size-small); }
+    .arrow {
+      font-size: 14pt;
+      line-height: 1;
+    }
+    figcaption {
+      text-align: center;
+      margin-top: 10pt;
+      max-width: 90%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  </style>
+</head>
+<body>
+  <figure>
+    <div class="pipeline">
+      <div class="box"><code>input/</code></div>
+      <div class="arrow">&rarr;</div>
+      <div class="box"><code>render.py</code></div>
+      <div class="arrow">&rarr;</div>
+      <div class="box"><code>output/</code></div>
+    </div>
+    <figcaption>
+      Example figure&nbsp;1: HTML/CSS designs are rendered to vector PDF via
+      headless Chromium, with <em>paper.css</em> overriding the source font
+      to Latin Modern Roman so the typography matches the body text.
+    </figcaption>
+  </figure>
+</body>
+</html>

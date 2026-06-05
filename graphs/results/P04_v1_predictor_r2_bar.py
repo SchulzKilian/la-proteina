@@ -41,8 +41,13 @@ for yi, lo, hi, m in zip(y, lows, highs, means):
     ax.scatter([lo, hi], [yi, yi], color="#333", s=8, zorder=4)
 
 ax.set_yticks(y)
-ax.set_yticklabels(names)
+ax.set_yticklabels([])  # names go INSIDE the bars (see below) instead of poking off the left edge
+ax.tick_params(axis="y", length=0)
 ax.set_xlim(0.3, 1.02)
+# property names placed inside each bar, left-aligned (every bar reaches >=0.77, so they fit)
+for yi, name in zip(y, names):
+    ax.text(0.315, yi, name, va="center", ha="left", color="white",
+            fontsize=8, zorder=5)
 ax.set_xlabel(r"5-fold CV $R^2$")
 ax.set_title(r"Multi-task Predictor: 13 Developability Properties")
 ax.axvline(0.8, color="#d62728", ls=":", lw=0.7)

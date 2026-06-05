@@ -1,0 +1,108 @@
+/* ============================================================
+   paper.css — typography overrides for HTML figures.
+   Mirrors graphs/paper.mplstyle so HTML figures match matplotlib
+   figures in a 12pt LaTeX document.
+   render.py injects this as the LAST stylesheet, so it wins over
+   the source HTML's CSS even when that CSS uses inline style="…"
+   or Tailwind utility classes.
+   ============================================================ */
+
+@font-face {
+  font-family: "Latin Modern Roman";
+  src: url("fonts/lmroman10-regular.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Latin Modern Roman";
+  src: url("fonts/lmroman10-bold.otf") format("opentype");
+  font-weight: bold;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Latin Modern Roman";
+  src: url("fonts/lmroman10-italic.otf") format("opentype");
+  font-weight: normal;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Latin Modern Roman";
+  src: url("fonts/lmroman10-bolditalic.otf") format("opentype");
+  font-weight: bold;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Latin Modern Mono";
+  src: url("fonts/lmmono10-regular.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Latin Modern Mono";
+  src: url("fonts/lmmono10-italic.otf") format("opentype");
+  font-weight: normal;
+  font-style: italic;
+}
+
+/* Exposed for figure CSS that wants line widths matching paper.mplstyle. */
+:root {
+  --paper-font-size:        12pt;
+  --paper-font-size-small:  10pt;
+  --paper-line-width:       1pt;     /* lines.linewidth */
+  --paper-axis-width:       0.5pt;   /* axes.linewidth, *tick.major.width */
+  --paper-grid-width:       0.4pt;   /* grid.linewidth */
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: white;
+  color: black;
+  font-size: var(--paper-font-size);
+  line-height: 1.25;
+}
+
+/* Force CM-equivalent font on everything except elements that should
+   stay monospace. !important to beat inline styles and Tailwind. */
+*:not(code):not(pre):not(kbd):not(samp):not(.font-mono):not(.mono) {
+  font-family: "Latin Modern Roman", "Computer Modern Roman", "CMU Serif", serif !important;
+}
+code, pre, kbd, samp, .font-mono, .mono {
+  font-family: "Latin Modern Mono", "Computer Modern Typewriter", monospace !important;
+}
+
+/* Match paper.mplstyle: 10pt for legends / tick labels / captions. */
+small, .small, figcaption, caption,
+.legend, .tick-label, .xtick, .ytick {
+  font-size: var(--paper-font-size-small);
+}
+
+/* Reset chunky browser defaults that would clash with a print figure. */
+h1, h2, h3, h4, h5, h6 {
+  font-size: var(--paper-font-size);
+  font-weight: bold;
+  margin: 0;
+}
+
+/* ------------------------------------------------------------
+   Crop to content. Claude designs frequently use a full-viewport
+   wrapper (`min-h-screen`, `100vh`, etc.) to centre the figure
+   on screen — that wrapper would otherwise force the PDF to be
+   viewport-tall with whitespace. Neutralise all common forms so
+   the page sizes to the actual content.
+   ------------------------------------------------------------ */
+html, body {
+  min-height: 0 !important;
+  height: auto !important;
+}
+[class*="min-h-screen"],
+[class*="min-h-dvh"],
+[class*="min-h-svh"],
+[class*="min-h-lvh"],
+[class*="h-screen"],
+[class*="h-dvh"],
+[class*="h-svh"],
+[class*="h-lvh"] {
+  min-height: 0 !important;
+  height: auto !important;
+}

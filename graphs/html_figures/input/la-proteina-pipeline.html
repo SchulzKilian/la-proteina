@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La-Proteína → bottleneck → properties</title>
+<link rel="stylesheet" href="colors_and_type.css">
+<style>
+  html, body { background: var(--paper-2); margin: 0; }
+  .page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--s-12) var(--s-8);
+    box-sizing: border-box;
+  }
+  figure.fig {
+    margin: 0;
+    width: 100%;
+    max-width: 1240px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-3);
+    box-shadow: var(--shadow-2);
+    padding: var(--s-10);
+    box-sizing: border-box;
+  }
+  .fig svg { display: block; width: 100%; height: auto; }
+
+  /* ---- SVG text styles ---- */
+  .eyebrow-num {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    fill: var(--cam-blue-600);
+    letter-spacing: 0.12em;
+  }
+  .stage-name {
+    font-family: var(--font-sans);
+    font-size: 23px;
+    font-weight: 600;
+    fill: var(--cam-dark);
+    letter-spacing: -0.01em;
+  }
+  .chan-label {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 700;
+    fill: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .token {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 700;
+    fill: var(--cam-dark);
+    text-anchor: middle;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <figure class="fig">
+      <svg viewBox="0 14 1840 506" role="img"
+           aria-label="Pipeline: La-Proteína latents through a transformer, compressed into a bottleneck of amino acids and torsion angles, expanded again by a transformer, to computed developability properties.">
+
+        <!-- ============ STAGE TITLES ============ -->
+        <text class="eyebrow-num" x="70"   y="44">01</text>
+        <text class="stage-name"  x="70"   y="76">La-Proteína latents</text>
+
+        <text class="eyebrow-num" x="345"  y="44">02</text>
+        <text class="stage-name"  x="345"  y="76">Transformer</text>
+
+        <text class="eyebrow-num" x="775"  y="44">03</text>
+        <text class="stage-name"  x="775"  y="76">Bottleneck</text>
+
+        <text class="eyebrow-num" x="1110" y="44">04</text>
+        <text class="stage-name"  x="1110" y="76">Transformer</text>
+
+        <text class="eyebrow-num" x="1560" y="44">05</text>
+        <text class="stage-name"  x="1560" y="76">Properties</text>
+
+        <!-- ============ FLOW CONNECTORS (behind blocks) ============ -->
+        <!-- expand 1: latent (h160) -> transformer (h360) -->
+        <polygon points="240,220 345,120 345,480 240,380"
+                 fill="var(--cam-blue-50)" stroke="var(--cam-blue-300)" stroke-width="1"></polygon>
+        <!-- pinch: transformer (h360) -> bottleneck (h140)  ← the waist -->
+        <polygon points="675,120 775,230 775,370 675,480"
+                 fill="var(--cam-blue-100)" stroke="var(--cam-dark)" stroke-width="1.25"></polygon>
+        <!-- expand 2: bottleneck (h140) -> transformer (h360) -->
+        <polygon points="1005,230 1110,120 1110,480 1005,370"
+                 fill="var(--cam-blue-100)" stroke="var(--cam-dark)" stroke-width="1.25"></polygon>
+
+        <!-- ============ STAGE 1 — LATENT GRID ============ -->
+        <rect x="70" y="220" width="170" height="160" fill="var(--paper)"
+              stroke="var(--cam-dark)" stroke-width="1.25"></rect>
+        <g id="latent-grid"></g>
+
+        <!-- ============ STAGE 2 — TRANSFORMER ============ -->
+        <rect x="345" y="120" width="330" height="360" rx="6" fill="var(--cam-blue-100)"
+              stroke="var(--cam-blue-600)" stroke-width="1.25"></rect>
+        <g id="transformer-1"></g>
+
+        <!-- ============ STAGE 3 — BOTTLENECK ============ -->
+        <rect x="775" y="230" width="230" height="140" fill="var(--paper)"
+              stroke="var(--cam-dark)" stroke-width="1.5"></rect>
+        <line x1="775" y1="300" x2="1005" y2="300" stroke="var(--rule-strong)" stroke-width="1"></line>
+        <text class="chan-label" x="787" y="248">Amino acids</text>
+        <text class="chan-label" x="787" y="319" fill="var(--cam-blue-700)">Torsion angles</text>
+        <g id="bottleneck-inner"></g>
+
+        <!-- ============ STAGE 4 — TRANSFORMER ============ -->
+        <rect x="1110" y="120" width="330" height="360" rx="6" fill="var(--cam-blue-100)"
+              stroke="var(--cam-blue-600)" stroke-width="1.25"></rect>
+        <g id="transformer-2"></g>
+
+        <!-- ============ STAGE 5 — PROPERTIES ============ -->
+        <g id="properties"></g>
+      </svg>
+    </figure>
+  </div>
+
+<script>
+(function () {
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const el = (name, attrs) => {
+    const n = document.createElementNS(SVGNS, name);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+  // deterministic PRNG (mulberry32)
+  function rng(seed) {
+    return function () {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---------- STAGE 1 : latent noise grid (8 dims × 7 residues) ---------- */
+  (function () {
+    const g = document.getElementById("latent-grid");
+    const x0 = 70, y0 = 220, w = 170, h = 160, cols = 7, rows = 8;
+    const cw = w / cols, ch = h / rows;
+    const r = rng(7);
+    for (let c = 0; c < cols; c++) {
+      for (let rr = 0; rr < rows; rr++) {
+        const v = r();
+        g.appendChild(el("rect", {
+          x: (x0 + c * cw).toFixed(2), y: (y0 + rr * ch).toFixed(2),
+          width: cw.toFixed(2), height: ch.toFixed(2),
+          fill: "#133844", "fill-opacity": (0.07 + 0.52 * v).toFixed(3),
+          stroke: "#FFFFFF", "stroke-width": "1"
+        }));
+      }
+    }
+  })();
+
+  /* ---------- transformer internal structure (reusable) ---------- */
+  function drawTransformer(id, x0, y0, w, h, seed) {
+    const g = document.getElementById(id);
+    const lines = 22;
+    for (let i = 1; i < lines; i++) {
+      const y = y0 + (h / lines) * i;
+      g.appendChild(el("line", {
+        x1: x0, y1: y.toFixed(2), x2: x0 + w, y2: y.toFixed(2),
+        stroke: "#517D67", "stroke-opacity": "0.22", "stroke-width": "1"
+      }));
+    }
+  }
+  drawTransformer("transformer-1", 357, 134, 306, 332, 21);
+  drawTransformer("transformer-2", 1122, 134, 306, 332, 88);
+
+  /* ---------- STAGE 3 : bottleneck (amino acids + torsions) ---------- */
+  (function () {
+    const g = document.getElementById("bottleneck-inner");
+    const x0 = 775, w = 230, cols = 7;
+    const cw = w / cols;
+    const seq = "MEKTAYL";
+    const r = rng(33);
+    for (let c = 0; c < cols; c++) {
+      const cx = x0 + cw * c + cw / 2;
+      // amino-acid token (top channel)
+      g.appendChild(el("rect", {
+        x: (x0 + cw * c + 4).toFixed(2), y: 256, width: (cw - 8).toFixed(2), height: 28,
+        rx: 3, fill: "var(--cam-blue-100)", stroke: "var(--cam-blue-600)", "stroke-width": "1"
+      }));
+      const t = el("text", { x: cx.toFixed(2), y: 276, class: "token" });
+      t.textContent = seq[c % seq.length];
+      g.appendChild(t);
+      // torsion ticks (bottom channel) — backbone + side-chain angles
+      for (let k = 0; k < 4; k++) {
+        const tx = x0 + cw * c + 6 + k * ((cw - 12) / 3);
+        const th = 8 + r() * 18;
+        g.appendChild(el("line", {
+          x1: tx.toFixed(2), y1: 362, x2: tx.toFixed(2), y2: (362 - th).toFixed(2),
+          stroke: "#517D67", "stroke-width": "2.6", "stroke-linecap": "round"
+        }));
+      }
+    }
+  })();
+
+  /* ---------- STAGE 5 : developability property chips (fan-out) ---------- */
+  (function () {
+    const g = document.getElementById("properties");
+    const ox = 1440, oy = 300;            // fan origin (transformer-2 right-center)
+    const cx = 1640, cw = 135, ch = 40;   // chip geometry
+    const ys = [128, 184, 240, 296, 352, 408, 464];
+
+    const glyphs = [
+      (gx, gy) => el("circle", { cx: gx, cy: gy, r: 9, fill: "var(--cam-dark)" }),
+      (gx, gy) => el("circle", { cx: gx, cy: gy, r: 9, fill: "none", stroke: "var(--cam-dark)", "stroke-width": "2.2" }),
+      (gx, gy) => el("rect", { x: gx - 8, y: gy - 8, width: 16, height: 16, fill: "var(--cam-blue-600)" }),
+      (gx, gy) => el("rect", { x: gx - 8, y: gy - 8, width: 16, height: 16, fill: "var(--cam-dark)", transform: `rotate(45 ${gx} ${gy})` }),
+      (gx, gy) => el("path", { d: `M ${gx} ${gy - 9} L ${gx + 9} ${gy + 8} L ${gx - 9} ${gy + 8} Z`, fill: "var(--cam-blue-700)" }),
+      (gx, gy) => {
+        const grp = el("g", { stroke: "var(--cam-dark)", "stroke-width": "2.4", "stroke-linecap": "round" });
+        grp.appendChild(el("line", { x1: gx - 9, y1: gy - 4, x2: gx + 9, y2: gy - 4 }));
+        grp.appendChild(el("line", { x1: gx - 9, y1: gy + 4, x2: gx + 5, y2: gy + 4 }));
+        return grp;
+      },
+      (gx, gy) => {
+        const grp = el("g", { stroke: "var(--cam-blue-600)", "stroke-width": "2.4", "stroke-linecap": "round" });
+        grp.appendChild(el("line", { x1: gx, y1: gy - 9, x2: gx, y2: gy + 9 }));
+        grp.appendChild(el("line", { x1: gx - 9, y1: gy, x2: gx + 9, y2: gy }));
+        return grp;
+      }
+    ];
+
+    ys.forEach((y, i) => {
+      g.appendChild(el("line", {
+        x1: ox, y1: oy, x2: cx, y2: y + ch / 2,
+        stroke: "var(--cam-blue-600)", "stroke-opacity": "0.45", "stroke-width": "1.25"
+      }));
+      g.appendChild(el("rect", {
+        x: cx, y: y, width: cw, height: ch, rx: 5,
+        fill: "var(--paper-3)", stroke: "var(--rule-strong)", "stroke-width": "1"
+      }));
+      g.appendChild(glyphs[i](cx + 26, y + ch / 2));
+      g.appendChild(el("rect", { x: cx + 52, y: y + ch / 2 - 7, width: 64, height: 5, rx: 2.5, fill: "var(--ink-4)", "fill-opacity": "0.55" }));
+      g.appendChild(el("rect", { x: cx + 52, y: y + ch / 2 + 2, width: 42, height: 5, rx: 2.5, fill: "var(--ink-4)", "fill-opacity": "0.35" }));
+    });
+
+    g.appendChild(el("circle", { cx: ox, cy: oy, r: 4, fill: "var(--cam-dark)" }));
+  })();
+})();
+</script>
+</body>
+</html>

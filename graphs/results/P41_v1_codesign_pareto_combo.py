@@ -1,18 +1,18 @@
-# P22_v1: Codesign rate vs real CamSol solubility Pareto frontier — camsol_max.
-# Visualizes: F13 / E116 steering Pareto. As steering weight w rises, the real
-#   CamSol intrinsic solubility (pH 7, Vendruscolo/Sormanni-lab) grows while
-#   codesignability falls.
+# P41_v1: Codesign rate vs real CamSol solubility Pareto frontier — 2-obj combo.
+# Visualizes: E068 / E116 steering Pareto for the camsol_max + tango_min cocktail
+#   (both objectives at weight 1.0), on the real CamSol solubility axis.
+# CAVEAT: this is a TWO-objective cell (solubility AND aggregation). The x-axis
+#   shows only the SOLUBILITY (CamSol) delivery; the simultaneous TANGO reduction
+#   is not on this axis. Read alongside P22_v1 (camsol-alone): at matched w the
+#   combo delivers slightly less CamSol than camsol-alone because it splits effort
+#   into the TANGO objective (not shown here) — that trade is the point of the combo.
 # DATA:
-#   x  = real CamSol pH 7, mean per cell, from results/camsol_ph7_full_2026_05_27.csv
-#        (E116 — the full Vendruscolo return spanning ALL weight cells). The
-#        unsteered anchor is the seed+length-matched unguided control (the
-#        `sanity_*_u` subruns, seeds 42-57, mean ~1.63). NOTE: this is the ACTUAL
-#        CamSol algorithm, not the SWI proxy — camsol_intrinsic is always-NaN in
-#        the in-pipeline developability panel, so earlier versions of this figure
-#        plotted SWI; F13's external CamSol run is the real solubility axis.
-#   y  = codesign rate, per cell, from results/noise_aware_high_w_scout/
-#        steering_cost_audit.csv (NA-v1 predictor); unsteered codesign anchor is
-#        the n=48 paired baseline (47.9 %, E070).
+#   x = real CamSol pH 7, mean per cell, from results/camsol_ph7_full_2026_05_27.csv
+#       (E116, `combo_camsol_tango_w*` subruns). Unsteered anchor = seed-paired
+#       unguided control (`sanity_*_u`, seeds 42-57, mean ~1.63).
+#   y = codesign rate per cell, from results/combo_camsol_tango_scout/
+#       steering_cost_audit.csv (NA-v1); unsteered codesign anchor = n=48 paired
+#       baseline (47.9 %, E070).
 # NOTE: no in-axes title (caption goes underneath in LaTeX); no knee annotation.
 import sys
 import csv
@@ -25,9 +25,9 @@ import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).parent.parent.parent
 CAMSOL_CSV = ROOT / "results" / "camsol_ph7_full_2026_05_27.csv"
-AUDIT_CSV = ROOT / "results" / "noise_aware_high_w_scout" / "steering_cost_audit.csv"
-DIRECTION = "camsol_max"
-CELL_PREFIX = "camsol_max_w"             # subrun pattern in the CamSol CSV
+AUDIT_CSV = ROOT / "results" / "combo_camsol_tango_scout" / "steering_cost_audit.csv"
+DIRECTION = "combo_camsol_tango"
+CELL_PREFIX = "combo_camsol_tango_w"     # subrun pattern in the CamSol CSV
 WSET = [32, 48, 64, 128]
 XLABEL = r"CamSol intrinsic solubility (pH 7)"
 CODESIGN_UNSTEERED = 47.9                # n=48 paired baseline (E070)
