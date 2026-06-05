@@ -22,8 +22,12 @@ When a finding is later promoted from this file into `content_masterarbeit.md`, 
 
 | ID | Date | Status | Topic | Narrative? |
 |---|---|---|---|---|
-| [E126](#e126--ld3-official-full-atom-inference-memorycompute-scaling-on-a100-dense-memory-law-is-model-invariant-978-mb-constant-offset-over-ca-only-same-00156-l-slope-oom-at-l2267-2026-06-04) | 2026-06-04 | finished | Official **full-atom LD3** arm (`LD3_ucond_notri_800.ckpt`, config `inference_ucond_notri_long`, `_ca_only_mode=False`: AE + latent + full-atom decode) of the [E124](#e124--inference-compute-scaling-on-a100-dense-oom-ceiling-measured-ca-only-canonical-vs-sparse-k40-l1002400-2026-06-03) benchmark — same script/ladder, N=2, nsteps=400, seed=5, L=100–2400, A100-80GB. Removes E124's "CA-only, not official LD3" caveat for the memory-scaling story. `OUTPUT_CSV=…/scaling_a100_ld3.csv`. | **Dense memory law is model-invariant.** LD3 uses **exactly +978 MB more than the CA-only dense arm at every length** (978 at L=100…2200, no drift) — a pure constant. Fit `mem(L) ≈ 1595 + 0.01563·L²`; the **quadratic slope 0.0156 is identical** to CA-only dense + E074's L4 (the `[B,N,N,d]` pair tensor dominates and is model- *and* hardware-invariant). The +978 MB is the L-independent AE/latent/full-atom overhead. **LD3 OOM ceiling L≈2267** (fits **L=2200 at 77255 MB / 75.4 GB**, OOMs L=2400 at peak ~80384 MB) — only ~16 residues earlier than CA-only despite the offset, because the quadratic dominates at the wall. Wall ~3–12% slower than CA-only dense (fraction shrinks with L: +12.5% @L=100 → +3.5% @L=2200). | non-narrative tuning receipt, but **Finding-grade**: validates E124's closed-form OOM predictor `L=sqrt((card_GB·1024−offset)/0.0156)` on the *real* model (offset 1595 not 614), so E124's scaling law is no longer CA-only-caveated. No quality claim (N=2). |
 | [E125](#e125--from-scratch-trained-7-sparse--7-dense-layer-hybrid-front_plateau_then_taper-k-schedule-baked-in-2026-06-04) | 2026-06-04 | in progress | First **from-scratch trained** layer-hybrid (native analogue of the inference-only stitching E092–E096): layers 0–6 sparse with the **front_plateau_then_taper** per-layer K-schedule [56,56,56,40,32,24,16], layers 7–13 dense. `layer_sparse_mask` + `layer_K_splits` ported from generate.py monkeypatch into the **trunk forward** so they're active + differentiable during training. Canonical OLD recipe (wd=0.05, const LR=2e-4), 1× A100, run_name_ `ca_only_hybrid_7s7d`, jobs 30081747→30081748 (afterany, 2×12h ≈ target 14h). | **Submitted; no training numbers yet.** Pre-submit correctness: native per-layer-K path is **bit-identical (0.00e+00, fp32)** to the global-sparse path under deterministic K-sets (n_random=0); fwd+bwd grad-flow reaches the shared pair builder + a sparse + a dense layer; 158.3M params (== baseline, no new params). Tests whether training the dense upper layers *against* sparsified lower-layer reps removes the "upper-bound" caveat of the dense-weights inference diagnostic. | non-narrative until designability probe — feeds the layer-hybrid architecture story (E092–E096); if the trained hybrid clears the L=100/200 bar where the inference stitch on dense weights did not, it becomes Finding-grade. |
+| [E126](#e126--ld3-official-full-atom-inference-memorycompute-scaling-on-a100-dense-memory-law-is-model-invariant-978-mb-constant-offset-over-ca-only-same-00156-l-slope-oom-at-l2267-2026-06-04) | 2026-06-04 | finished | Official **full-atom LD3** arm (`LD3_ucond_notri_800.ckpt`, config `inference_ucond_notri_long`, `_ca_only_mode=False`: AE + latent + full-atom decode) of the [E124](#e124--inference-compute-scaling-on-a100-dense-oom-ceiling-measured-ca-only-canonical-vs-sparse-k40-l1002400-2026-06-03) benchmark — same script/ladder, N=2, nsteps=400, seed=5, L=100–2400, A100-80GB. Removes E124's "CA-only, not official LD3" caveat for the memory-scaling story. `OUTPUT_CSV=…/scaling_a100_ld3.csv`. | **Dense memory law is model-invariant.** LD3 uses **exactly +978 MB more than the CA-only dense arm at every length** (978 at L=100…2200, no drift) — a pure constant. Fit `mem(L) ≈ 1595 + 0.01563·L²`; the **quadratic slope 0.0156 is identical** to CA-only dense + E074's L4 (the `[B,N,N,d]` pair tensor dominates and is model- *and* hardware-invariant). The +978 MB is the L-independent AE/latent/full-atom overhead. **LD3 OOM ceiling L≈2267** (fits **L=2200 at 77255 MB / 75.4 GB**, OOMs L=2400 at peak ~80384 MB) — only ~16 residues earlier than CA-only despite the offset, because the quadratic dominates at the wall. Wall ~3–12% slower than CA-only dense (fraction shrinks with L: +12.5% @L=100 → +3.5% @L=2200). | non-narrative tuning receipt, but **Finding-grade**: validates E124's closed-form OOM predictor `L=sqrt((card_GB·1024−offset)/0.0156)` on the *real* model (offset 1595 not 614), so E124's scaling law is no longer CA-only-caveated. No quality claim (N=2). |
+| [E127](#e127--all-properties--afdb-average-target-steering-w-sweep-w81632-2026-06-04) | 2026-06-04 | finished | All 14 predictor properties steered to their **AFDB population mean** (`direction=target`, `target_value`=noise-aware ensemble training mean → `target_z=0`); "make a maximally typical protein". Noise-aware multitask 5-fold ensemble, denoised, w∈{16,32,64} (w8 cancelled mid-codesign, swapped for w64), seeds 42–57 × L{300,400,500}, nsteps=400, 1×L4. | **Benign because on-manifold:** distance to AFDB centroid drops monotonically 2.03→1.75→1.40→**0.98σ** (w64), codesign **DEAD FLAT 48→52→52→52%** — no crater even at w64 (vs single-property extreme steering which craters to ~19% at w64). Best convergence for free at w64. Real props moved honestly; predictor over-reports composition axes (shannon/swi/iupred). |
+| [E128](#e128--canonical-designability-probe-ca_only_hybrid_7s7d-step-819-7-sparse--7-dense-layers-k40-2026-06-04) | 2026-06-04 | in progress | N=6 × L∈{50,100,200} × nsteps=400 designability probe of the layer-hybrid sparse/dense CA-only model (`ca_only_hybrid_7s7d`, step 819). Does 7-sparse/7-dense clear the canonical sample-quality bar? | non-narrative — checkpoint health check |
+| [E129](#e129--canonical-designability-probe-ca_only_hybrid_7s7d-step-881-7-sparse--7-dense-layers-k40-2026-06-04) | 2026-06-04 | finished | N=6 × L∈{50,100,200} × nsteps=400 designability probe of the layer-hybrid sparse/dense CA-only model (`ca_only_hybrid_7s7d`, step 881). **1/18 designable** (L50 1/6, L100 0/6, L200 0/6) — did NOT clear the variant bar. | non-narrative — checkpoint health check |
+| [E130](#e130--hydpatch_min-low-w-extension-w-124816--fill-the-low-w-foot-of-the-dose-response-2026-06-05) | 2026-06-05 | finished | Low-w extension of the E102 `hydrophobic_patch_total_area` minimize sweep — w∈{1,2,4,8,16} × 16 seeds × L∈{300,400,500} = 240 PDBs, same NA-v1 recipe, into the same `results/hydpatch_min_sweep/` tree. **Flat foot → engagement at w≈32–48**: w=1→16 move area only −0.2%→−3.2% with every codesign delta ±2.08pp (±1/48 = noise); first real codesign cost at w=48 (−8.3pp). Confirms the Pareto knee with no surprises below w=32; matches the camsol/tango {1,2,4,8,16} feet. | non-narrative — completes E102 dose-response curve |
 | [E124](#e124--inference-compute-scaling-on-a100-dense-oom-ceiling-measured-ca-only-canonical-vs-sparse-k40-l1002400-2026-06-03) | 2026-06-03 | finished | A100-80GB extension of [E074](#e074--inference-time-compute-benchmark-sparse-k40-vs-canonical-dense-2026-05-20): peak GPU memory + per-protein wall at **L=100..2400**, N=2, nsteps=400, seed=5, both **CA-only** arms (canonical-dense `baseline_wd0.05_step2646.ckpt` vs sparse-K40 `sparse_K40_step1259.ckpt`). OOM-resilient + resumable runner `script_utils/benchmark_inference_scaling.py` / `run_benchmark_scaling_a100.sh`. | **Dense OOM ceiling measured (the E074-flagged unknown):** dense fits **L=2200 at 74.5 GB** (76276 MB), **OOMs at L=2400** (peak ~79.4 GB → 80 GB wall); extrapolated ceiling **L≈2256**. Sparse fits **all of L=2400 at 2.3 GB** and never OOMs. Dense memory law is **hardware-invariant**: `≈ 614 + 0.0156·L²` (Δmem/ΔN²=0.0156, identical to E074's L4). At L=2200 sparse uses **34× less memory** (2227 vs 76276 MB) and is **12.6× faster** (17.5 vs 220.6 s/p). Crossover on A100: memory L=100→200, speed L=200→300. | non-narrative — **completes the E073/E074 compute story** with the measured dense OOM length-ceiling on A100 (E074 L4 could only flag it as unmeasured). CA-only models, not official LD3 — absolute numbers are a CA-only lower bound; scaling *shape* transfers. |
 | [E123](#e123--per-residue-co-throttle-frontier-geometric--rama-proxies-at-w16-throttle-rescues-designability-but-delivers-near-unguided-co-frontier-comparison-incomplete-2026-06-02) | 2026-06-02 | in progress | Per-residue latent-channel CO throttle frontier (`steering/throttle.py`, `submit_perres_co_frontier_hpc.sh`): no-throttle baseline vs per-residue **geometric** and **rama** throttle on `contact_order` minimize, w16, L=300, seeds 42–49, nsteps=400, LD3+AE2_800, `inference_ucond_notri_long`, in-process CA-ProteinMPNN (8 seqs) + ESMFold. β calibrated to s=0.2 at per-residue ΔP p90 (geom 171.48, rama 0.87). Jobs 29978456 (geom arm), 29979420 (baseline+rama); 29978243/246 redundant, cancelled 12:06. Status read live off RDS-mounted slurm logs + `failfast_verdict.py`. | **Surface designability win, but comparison incomplete + throttle barely steers.** Protein-level designable (scRMSD_ca_min<2 over 8 MPNN): baseline_w16 **1/8 (12.5%)**, geometricres_w16 **7/8 (87.5%)**, ramares_w16 **7/8 (87.5%)**, geometricres_w4 **7/7 (100%)**. **Delivered CO (lower=more steering, unguided≈0.104):** baseline_w16 **0.044** (heavy steering, off-manifold) vs throttle cells **mean 0.091–0.102 / median 0.084–0.108 ≈ unguided** (geo_w16 median 0.108 is *above* unguided). `failfast_verdict.py` prints "ABOVE frontier (throttle helps)" Δ=+75–87.5% but compares against baseline_w16 (CO=0.044), **NOT a matched-delivered-CO baseline** — baseline w4/w8/w32 are "no data yet", so the matched-CO lower curve is missing and the "helps" verdict is not yet valid. Likely the calibrated β over-damps (throttle clamps guidance to ~0, trivially preserving designability). | non-narrative until the baseline-weight curve (w4/8/32) runs to give a matched-delivered-CO comparison — feeds the per-residue-vs-whole-protein throttle decision (cf [E098](#e098--geometric-look-ahead-minimize-sweep-throttle-auto-caps-effective-guidance-and-prevents-high-λ-collapse-2026-05-28) whole-protein throttle 7/12@w16). |
 | [E122](#e122--dynamic-k-hang-debug-6ok1_a-is-clean-builder-fine-on-cpu-in-process-faulthandler-bypasses-the-ptrace-block-wedge-is-timing-dependent-not-deterministic-2026-05-31) | 2026-05-31 | in progress | Root-cause hunt for the dynamic-K spin-hang. Inspected `6ok1_A` (clean), ran the neighbor builder on its real coords on CPU (fine), armed an in-process `faulthandler` (no ptrace) in a debug job to dump the stuck stack. | **`6ok1_A` clean** (L=382, 0 NaN/Inf, no duplicate Cα); **CPU builder fine** at K_b=191 → GPU-kernel-level, not an algorithmic loop. **`6ok1_A` is the epoch-start log anchor, not the culprit.** **Wedge did NOT reproduce deterministically** — debug job 29930917 resumed from the same step-503 ckpt and ran healthy >3 min — **revises E121 → timing/race-dependent.** Still hunting the stuck stack. | non-narrative — operational/debug; blocks E117. |
@@ -9638,7 +9642,106 @@ Three estimators on the w16 cells (the decisive cliff, baseline_w16 = 6.2% desig
 
 **Methodological caveats:** (1) Phase-2 post-hoc revert ≠ a throttle; an in-loop burial-gated throttle *prevents* polarizing buried positions *during* steering (keeps the unguided hydrophobic), not a bulk 80-residue post-hoc rewrite. The right test for the solubility lead is that new in-loop infra, not this probe. (2) Reverting to L (no seed-matched unguided sequence available — net_charge_max_sweep has 0 unguided pdbs) is a crude stand-in for "what unguided would place." (3) High-w gate AUCs (camsol w128=1.00) are small-n (≈1 designable) — the trustworthy cells are w32/w64. (4) iupred_max objective inherently fights folding (maximize disorder), so its gate signal is hard to attribute. (5) sap/rg are coord-channel ⇒ their throttle is the structural one already killed in addendum-7.
 
-**Possible narrative:** updates [[project_throttle_doesnt_move_frontier]] — the blanket "throttle dead" now has ONE documented exception-candidate: **solubility-property steering has buried-localized, separable collapse** (gate AUC 0.73–0.83), unlike charge/structural/aggregation. Not yet a Finding (unproven — needs the in-loop burial throttle). Logged as the concrete next-experiment lead. Non-narrative for now.
+**Possible narrative:** updates [[project_throttle_doesnt_move_frontier]] — the blanket "throttle dead" now has ONE documented exception-candidate: **solubility-property steering has buried-localized, separable collapse** (gate AUC 0.73–0.83), unlike charge/structural/aggregation. Not yet a Finding (unproven — needs the in-loop burial throttle). Logged as the concrete next-experiment lead. Non-narrative for now. → **FOLLOWED UP in E114-addendum-9, which BUILT the in-loop burial throttle and it WORKS.**
+
+### E114-addendum-9 — In-loop BURIAL throttle on camsol: FIRST throttle to clear the codesign frontier (camsol_max w64, p=0.021) (2026-06-03)
+
+**Status:** finished (preliminary-but-significant; replication pending — see caveats). Built the in-loop burial throttle that addendum-8 pointed at and ran a matched-seed A/B. This is the first throttle in the entire E112→E114 saga to sit significantly ABOVE the codesign–delivery frontier rather than on it.
+
+**Implementation (new infra):** `steering/throttle.py` gained `type: burial` — a per-residue forward damper `s_i = exp(-beta * relu(nbr_i - nbr_q))` where `nbr_i` = CA neighbor count within `radius_nm` (1.0 nm) on the clean-CA look-ahead estimate, `nbr_q` = per-protein neighbor-count quantile (0.5). Damps the steering update at BURIED positions => "steer the surface, spare the fold-core". Needs ONLY CA coords (no CBM/g1/priors), so it drops into any steering predictor. `bb_ca`/`v_bb_ca`/`t_bb_ca` threaded from `product_space_flow_matcher.py` (already forwarded) through `steering/guide.py` `**_extra_kwargs` into `throttle.apply()`. Smoke: s_mean 0.66, s_min 0.014, frac_throttled 0.48 (core protected to s≈0.01).
+
+**Configs/run:** `steering/config/sweep_burial_camsol/camsol_w64_{b0,b010,b025}.yaml` = the noise_aware_high_w camsol_max_w64 config (5-fold `multitask_t1_noise_aware` predictor, `local_latents`, linear_ramp w_max=64, t0.3–0.8) + `throttle: {type: burial|none, beta: 0/0.10/0.25, radius_nm 1.0, quantile 0.5}`. Driver `script_utils/run_burial_camsol_probe.sh`, eval `script_utils/run_burial_camsol_eval.py`. Local L4 `gxp-l4-0` GPU3, nsteps=400, seeds 42–57, L∈{300,400} (n=32/cell). Codesign = ESMFold `use_pdb_seq=True`, coScRMSD_ca<2. Baseline frontier reused from `noise_aware_high_w_scout/camsol_max_w{32,48,64,128}` (codesign on disk). Generation ~23–34s/sample.
+
+**Results — delivery measured as SURFACE-KD (mean Kyte-Doolittle over EXPOSED residues; the honest camsol proxy — whole-seq KD is confounded because the throttle deliberately keeps buried hydrophobics; camsol_intrinsic is always-NaN in the dev panel):**
+
+| cell | n | codesign | surfKD (delivery) | coreKD (mechanism) |
+|---|---|---|---|---|
+| baseline w32 | 48 | 42% | -1.751 | +0.393 |
+| baseline w48 | 48 | 27% | -1.874 | +0.166 |
+| baseline w64 | 48 | 19% | -2.049 | -0.162 |
+| baseline w128 | 48 | 2% | -2.386 | -0.969 |
+| b0 (no throttle) | 32 | 25% | -2.025 | -0.137 |
+| b010 (β.10) | 32 | 31% | -1.983 | +0.259 |
+| **b025 (β.25)** | 32 | **47%** | -1.954 | **+0.439** |
+
+**Matched-delivery test (ACTUAL baseline samples within ±0.15 surfKD, Fisher exact — NO chord interpolation, per the addendum-5/7 lesson):**
+- **b025: 47% (15/32) vs baseline-in-band 20% (8/41) at matched surfKD -1.95 → Fisher p=0.021. ABOVE frontier.**
+- b010: 31% vs 18% in band, p=0.27 (dose-dependent; only strong throttle clears it).
+- Dose-response monotonic: b0 25% → b010 31% → b025 47% codesign.
+
+**Mechanism CONFIRMED (coreKD column):** as w rises the no-throttle baseline drives the buried core POLAR (+0.39 @ w32 → -0.97 @ w128); the burial throttle KEEPS the core hydrophobic (b025 coreKD +0.44, ~baseline w32) WHILE cleaning the surface as much as baseline w48/w64 (surfKD -1.95). Same delivered surface-solubility, foldable core ⇒ 2.3× codesign at matched delivery. Exactly the addendum-8 separability hypothesis realized in-loop.
+
+**Verdict: the burial throttle MOVES the frontier for camsol — the first throttle that does. Refutes the blanket "all throttles = w-reduction" for the solubility/surface-property class.** Consistent with the deeper rule: a throttle works iff the property-delivering steps (surface cleaning) and the fold-breaking steps (core polarization) are SEPARABLE — true for solubility (surface vs core), false for charge (compositional), structural (property=channel), tango (buried collocation).
+
+**Methodological caveats (deliberately stated; I overclaimed once today on E114-add-7 via interpolation):** (1) surfKD is a PROXY for camsol, not real camsol_intrinsic (always-NaN locally) — the gold-standard CamSol/aggregation metric should confirm. (2) n=32 throttle vs 41 baseline-in-band; p=0.021 is good but single-test — a logistic codesign~surfKD+throttle and higher-n replication would firm it. (3) Single property (camsol), single w (w64). MUST replicate on hydpatch_min (other gate-positive prop) and at higher w (w128, baseline 2%) to test "the throttle implicitly lowers guidance, so push w up" (the user's standing point). (4) b0-vs-old-baseline run noise ≈ +6% at matched surfKD; the +27pp effect is ~4.5× that floor, so not noise, but replication still wanted. (5) The static spatial mask (always damp buried) is what worked; the per-step ΔP-burial look-ahead ("drop steps that worsen buried-polar") is untested and may do better by sparing benign buried steps.
+
+**Possible narrative:** STRONG Finding candidate (first throttle to beat the frontier) but NOT yet promoted — pending real-camsol confirmation + hydpatch/higher-w/more-seed replication. Updates [[project_throttle_doesnt_move_frontier]] from "blanket dead" to "dead except surface/solubility properties, where the burial throttle clears it (p=0.021, mechanism confirmed)." See addendum-8 (gate) for the lead that predicted this.
+
+**>>> n=64 + w128 UPDATE (2026-06-03, same day) — the effect REGRESSED to marginal; downgrade from "clears the frontier" to "promising marginal lead, moderate-w only":**
+Doubled w64 to n=64 (added seeds 58–73) and added w128 (2-GPU run, GPU3 w64-extra + GPU6 w128, driver `run_burial_gen_phase.sh` + `run_burial_post.sh`, eval `run_burial_camsol_eval2.py`).
+- **w64 b025 n=64: codesign 39% (25/64) @ surfKD -1.994, coreKD +0.429; matched-band baseline 20% (8/41) → Δ+20pp, Fisher p=0.0517 — JUST MISSED significance.** The n=32 47%/p=0.021 was a high draw; the new 32 seeds came in ~31%, averaging to 39%. Classic regression-to-mean of a significant small-sample effect (was flagged as the live risk).
+- **w64 b0 n=64: 23% @ surfKD -2.051 → Δ-3%, p=0.82 — no-throttle baseline confirmed DEAD-ON the frontier** (the n=32 +6% was noise). So the throttle gap is NOT a baseline artifact — the floor is verified flat, the throttle floats ~+20pp above it. Mechanism intact (coreKD +0.43 throttle vs -0.11 no-throttle).
+- **w128 (high-w): throttle does NOT rescue.** b0_w128 3% (1/32), b025_w128 9% (3/32); direct A/B Fisher p=0.61 (NS); throttle vs frontier Δ-10% p=0.30 (below). coreKD did partially protect (-0.91→+0.05) but at w128 the collapse is too severe for core-protection to clear the frontier. The "push w higher" test found the ceiling: works at moderate w, breaks at extreme w.
+
+**Corrected verdict: BEST throttle result in the saga (a real ~2× codesign effect at moderate w with a confirmed mechanism on a verified-flat baseline) but MARGINAL (p≈0.05), magnitude-modest (+20pp), and w64-only — NOT the clean frontier-clear the first n=32 read suggested. Probability it's a robust build-worthy improvement: ~45% (down from ~60%).** To resolve: n→128 at w64 (push p decisively), a mid-w point (w48/w96; w128 is too collapsed), real CamSol metric, hydpatch replication. Methodological note to self: this is the SECOND small-n overclaim today (cf. add-7 interpolation) — n=32 Fisher at p=0.02 is NOT enough to call a frontier-move; wait for n≥64 before any "throttle works" language.
+
+### E114-addendum-10 — Burial throttle does NOT unlock L=500 camsol steering (2026-06-03)
+
+**Status:** finished (negative; n=16/cell underpowered for small effects). Tested the hypothesis (from add-9's length trend L300 +13pp → L400 +19pp + "longer = bigger core to protect") that the burial throttle could revive designable camsol steering at L=500 — a capability-unlock story if true. b0 (no throttle) vs b025 (burial β0.25) at L500, bracketed w∈{32,64}, seeds 42-57 (n=16), nsteps=400, noise_aware predictor. Driver `run_burial_l500_gen.sh`, eval `run_burial_l500_eval.py`. 2-GPU (GPU6 w32, GPU7 w64).
+
+**Results (codesign, use_pdb_seq):**
+- w32: b0 19% (3/16), b025 19% (3/16) — IDENTICAL, p=1. Baseline not collapsed (w32 gentle at L500) → nothing to rescue.
+- w64: b0 6% (1/16), b025 12% (2/16) — 2 vs 1 designable, p=1 (noise). Baseline over-collapsed → no recoverable core (same boundary as w128 at L300).
+
+**Verdict: NO L500 unlock.** Going to L500 shifts the collapse to lower w: w32 too gentle (19%, nothing to rescue), w64 already over-collapsed (6%, throttle's death regime). The throttle's moderate-collapse operating window wasn't hit at L500 w∈{32,64} (if it exists there at all, maybe w~44-48). The L300/400 length trend did NOT extrapolate to an unlock — L500 just compressed the usable steering range. CORRECTION (overclaim fixed): n=16 rules out NEITHER a small NOR a dramatic effect at w64 — CIs b0 6% [1-28%] vs b025 12% [3-36%] overlap almost fully, consistent with anything from null to a 5x unlock. w64-L500 is UNDERPOWERED/INCONCLUSIVE, not negative (baseline IS collapsed at 6%, so room to rescue exists; one b025 fold hit coScRMSD 0.93). w32 is a clean null but uninformative (baseline not collapsed). Resolving needs n~48 at w64 + a w48 sweet-spot probe (add-11). Probability of an L500-unlock "major story": ~15%. The add-9 moderate-w L300/400 effect (~2x codesign, p≈0.05, mechanism confirmed) stands and is unchanged; it just does not extend to L500. See [[project_throttle_doesnt_move_frontier]].
+
+### E114-addendum-10b — L500 burial throttle HELD at n=48 (p=0.059, recovers to unsteered ceiling) — UPGRADES add-10 (2026-06-03)
+
+Expanded add-10's underpowered w64-L500 cell from n=16 to **n=48** (seeds 42-89, 2-GPU). Anchored against the seed-matched UNSTEERED L500 codesign ceiling (`noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv`): L300=94%, L400=38%, **L500=12%**.
+
+**w64 L500, n=48:** b0 (no throttle) **1/48=2%** [CI 0-11%]; b025 (burial) **7/48=15%** [CI 7-27%]; **Fisher p=0.059** (ceiling 12%). Designable surfKD: b025's 7 folds at -2.356 (MORE steered) vs b0's 1 at -2.246 → recovers HARD-steered proteins, not w-reduction. w32 L500 control flat (19% vs 19%, p=1 — w32 doesn't crater L500, nothing to rescue).
+
+**Key reframe (the right denominator):** measure the throttle against the UNSTEERED CEILING, not an absolute bar. The throttle recovers the steering-induced codesign loss, and the recovered FRACTION grows with length: L300 34→47% of 94 (22% of loss), L400 12→31% of 38 (73%), **L500 2→15% — recovers to/above the 12% ceiling (~100%+).** Mechanism: longer proteins have bigger cores → more for a burial throttle to protect → more complete cancellation of the camsol core-polarization damage.
+
+**Length-resolved codesign-vs-w (noise_aware camsol_max):** cratering onset ~w48 at ALL lengths, but the crash at w64 is far worse at longer L relative to ceiling: L300 94→44%, **L400 38→6% (basically destroyed)**, L500 12→2%. So the throttle's value concentrates at long proteins under strong steering — L400 is the practical sweet spot (meaningful 38% ceiling, unthrottled w64 destroys it to 6%, throttle recovers to 31% = +25pp).
+
+**Status: HELD at n=48, borderline-significant (p=0.059), did NOT regress (unlike L300 add-9 which fell 47→39%).** This is the strongest throttle result of the saga and it's length-concentrated. Caveats: still surfKD proxy (not real CamSol); p just misses 0.05 (one fold from sig — fragile); w48-L500 intermediate point + n→96 to settle p<0.05 pending. Next-experiment priority shifts from L500 (ceiling too low for big absolute yield) to **L400 at n=48-64** (where +25pp at a useful ceiling could become a real Finding). See [[project_throttle_doesnt_move_frontier]].
+
+### E114-addendum-11 — CORRECTION: burial throttle does NOT beat the frontier at ANY length (rigorous real-sample retest) (2026-06-03)
+
+**SUPERSEDES the optimistic claims in add-9 / add-10b.** Those used flawed comparisons (same-w throttle-vs-vanilla, and a too-narrow baseline pool). Retested properly: throttle codesign vs REAL no-throttle (vanilla) noise_aware-camsol samples at MATCHED delivered surface-solubility (surfKD band), pooling ALL vanilla w (ensemble w1-16 + high_w_scout w32-128 + burial b0 w64), per length. No chord interpolation, no same-w.
+
+Pooled vanilla n=486, throttle n=144.
+
+| L | throttle | vanilla @ matched surfKD (±0.10 / ±0.15) | Δ | Fisher p | vanilla as-soluble-or-more |
+|---|---|---|---|---|---|
+| 300 | 15/32=47% @ -2.028 | 30% / 23% | +17/+24pp | 0.47 / 0.19 | 31% (throttle nominally above, NS) |
+| 400 | 10/32=31% @ -1.959 | 16% / 17% | +15/+14pp | 0.24 / 0.17 | 16% (nominally above, NS) |
+| 500 | 13/80=16% @ -1.920 | 15% / 15% | +1pp | 1.0 / 1.0 | 18% (throttle ON/BELOW) |
+
+**Verdict: NO significant frontier win at any length.** L300/L400 directional +14-24pp but all p>0.17 (NS, indistinguishable from noise at these n); L500 flat (+1pp, p=1). The burial throttle is consistent with **implicit w-reduction**, same as every prior throttle (rama/geometric/aa_prior/CO/tango). 
+
+**Errors corrected:** (1) add-10b's "L500 p=0.059, recovers to ceiling" was the same-w confound (throttle-w64 vs vanilla-w64 2%); at matched solubility vanilla reaches the throttle's −1.95 at w48 without cratering (19% codes) → throttle does not beat it. (2) add-9's "L300 +20pp p=0.052" used only the high-w baseline cells; against the full vanilla frontier the edge is NS. (3) The "recovers to unsteered ceiling" framing is misleading — vanilla-w48 beats both unsteered (12%, no property) and throttle (15%, w64) by delivering 19% codes WITH solubility.
+
+**Mechanistic why-it-fails:** the throttle damps steering (delivers less solubility per w), and vanilla at lower w reaches the same solubility without cratering — so the throttle never reaches a solubility vanilla can't already achieve cleanly. Closes the burial-throttle lead. NO thesis figure claiming a frontier win is warranted. See [[project_throttle_doesnt_move_frontier]]. Lesson (4th small-n/confound overclaim of the day): ALWAYS test against real samples at matched delivered property pooled over all w; never same-w, never chord-interp, never vs-ceiling.
+
+**add-11 pooled-power follow-up (does combining the consistent L300/L400 direction help?):** Mantel-Haenszel stratified by length (L300+L400, matched ±0.15 surfKD band): chi2=3.27, p=0.071. Logistic on ALL 630 samples (designable ~ throttle + surfKD + C(length)): throttle OR=1.29, z=1.07, p=0.28 (length dominates: L400 p=2e-8, L500 p=4e-16). Conclusion unchanged: consistent directional lean at the two shorter lengths (OR~1.3) but does NOT reach significance even pooled (best case p=0.07 on the favorable subset; principled all-data logistic p=0.28). Effect, if real, is small (OR~1.3) — would need ~150+/arm + real CamSol to establish. Status: suggestive-but-underpowered, negative-leaning-inconclusive; NOT a win.
+
+### E114-addendum-12 — At n=96 the burial throttle DOES beat the frontier at L300 (band-free logistic p=0.01–0.02) — partially reverses add-11 (2026-06-03)
+
+Tripled n (added seeds 74-137 → n=96/length/condition at w64, b0+b025, L300+L400; 2-GPU, nohup). Re-ran the RIGOROUS frontier test (throttle vs REAL vanilla at matched delivered surfKD, all w pooled) + band-free logistic + band-robustness — the methods that exposed the earlier confounds.
+
+**Results at n=96:**
+- L300: throttle **46/96=48%** [38,58] @ surfKD −2.067 vs vanilla-in-band **5/26=19%** [9,38] → **Δ+29pp**, Fisher p robust across ALL bands (±0.08→±0.20: p=0.007/0.006/0.009/0.013/0.024).
+- L400: throttle 23/96=24% vs vanilla-in-band 12% → Δ+12pp, **NS** (band p 0.09–0.63, noisy; doesn't stand alone).
+- L500: null (add-11).
+- **Band-FREE logistic** (designable ~ throttle+surfKD+length): all-data OR=1.55 **p=0.024**; L300+L400 OR=1.68 **p=0.0099**. (Was OR=1.29 p=0.28 at n=32 — strengthened with n, not regressed.)
+- Mantel-Haenszel L300+L400: p=0.0035.
+
+**Verdict (revises add-11): the burial throttle significantly beats the matched-solubility codesign frontier at L300, and in the L300+L400 pool, by the band-free principled test (OR≈1.6, p=0.01–0.02).** Effect held as n tripled (47%→48%) — consistent with a real, modest, length-concentrated effect that add-9/10b had gotten right in spirit but wrong in rigor, and that add-11 over-corrected to "no win" at the underpowered n=32. Mechanistically coherent: the throttle wins where it reaches a solubility vanilla can only hit by cratering (short/compact-core L300); at L500 it can't out-reach vanilla, so null.
+
+**Remaining caveat (the real one):** entirely on the surfKD proxy for CamSol; whether it holds on TRUE camsol_intrinsic is untested (NaN locally). Also: L400 alone NS, L500 null — the win is L300-concentrated. p≈0.01–0.02 is solid not overwhelming; many tests were run today but the band-free logistic is the single principled anchor. NEXT: real CamSol metric to retire the proxy; this is now a Finding CANDIDATE (the first throttle to beat the frontier under rigorous test). Supersedes the "no win" of add-11 for L300. See [[project_throttle_doesnt_move_frontier]].
+
 ---
 
 ## E117 — Dynamic-K sparse attention infrastructure, per-protein K half-length, build plus CPU smoke (2026-05-29)
@@ -10042,3 +10145,251 @@ Per-protein wall (s) and peak GPU memory (MB), nsteps=400, N=2, A100-80GB. CA-on
 
 - `results/inference_compute_audit/scaling_a100_ld3.csv` — 16 rows (L=100–2200), 8-column schema identical to E124's `scaling_a100.csv` (directly concatenable for plotting LD3 vs CA-dense vs sparse).
 - `results/inference_compute_audit/scaling_a100_ld3.csv.oom.txt` — the L=2400 LD3 OOM event (~80384 MB peak).
+
+### E114-addendum-13 — REAL metrics (CamSol + SAP): the throttle "win" is METRIC-DEPENDENT, not robust (2026-06-03)
+
+Ran real solubility metrics to retire the surfKD proxy. CamSol intrinsic (off-tree, 1032 seqs) + dev-panel SAP/hydrophobic-patch (`steering.evaluate_samples_dir --skip-tango` on b0/b025; high_w_scout/ensemble already had it). Redid the matched-delivery frontier (throttle vs real vanilla pooled all-w) on each metric.
+
+| metric | frame | matched-band L300 | band-free logistic |
+|---|---|---|---|
+| surfKD (crude exposed-KD avg) | struct-aware crude | 48% vs 19% p=0.01 WIN | OR1.6 p=0.01 |
+| CamSol intrinsic (real) | SEQUENCE-ONLY (structure-blind) | ~null | OR1.27 p=0.15 |
+| SAP_total (real, SASA-weighted) | struct-aware (correct frame) | 48% vs 50% Δ−2% p=1.0 | OR1.78 p=0.002 |
+
+**Verdict: the win does NOT replicate on the rigorous metrics; it is metric-dependent.** (1) CamSol is sequence-only so it penalizes the buried hydrophobics the throttle preserves — wrong frame for a spatial mechanism (user's correct catch), no win. (2) SAP is the correct structure-aware frame, and its MODEL-FREE matched-band is NULL at L300 (throttle 48% vs vanilla-at-same-SAP 50%): the throttle delivers SAP≈3, but ordinary vanilla also reaches SAP≈3 at ~50% codesign WITHOUT cratering — so the throttle accesses no special regime on SAP (unlike surfKD where −2.0 needed cratered high-w). (3) The SAP logistic p=0.002 CONTRADICTS its matched-band p=1.0 — distrust it: SAP is too flat (both ~3, range 0–10) to serve as a delivery control, so the logistic degenerates to throttle-vs-average-vanilla (unfair, includes cratered high-w). Model-free matched-band > model-based logistic when they conflict (lesson of the day).
+
+**The surfKD win (add-12) was specific to surfKD** — a crude per-residue exposed-KD average that over-credited the throttle's solubility delivery; the rigorous SASA-weighted SAP doesn't reproduce it. **Honest final statement:** the burial throttle produces a real, interpretable structural shift (lower exposed hydrophobicity + preserved hydrophobic core, mechanism confirmed via coreKD), but whether that is a genuine solubility–designability frontier GAIN is metric-dependent and not robustly significant. Not a Finding. The throttle infra/mechanism are real and reusable; the frontier claim is not robust. [[project_throttle_doesnt_move_frontier]]
+
+### E114-addendum-13b — SAP verified valid+responsive ⇒ throttle is implicit w-reduction; surfKD win was a Cα-burial artifact (2026-06-03)
+
+Verified the add-13 SAP result is trustworthy (user challenged whether SAP accounts for burial). (1) Generated PDBs are FULL-ATOM (mean 7.5 atoms/res, side chains present) so side-chain SASA is computable. (2) `compute_sap_scm` weights each residue by sidechain_SASA/AXA_max → buried side chains (low SASA) contribute ~0; only EXPOSED hydrophobics count. Burial IS handled. (3) SAP is RESPONSIVE to steering: vanilla SAP_total falls monotonically 6.8(w1)→3.5(w64)→2.3(w128) — a valid, sensitive delivery axis (not flat).
+
+**Decisive: at the SAME w64, throttle SAP=3.93 > vanilla SAP=3.28 — the throttle cleaned the surface LESS.** It delivers SAP≈3.9 = what vanilla reaches at w≈52 without cratering. Implicit-w-reduction signature on the rigorous metric. Per-sample matched-SAP band (add-13): L300 throttle 48% vs vanilla-at-same-SAP 50% (Δ−2%, p=1) — null.
+
+**Why surfKD showed a false win:** surfKD defines "buried" by Cα-neighbor-count (crude); a residue with a crowded Cα can still have a solvent-exposed SIDE CHAIN. SAP uses real side-chain SASA and counts those; surfKD misses them. The throttle's protected hydrophobics are buried-by-Cα but partly exposed-by-sidechain → surfKD over-credited the throttle's surface cleaning; SAP does not. (The SAP logistic p=0.002 is mis-specified — conflicts with the model-free matched-band p=1; trust the matched-band.)
+
+**FINAL verdict (supersedes add-12's "win" and sharpens add-13): the burial throttle does NOT robustly beat the codesign–solubility frontier. On the correct, responsive, structure-aware metric (SAP) it is implicit w-reduction, like every other throttle. The surfKD win (add-12) was a Cα-burial proxy artifact.** Mechanism (core-protection) is real; frontier claim is dead. This is the definitive end of the burial-throttle lead. [[project_throttle_doesnt_move_frontier]]
+
+### E114-addendum-14 — Latent off-manifold within-w ceiling screen: MODERATE onset signal (AUC~0.66), best lead but borderline (2026-06-03)
+
+Instrumented `steering/guide.py` with a per-step `manifold_panel` (diagnostic only): vel_disagreement (‖v_θ(z1_guided)‖−‖v_θ(z1_base)‖, 2 extra fwd/step), guidance_flow_cos (cos(g,v_θ)), z1_jump (‖ẑ1(t)−ẑ1(t−1)‖), prior_drift, z1_norm, latent_extremity. Logging run: camsol w64, NO throttle (β=0), seeds 42-89 × L{300,400}, n=96 (panel is pure-diagnostic so structures==b0; codesign reused from b0). Screen `script_utils/run_manifold_screen.py`: within-w AUC of each signal for codesign collapse, by aggregator and by t-bin. Config `sweep_burial_camsol/camsol_w64_panel.yaml` (manifold_panel.enabled, velocity_probe, t_probe 0.9).
+
+**n=96 (76 collapsed, 20 designable). The CRITICAL WINDOW is steering onset (t=0.3-0.4):** vel_norm_guided 0.67, guidance_flow_cos 0.66, prior_drift 0.66, z1_jump 0.64, z1_norm 0.31 (inverse). Signal decays to ~0.5 by t>0.7. Best overall separators: z1_norm (0.31-0.34 inverse, |AUC-0.5|≈0.18 — strongest), guidance_flow_cos/max 0.68, vel_norm_guided/early 0.66. **vel_disagreement (the a-priori top pick) was WEAK/inverse (~0.4-0.55)** — "the model wanting to undo the step" does NOT track within-w collapse.
+
+**Verdict: MODERATE within-w signal (~0.66), concentrated at steering onset — the BEST throttle lead in the entire saga, but borderline.** Strictly better than the capstone null (burial/MPNN-NLL were ~0.5 within-w); the latent-geometry-at-onset carries real information. But AUC~0.66 = ~2/3 selectivity, sits in the ambiguous 0.65-0.7 band where the screen can't call frontier-move vs w-reduction. Strongest signal z1_norm-inverse = "latent clean-estimate shrinking toward origin (degenerate) early predicts collapse," consistent with compositional-collapse. CAVEAT: n=96 imbalanced (20 designable), ±0.06 AUC noise; codesign label itself noisy (caps achievable AUC); AUC is correlational (necessary not sufficient for a throttle). NEXT (only if pursuing): a t-GATED onset-only throttle keyed on z1_norm-drop / onset velocity, A/B vs β=0 at matched delivered CO — the first candidate that earned the A/B. Mechanism real; whether it beats w-reduction is the open A/B. [[project_throttle_doesnt_move_frontier]]
+
+---
+
+## E127 — All-properties → AFDB-average target steering, w-sweep (w8/16/32) (2026-06-04)
+
+**Status:** in progress (generation running under nohup, pid logged in `nohup_afdb_target_sweep.out`; ~45 s/protein × 144 ≈ 2 h gen, then audit).
+
+**Why ran.** Probe a qualitatively different steering objective from the usual single-property maximize/minimize sweeps: steer **every one of the 14 predictor properties simultaneously toward its AFDB population mean**. Because `guide.py` z-scores the target with the predictor's own stats (`target_z = (target_value − mean)/std`), setting `target_value = ensemble mean` makes `target_z = 0` for all 14 heads, so the objective is `Σ_i −w·(pred_z_i)²` — i.e. pull the sample to the AFDB property centroid ("make a maximally *typical* protein"). Question it feeds: does pulling toward the population mean (rather than an extreme) keep proteins on-manifold / preserve codesignability across w, and does it measurably contract the property z-scores toward 0? This is the baseline behaviour of multi-objective target steering before any extreme-target run.
+
+**Configs.**
+- Driver: `script_utils/run_afdb_target_sweep.sh` (auto-writes configs + generates + audits). Launched `nohup bash script_utils/run_afdb_target_sweep.sh > nohup_afdb_target_sweep.out 2>&1 &`.
+- Predictor: **noise-aware multitask 5-fold ensemble**, `laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt`. Ensemble z-score stats = per-property mean across the 5 folds (`SteeringPredictor`); `target_value` per property computed as that across-fold mean so `target_z = 0` exactly.
+- Recipe: **denoised input** (`feed_z_t_directly` unset → default False; the best recipe per [[feedback_steering_denoised_is_best]]), `gradient_norm: unit`, `gradient_clip: 10.0`, `channel: local_latents`, schedule `linear_ramp t_start=0.3 t_end=0.8 t_stop=0.9`. Identical to `results/noise_aware_ensemble_sweep` so the seed-matched unguided codesign baseline anchors the deltas.
+- Objectives: all 14 properties, `direction: target`, `weight: 1.0` each. Targets (= AFDB ensemble means): swi 0.7787, tango 999.20, net_charge −7.036, pI 6.131, iupred3 0.2158, iupred3_fraction_disordered 0.03364, shannon_entropy 4.096, hydrophobic_patch_total_area 3964.3, hydrophobic_patch_n_large 12.176, sap 13.300, scm_positive 39.612, scm_negative −42.972, rg 21.877, camsol_intrinsic 0.1795.
+- Configs written to `steering/config/sweep_afdb_target/afdb_target_w{16,32,64}.yaml`.
+- Grid: **w ∈ {16, 32, 64}** × **seeds 42–57 (16)** × **L ∈ {300,400,500}** × **nsteps=400** (HARD RULE). `inference_ucond_notri_long`, LD3+AE2_800. `--skip_unguided` (baseline reused from `noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv`). **Grid note:** the run originally swept w∈{8,16,32}; w8's property panel completed (mean |z| 1.90, intermediate as expected) but its codesign was cancelled at the user's request and the cell moved to `results/_cancelled/afdb_target_w8`, **swapped for w64** to probe whether the benign behaviour survives the weight that craters extreme-target steering. w16/w32 were already fully evaluated and reused unchanged.
+- Hardware: single L4, `--device cuda:0` (pinned GPU, [[feedback_max_gpu_concurrency]]). Output `results/afdb_target_sweep/afdb_target_w{16,32,64}/`.
+- Eval (auto, after gen): `script_utils/steering_cost_audit.py --tree results/afdb_target_sweep --evals property,codesign,diversity` → property panel, codesignability (`run_codesignability_sweep.py`, `use_pdb_seq=True`, [[feedback_steering_use_codesignability]]) vs the seed-matched unguided anchor, pairwise-TM diversity.
+
+**Results.**
+
+*Generation + property panel (DONE).* 144/144 proteins generated (~29 min/cell), property panels written for all 3 w. Steering fired cleanly (`grad_norm_final` 0.04→8.0 = unit-norm × w_max, `predicted_properties` logged per step), no NaN/CUDA error.
+
+**Property-side success = how close the REAL (measured, not predicted) developability properties landed to the AFDB centroid.** Metric: mean `|z| = |measured − afdb_mean|/afdb_σ` over the 48 seeds×lengths per cell, using the ensemble stats (length-matched across columns, so Δ-vs-unguided is a clean steering effect). camsol excluded (always-NaN). **Steering pulled properties toward AFDB monotonically with w on 12/13 properties** (only `rg` immovable):
+
+| property | unguided | w16 | w32 | w64 |
+|---|--:|--:|--:|--:|
+| net_charge | 1.74 | 1.00 | 0.59 | 0.49 |
+| iupred3_fraction_disordered | 3.18 | 2.39 | 1.52 | 0.79 |
+| iupred3 | 2.17 | 1.84 | 1.43 | 0.87 |
+| swi | 2.02 | 1.75 | 1.27 | 0.69 |
+| pI | 1.20 | 1.00 | 0.82 | 0.62 |
+| scm_negative | 1.80 | 1.49 | 1.23 | 0.87 |
+| scm_positive | 1.74 | 1.59 | 1.36 | 0.94 |
+| hydrophobic_patch_total_area | 1.64 | 1.50 | 1.23 | 0.83 |
+| sap | 1.50 | 1.38 | 1.18 | 0.85 |
+| hydrophobic_patch_n_large | 1.42 | 1.30 | 1.01 | 0.71 |
+| tango | 1.08 | 1.04 | 0.95 | 0.78 |
+| shannon_entropy | 6.16 | 5.73 | 4.89 | 3.54 |
+| rg | 0.71 | 0.71 | 0.71 | 0.71 |
+| **MEAN \|z\| (13)** | **2.03** | **1.75** | **1.40** | **0.98** |
+
+Mean distance to the AFDB centroid drops **monotonically 2.03 → 1.75 → 1.40 → 0.98 σ** — at w64 the average property sits **<1σ from the AFDB mean (−52% vs unguided)**. Biggest movers = charge/disorder axes (net_charge −72%, iupred3_fraction_disordered −75%, swi −66%). `rg` Δ=0.000 at all w (already closest at 0.71σ, pinned by length/backbone — latent channel barely touches it; the floor on mean |z|). **Caveat on "similar":** `shannon_entropy` is the lone holdout, still ~3.5σ at w64 — partly a scale artifact (AFDB entropy σ=0.096 is tiny) but mostly the known La-Proteina low-entropy sequence-collapse ([[project_sde_jitter_decollapses_sequences]]); steering nearly halves it (6.16→3.54) but can't close it. Without shannon+rg the other 11 props are all ≤0.95σ at w64.
+
+**Predicted-vs-real (E109 hacking check, replicated on this run).** Each generation is 1 protein (nsamples=1) so its `predicted_properties` trajectory joins cleanly to the measured value. Final-step predicted vs real at w32 (target = AFDB mean):
+
+| property | AFDB tgt | pred | real | \|z\|pred | \|z\|real | r(pred,real) |
+|---|--:|--:|--:|--:|--:|--:|
+| net_charge | −7.04 | −5.91 | −8.03 | 0.13 | 0.12 | 0.60 |
+| iupred3 | 0.216 | 0.197 | 0.265 | 0.28 | 0.73 | 0.83 |
+| iupred3_frac_disordered | 0.034 | 0.022 | 0.078 | 0.24 | 0.89 | 0.67 (0.87 @w8) |
+| swi | 0.779 | 0.780 | 0.790 | 0.14 | 1.14 | 0.84 |
+| shannon_entropy | 4.096 | 3.990 | 3.627 | 1.10 | 4.89 | 0.93 |
+
+**The E109 hacking is present but partial.** For the sequence-derived/composition properties (iupred ×2, shannon, swi) the predictor reports near-on-target (|z|pred ≈ 0.1–1.1) while the *real* measured value lags well behind (|z|real 0.7–4.9); iupred_frac r drops 0.87→0.67 with w (decorrelation), shannon shows a near-constant over-read (r=0.93 but pred 3.99 vs real 3.63 → systematic bias, predictor blind to sequence collapse). **`net_charge` is honest** (pred −5.9 ≈ real −8.0, both ~0.1σ; the linear/non-hackable property of [[project_target_steering_needs_predictor_calibration]]). So the real properties *did* move toward AFDB (the |z|real reductions are genuine, measured not predicted) — but the predictor over-reports how close the composition properties got. Milder than E109 because the target is the on-manifold AFDB mean (z=0), where the predictor extrapolates far better than at E109's extreme targets. **Read the real column, not the predictor, for composition properties.**
+
+*Codesignability (w16, w32 DONE; w8 + diversity pending).* Cα codesignability (`coScRMSD_ca` < 2 Å, `use_pdb_seq=True`) vs the seed-matched unguided baseline (`noise_aware_ensemble_sweep/codesign_unsteered_matched_seed.csv`, `coScRMSD_ca`):
+
+| cell | L=300 | L=400 | L=500 | ALL |
+|---|--:|--:|--:|--:|
+| unguided | 94% (15/16) | 38% (6/16) | 12% (2/16) | **48%** (23/48) |
+| afdb_target_w16 | 94% (15/16) | 50% (8/16) | 12% (2/16) | **52%** (25/48) |
+| afdb_target_w32 | 81% (13/16) | 56% (9/16) | 19% (3/16) | **52%** (25/48) |
+| afdb_target_w64 | 88% (14/16) | 50% (8/16) | 19% (3/16) | **52%** (25/48) |
+
+**Designability is NOT cratered — DEAD FLAT (48→52→52→52%) across the entire w∈{16,32,64} range, even at w64.** Sharp contrast with single-property *extreme*-target steering, which collapses at w48+ (camsol 48→27→19→**2%** at w128; ~19% at w64, E116). The mechanism: the AFDB centroid (target_z=0) **is on the data manifold**, so increasing w pulls samples *toward* the manifold, never off it — there is no off-manifold regime to crater into. Per-length moves (L300 w32 dip 94→81%, L400/L500 ticks up) are within n=16/cell ±6pp noise. **Bottom line: w64 buys the best property convergence (mean |z| 0.98σ, −52%) at ZERO designability cost** — "steer to typical" is unconditionally benign where "steer to extreme" trades designability for property gain. This is the cleanest demonstration in the steering work that the codesign crater is an off-manifold phenomenon, not an intrinsic cost of strong guidance.
+
+**Verdict-table note.** `steering_cost_audit.py` printed `v_property=WRONG`/`overall=ADVERSARIAL` for w32/w64 — IGNORE: that gate checks whether a *single* property moved in a maximize/minimize direction and is meaningless for a 14-property steer-to-mean objective. The only audit field that transfers is `d_codesign_pp=+4.2` (codesign up 4.2pp vs baseline, all cells).
+
+**Long-length hypothesis tested (does steering-to-training-distribution RESCUE codesign where unguided is off-manifold?).** The per-length rates tease it (L400 38%→52% pooled-steered, L500 12%→17%), and the mechanism is plausible (centroid pull should help most where unguided is worst). **It does NOT hold at n=16/cell.** Fisher one-sided (rate↑): L400 p=0.236, L500 p=0.519. The more-powerful continuous-coScRMSD shift (Mann-Whitney, steered<unguided): all n.s. (L400 p=0.47, L500 p=0.63), and the median coScRMSD trends the *wrong* way at L500 (unguided 8.09 → w16 10.27 / w64 11.06). The one cell that shifts the right way is **L400 @ w32 (median 2.32→1.88)**. Interpretation: the apparent long-L rate bumps are threshold jitter (±1–3 proteins straddling 2 Å), not a distributional improvement; at L500 the unguided failures are *global-fold* (~8–11 Å), which a property/composition-centroid objective cannot repair. **Defensible statement: codesign unchanged at all lengths, with a faint non-significant hint of help only at L400.** To settle it: n≈48 at L400, w32 (the only cell pointing the right way).
+
+**RESOLVED at n=64 (the L400 hint was noise).** Powered up L400/w32 to a seed-matched paired n=64: steered = afdb_target w32 L400 seeds 42–57 (orig) + 58–105 (`script_utils/run_afdb_L400_n48_extend.sh` → `results/afdb_target_L400_n48/w32/`); unguided = the identically-recipe'd (`inference_ucond_notri_long`, nsteps=400, jitter 0.05, LD3+AE2) seeds 42–57 (matched_seed baseline) + 58–105 (E108 `net_charge_target_L400_n64/unguided`), **no unguided regeneration**. Result: **steered 26/64 = 41% vs unguided 26/64 = 41%, dead even.** McNemar discordant b=6/c=6, exact p=1.00, rate diff +0.0 pp; Fisher p=0.57; continuous scRMSD Mann-Whitney p=0.59 / paired Wilcoxon p=0.58 (median 3.01 steered vs 2.68 unguided — if anything *slightly worse*). The original n=16 (seeds 42–57) had been the favorable tail (56% vs 38%, median 1.88 vs 2.32); adding seeds 58–105 regressed it to break-even — the identical arc as the net_charge L400 hint ([E105](#e105--single-objective-steering-sweep-net_charge-target--50-setpoint-regulation--paired-designability-test-vs-seed-matched-unguided-2026-05-30)/[E108](#e108--net_charge-target--50-higher-n-l400-w32-extension-resolves-e105s-12pp-designability-hint-2026-05-31): +12pp@n=16 → null@n=48). **Final: steer-to-AFDB-mean does NOT rescue codesign at L400 (or any length); it is benign-but-not-helpful. Designability unchanged 48→52% across w∈{16,32,64}; the value is property convergence (−52% mean |z|) at zero designability cost, not improved designability.**
+
+**Possible narrative.** TBD — depends on the audit. Candidate framings: (a) if codesign holds and property z-scores contract toward 0 → "multi-objective target steering to the population mean is a benign, on-manifold operation; the model can be nudged to typicality cheaply" (contrast with extreme-target Goodhart, [[project_target_steering_needs_predictor_calibration]]); (b) if codesign craters even toward the mean → target steering cost is about *total gradient magnitude / off-manifold pull*, not target extremity. Either way informs whether "steer to dataset average" is a usable regularizer. Likely non-narrative tuning result unless the contrast is clean.
+
+**Methodological caveats.** (1) 14 simultaneous unit-normalized objectives → the realized per-property push is a *compromise direction*, diluted vs single-objective; small per-property z-contractions are expected and a null result does not mean "target steering doesn't work". (2) `camsol_intrinsic` is steered but **cannot be validated** — it is always-NaN in the developability CSV (predictor predicts it, eval has no ground truth). (3) Two of the 14 (iupred3 / iupred3_fraction_disordered, scm_positive / scm_negative) are correlated, so the objective double-weights those axes. (4) Effect sizes for N-scaling properties (tango/sap/scm/hydropatch/rg) must be length-binned before z-scoring ([[feedback_length_bin_property_sigmas]]); the audit's pooled `prop_delta_sigma` under-reports them. (5) The ensemble across-fold-mean target differs negligibly (<1e-2 z) from any single fold's mean; `target_z` is 0 to within fold-disagreement, not exactly 0.
+
+---
+
+## E128 — Canonical designability probe: ca_only_hybrid_7s7d step 819 (7 sparse + 7 dense layers, K=40) (2026-06-04)
+
+**Status.** In progress — nohup PID 3414804, log `/home/ks2218/la-proteina/logs/probe_hybrid_7s7d_step819_20260604_203302.log`.
+
+**Why ran.** Designability probe on a freshly rsynced checkpoint (`best_val_00000008_000000000819.ckpt`) from the `ca_only_hybrid_7s7d` training run. Question: does a layer-hybrid architecture (first 7 of 14 layers sparse K=40, last 7 dense) clear the canonical sample-quality bar (1-2/3 designable at L=50 and L=100)?
+
+**Configs.**
+- Ckpt: `/home/ks2218/la-proteina/best_val_00000008_000000000819.ckpt` (epoch 8, global_step 819; symlink `ca_only_hybrid_7s7d_step819.ckpt`).
+- Architecture: 14-layer CA-only, `layer_sparse_mask=[T,T,T,T,T,T,T,F,F,F,F,F,F,F]` (first 7 sparse, last 7 dense), K=40 (n_seq_neighbors=8, n_spatial_neighbors=8, n_random_neighbors=16), `layer_K_splits` present. `sparse_attention=True` in stored nn config. CA-only: `autoencoder_ckpt_path=None`, `latent_dim=None`, `_ca_only_mode=True`.
+- Inference YAML: `configs/inference_hybrid_7s7d_step819_n6_nfe400.yaml`; inherits `inference_base.yaml` (nsteps=400, no override).
+- Generation: `uncond_codes_ca_only`; `nsamples=6`, `max_nsamples_per_batch=6`, `nres_lens=[50,100,200]`.
+- Evaluator: `proteinfoundation/evaluate.py` with `compute_designability=True`, `designability_modes=["ca","bb3o"]`, ESMFold — backbone designability (CA-only outputs poly-Ala; codesignability is not applicable).
+- Generator: `proteinfoundation/generate.py` (standard path, single ckpt; NOT `generate_hybrid.py`). NN config restored from ckpt via `load_from_checkpoint`.
+- Hardware: 1× L4, `CUDA_VISIBLE_DEVICES=4`.
+- Driver script: `script_utils/probe_hybrid_7s7d_step819_nfe400.sh`.
+- nohup PID: 3414804. Log: `logs/probe_hybrid_7s7d_step819_20260604_203302.log`.
+- Gen sub-log: `nohup_probe_hybrid_7s7d_step819_nfe400.gen.log`.
+- Eval sub-log: `nohup_probe_hybrid_7s7d_step819_nfe400.eval.log`.
+- Output dir: `inference/laproteina_hybrid_7s7d_step819_n6_nfe400/`.
+- Results CSV: `inference/results_inference_hybrid_7s7d_step819_n6_nfe400_0.csv`.
+- Env: `/home/ks2218/.conda/envs/laproteina_env/bin/python`.
+- Launched: 2026-06-04 20:33 BST.
+
+**Results.** [in progress; tail `logs/probe_hybrid_7s7d_step819_20260604_203302.log`]
+
+| L | designable/6 | best scRMSD (Å) | median scRMSD (Å) |
+|---|---|---|---|
+| 50 | TBD | TBD | TBD |
+| 100 | TBD | TBD | TBD |
+| 200 | TBD | TBD | TBD |
+| **Pooled** | **TBD/18** | — | — |
+
+Reference bar (E019 canonical dense step 2646, N=30): 68/90 = 76% pooled. Variant bar: 1-2/3 designable at L=50 and L=100.
+
+**Possible narrative.** Non-narrative — checkpoint health check. Informs whether the 7s/7d layer hybrid is a viable base for further development (hybrid compute story) or must be debugged/retrained before use.
+
+**Methodological caveats.**
+- N=6 per length; low statistical power — a single unlucky seed flips a length from 1→0 or 2→3.
+- CA-only model outputs poly-Ala; eval uses backbone (Cα / bb3o) designability with ESMFold, NOT codesignability (the `use_pdb_seq=True` codesignability path applies only to LD+AE models that generate a sequence).
+- Single seed (seed=5 from inference_base.yaml); no seed sweep.
+- Step 819 is an early checkpoint (~1/3 of the typical 2000-step convergence window for CA-only); results may under-represent the final-trained model's ceiling.
+- Sparse-K40 timing on L4: typically ~80s gen + ~5-8 min eval for N=6 × L∈{50,100,200}; total ETA ~10 min from launch.
+
+---
+
+## E129 — Canonical designability probe: ca_only_hybrid_7s7d step 881 (7 sparse + 7 dense layers, K=40) (2026-06-04)
+
+**Status.** Finished — 1/18 designable. Did NOT clear the variant bar.
+
+**Why ran.** Designability probe on a freshly rsynced checkpoint (`best_val_00000008_000000000881.ckpt`) from the `ca_only_hybrid_7s7d` training run. Question: does the step-881 layer-hybrid architecture (first 7 of 14 layers sparse K=40, last 7 dense) clear the canonical sample-quality bar (1-2/3 designable at L=50 and L=100)? Step 881 is ~62 steps ahead of the E128 probe (step 819).
+
+**Configs.**
+- Ckpt: `/home/ks2218/la-proteina/best_val_00000008_000000000881.ckpt` (epoch 8, global_step 881; symlink `ca_only_hybrid_7s7d_step881.ckpt`).
+- Architecture: 14-layer CA-only, `layer_sparse_mask=[T,T,T,T,T,T,T,F,F,F,F,F,F,F]` (first 7 sparse, last 7 dense), K=40 (n_seq_neighbors=8, n_spatial_neighbors=8, n_random_neighbors=16), `layer_K_splits=[[8,16,24],[8,16,24],[8,16,24],[8,8,16],[4,8,16],[4,4,12],[4,4,4]]`. `sparse_attention=True` in stored nn config. CA-only: `autoencoder_ckpt_path=None`, `latent_dim=None`, `_ca_only_mode=True`.
+- Inference YAML: `configs/inference_hybrid_7s7d_step881_n6_nfe400.yaml`; inherits `inference_base.yaml` (nsteps=400, no override).
+- Generation: `uncond_codes_ca_only`; `nsamples=6`, `max_nsamples_per_batch=6`, `nres_lens=[50,100,200]`.
+- Evaluator: `proteinfoundation/evaluate.py` with `compute_designability=True`, `designability_modes=["ca","bb3o"]`, ESMFold — backbone designability (CA-only outputs poly-Ala; codesignability not applicable).
+- Generator: `proteinfoundation/generate.py` (standard path, single ckpt; NOT `generate_hybrid.py`). NN config restored from ckpt via `load_from_checkpoint`.
+- Hardware: 1× L4, `CUDA_VISIBLE_DEVICES=4`.
+- Driver script: `script_utils/probe_hybrid_7s7d_step881_nfe400.sh`.
+- nohup PID: 3431690. Log: `logs/probe_hybrid_7s7d_step881_20260604_204533.log`.
+- Gen sub-log: `nohup_probe_hybrid_7s7d_step881_nfe400.gen.log`.
+- Eval sub-log: `nohup_probe_hybrid_7s7d_step881_nfe400.eval.log`.
+- Output dir: `inference/laproteina_hybrid_7s7d_step881_n6_nfe400/`.
+- Results CSV: `inference/results_inference_hybrid_7s7d_step881_n6_nfe400_0.csv`.
+- Env: `/home/ks2218/.conda/envs/laproteina_env/bin/python`.
+- Launched: 2026-06-04 20:45 BST.
+
+**Results.** (scRMSD = `_res_scRMSD_ca_esmfold`, designable < 2 Å; gen 57.6 s, peak GPU 1055 MB)
+
+| L | designable/6 | best scRMSD (Å) | median scRMSD (Å) |
+|---|---|---|---|
+| 50 | 1 | 1.52 | 5.29 |
+| 100 | 0 | 9.42 | 11.91 |
+| 200 | 0 | 13.82 | 15.04 |
+| **Pooled** | **1/18 (5.6%)** | — | — |
+
+**Did NOT clear the variant bar** (1-2/3 designable at L=50 *and* L=100): marginal at L=50 (1/6, one borderline hit at 1.52 Å), total failure at L=100 (0/6, best 9.42 Å) and L=200 (0/6, best 13.82 Å). scRMSD degrades monotonically with length, consistent with an under-trained / weak checkpoint rather than a length-specific artifact.
+
+Reference bar (E019 canonical dense step 2646, N=30): 68/90 = 76% pooled. Variant bar: 1-2/3 designable at L=50 and L=100.
+See also: [E128](#e128--canonical-designability-probe-ca_only_hybrid_7s7d-step-819-7-sparse--7-dense-layers-k40-2026-06-04) (same architecture, step 819).
+
+**Possible narrative.** Non-narrative — checkpoint health check. Informs whether the 7s/7d layer hybrid is a viable base for further development (hybrid compute story) or must be debugged/retrained before use. Comparison with E128 (step 819) gives a within-run quality trajectory.
+
+**Methodological caveats.**
+- N=6 per length; low statistical power — a single unlucky seed flips a length from 1→0 or 2→3.
+- CA-only model outputs poly-Ala; eval uses backbone (Cα / bb3o) designability with ESMFold, NOT codesignability (the `use_pdb_seq=True` codesignability path applies only to LD+AE models that generate a sequence).
+- Single seed (seed=5 from inference_base.yaml); no seed sweep.
+- Step 881 is an early checkpoint (~1/3 of the typical 2000-step convergence window for CA-only); results may under-represent the final-trained model's ceiling.
+- Sparse-K40 timing on L4: typically ~80s gen + ~5-8 min eval for N=6 × L∈{50,100,200}; total ETA ~10 min from launch.
+
+---
+
+## E130 — hydpatch_min low-w extension (w 1/2/4/8/16) — fill the low-w foot of the dose-response (2026-06-05)
+
+**Status:** finished (generation + codesign + property + AA + diversity audit complete 2026-06-05 ~21:10 UTC; ran ~5 h end-to-end on a single L4, GPU 7).
+
+**Why ran.** [E102](#e102--single-objective-steering-sweep-hydrophobic_patch_total_area-minimize-2026-05-29) swept `hydrophobic_patch_total_area` minimize only at the high-w head w∈{32,48,64,128} and found w=32 already costs near-zero codesign while w≥48 starts paying. That sweep has no low-w foot, so we can't see where steering *first* engages or confirm a clean monotonic onset. The camsol/tango noise-aware sweeps (`run_noise_aware_ensemble_sweep.sh`, w∈{1,2,4,8,16}) DO have this low-w foot. This run gives `hydpatch_min` the same {1,2,4,8,16} grid so its dose-response is directly comparable to camsol_max / tango_min across the full w range and the w=1 cell serves as the unguided-equivalent anchor (already used as the E102 reference).
+
+**Configs.**
+- Predictor / recipe: identical to E102 — NA-v1 5-fold ensemble (`laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_{0..4}_best.pt`), `inference_ucond_notri_long`, `linear_ramp` (t_start=0.3, t_end=0.8, t_stop=0.9), `gradient_norm: unit`, `gradient_clip: 10.0`, channel `local_latents`, **nsteps=400**.
+- Objective: `hydrophobic_patch_total_area`, `direction: minimize`, weight 1.0.
+- Sweep: w ∈ {1, 2, 4, 8, 16} × seeds {42..57} (16) × L ∈ {300, 400, 500} = 240 PDBs.
+- Configs: `steering/config/sweep_hydpatch_min/hydpatch_min_w{1,2,4,8,16}.yaml` (created this run via sed from `hydpatch_min_w32.yaml`, only `w_max` changed).
+- Driver: `script_utils/run_hydpatch_min_loww_pipeline.sh` (new; mirrors `run_hydpatch_min_pipeline.sh` but WLEVELS=(1 2 4 8 16) and pins `CUDA_VISIBLE_DEVICES=7`). nohup → `nohup_hydpatch_min_loww.out`.
+- GPU: session-pinned GPU 6 was occupied by another user (jjw202, ~19 GB), so the driver overrides to free GPU 7 (single GPU; within the one-GPU rule).
+- Output: same tree `results/hydpatch_min_sweep/hydpatch_min_w{1,2,4,8,16}/` (so `steering_cost_audit.py` covers all 9 w-levels {1,2,4,8,16,32,48,64,128} in one pass).
+- Audit: `script_utils/steering_cost_audit.py --tree results/hydpatch_min_sweep --evals property,aa,codesign,diversity` (runs after generation).
+
+**Results.** All 5 low-w cells generated (48/48 each) and audited. Anchor here is the **w1 cell** (`codesign_anchor` 47.9%, hydpatch area 2092.8 Å²) — note this is the audit's lowest-w cell, slightly below E102's *true-unguided* anchor (2253.9 Å²); the absolute per-w areas match E102 exactly (w32=1988.8, w48=1923.8, w64=1815.1, w128=1669.3). n=48 codesign sequences/cell; the codesign quantum at n=48 is 1/48 = ±2.08pp.
+
+Full dose-response (low-w foot here + E102 high-w head, single tree `results/hydpatch_min_sweep/`):
+
+| w | hydpatch area (Å²) | Δ vs w1 | prop_delta_σ | codesign rate | Δ codesign (pp) | KL vs w1 | max-AA freq | overall verdict |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 2092.8 | — | 0.152 | 47.9% | — (anchor) | — | — | anchor |
+| 2 | 2088.4 | −0.2% | 0.004 | 45.8% | −2.1 | — | — | INERT |
+| 4 | 2071.7 | −1.0% | 0.020 | 45.8% | −2.1 | — | — | INERT |
+| 8 | 2052.6 | −1.9% | 0.038 | 45.8% | −2.1 | — | — | INERT |
+| 16 | 2025.4 | −3.2% | 0.063 | 50.0% | +2.1 | — | — | INERT |
+| 32 | 1988.8 | −5.0% | 0.098 | 50.0% | +2.1 | 0.000 | 0.123 | INERT |
+| 48 | 1923.8 | −8.1% | 0.159 | 39.6% | −8.3 | 0.004 | 0.135 | WORKING |
+| 64 | 1815.1 | −13.3% | 0.261 | 35.4% | −12.5 | 0.020 | 0.149 | WORKING |
+| 128 | 1669.3 | −20.2% | 0.398 | 6.2% | −41.7 | 0.177 | 0.214 | BROKEN |
+
+- **Flat foot → engagement at w≈32–48.** Across w=1→16 the property moves only −0.2%→−3.2% and *every* codesign delta is exactly ±2.08pp (= ±1 protein at n=48 = noise). Steering is effectively **inert** below w≈32; the audit labels w2–w32 INERT (property σ-delta below the WORKING threshold, codesign unchanged).
+- **The Pareto knee is confirmed at w≈32–48 with no surprises hidden below it.** w=32 delivers −5% area (vs w1) at zero codesign cost; w=48 is the first cell to pay (−8.3pp). The low-w foot rules out any early engagement or early sequence damage below w=32.
+- **Smooth, strictly monotonic** area curve 2092.8 → 1669.3 Å² and prop_delta_σ 0.004 → 0.398 across the full {1,2,4,8,16,32,48,64,128} grid — now directly comparable to the camsol_max / tango_min {1,2,4,8,16} feet.
+- AA quality flat through w≤64 (KL-vs-w1 ≤ 0.020, max-AA ≤ 0.149); w=128 unchanged from E102 (BROKEN: poly-N, KL 0.177, max-AA 0.214, codesign 6.2%).
+
+**Possible narrative.** Non-narrative — completes the E102 dose-response curve and feeds the same hydropathy-steering-target decision. Likely confirms a flat low-w foot (steering not yet engaged at w≤8) joining smoothly to the E102 w=32 sweet spot; if instead engagement starts below w=32 it sharpens where the Pareto knee sits.
+
+**Methodological caveats.**
+- Same structure-blind NA-v1 predictor caveat as E102 (`hydrophobic_patch_total_area` is the axis E075 showed the largest CA-conditioning gain on).
+- Length-binned σ delivery required (audit's pooled `prop_delta_sigma` misleading for length-scaling properties).
+- Codesign = use_pdb_seq=True / ESMFold convention, not MPNN-redesign.
+- n=48 per cell; per-length codesign deltas at this n are noise (see n16-perlength note) — read the pooled rate and the continuous property shift, not per-L flips.

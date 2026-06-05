@@ -5,6 +5,9 @@
 #   proteins, y = codesign rate. As w rises the property is pushed harder and
 #   codesign falls. hydpatch & TANGO are "lower = better", so those x-axes are
 #   inverted (improvement reads rightward, matching CamSol).
+# w-grid: full dose-response {1,2,4,8,16,32,48,64,128} per property (low-w foot
+#   + high-w head). Points carry NO per-point w labels and a single fixed marker
+#   size (w is read off the monotone frontier order, not annotated).
 # DATA (all real measured values, never predictor output):
 #   - hydpatch: results/hydpatch_min_sweep/hydpatch_min_w*/properties_guided.csv
 #       (`hydrophobic_patch_total_area`); codesign from that sweep's audit.
@@ -31,10 +34,17 @@ SHOW_SEM = True                           # <-- the only difference vs P44_v2
 
 ROOT = Path(__file__).parent.parent.parent / "results"
 UNGUIDED = ROOT / "sanity_unsteered_seed42_45" / "unguided" / "properties_unguided.csv"
-NA_AUDIT = ROOT / "noise_aware_high_w_scout" / "steering_cost_audit.csv"
+NA_AUDIT_HIGH = ROOT / "noise_aware_high_w_scout" / "steering_cost_audit.csv"
+NA_AUDIT_LOW = ROOT / "noise_aware_ensemble_sweep" / "steering_cost_audit.csv"
 HYD_AUDIT = ROOT / "hydpatch_min_sweep" / "steering_cost_audit.csv"
 E116 = ROOT / "camsol_ph7_full_2026_05_27.csv"
-WSET = [32, 48, 64, 128]
+WSET = [1, 2, 4, 8, 16, 32, 48, 64, 128]
+
+
+def tango_prop_path(w):
+    # low-w TANGO real props live in the ensemble sweep; high-w in the scout.
+    tree = "noise_aware_ensemble_sweep" if w <= 16 else "noise_aware_high_w_scout"
+    return ROOT / f"{tree}/tango_min_w{w}/properties_guided.csv"
 CODESIGN_UNSTEERED = 47.9                 # n=48 paired baseline (E070)
 C_STEER, C_UNS, C_BAND = "#3b6fb6", "#d62728", "#9aa0a6"
 
@@ -56,12 +66,14 @@ def msem(xs):
     return m, s
 
 
-def codesign(audit, direction):
+def codesign(direction, *audits):
+    # merge codesign rates across audits (low-w ensemble + high-w scout).
     d = {}
-    with open(audit, newline="") as f:
-        for r in csv.DictReader(f):
-            if r["direction"] == direction and int(r["w"]) in WSET:
-                d[int(r["w"])] = float(r["codesign_rate"]) * 100.0
+    for audit in audits:
+        with open(audit, newline="") as f:
+            for r in csv.DictReader(f):
+                if r["direction"] == direction and int(r["w"]) in WSET:
+                    d[int(r["w"])] = float(r["codesign_rate"]) * 100.0
     return d
 
 
@@ -85,16 +97,15 @@ PANELS = [
     (col_floats(UNGUIDED, "hydrophobic_patch_total_area"),
      {w: col_floats(ROOT / f"hydpatch_min_sweep/hydpatch_min_w{w}/properties_guided.csv",
                     "hydrophobic_patch_total_area") for w in WSET},
-     codesign(HYD_AUDIT, "hydpatch_min"),
+     codesign("hydpatch_min", HYD_AUDIT),
      r"Hyd.\ patch area (\AA$^2$)", True),
     (camsol_base,
      {w: e116[f"camsol_max_w{w}"] for w in WSET},
-     codesign(NA_AUDIT, "camsol_max"),
+     codesign("camsol_max", NA_AUDIT_LOW, NA_AUDIT_HIGH),
      r"CamSol score (pH 7)", False),
     (col_floats(UNGUIDED, "tango_total"),
-     {w: col_floats(ROOT / f"noise_aware_high_w_scout/tango_min_w{w}/properties_guided.csv",
-                    "tango_total") for w in WSET},
-     codesign(NA_AUDIT, "tango_min"),
+     {w: col_floats(tango_prop_path(w), "tango_total") for w in WSET},
+     codesign("tango_min", NA_AUDIT_LOW, NA_AUDIT_HIGH),
      r"TANGO score", True),
 ]
 
@@ -113,9 +124,6 @@ for ax, (anchor, cells, cod, xlabel, invert) in zip(axes, PANELS):
                edgecolor="black", lw=0.5, zorder=4)
     ax.scatter(means[1:], cods[1:], marker="o", s=55, color=C_STEER,
                edgecolor="black", lw=0.5, zorder=3)
-    for w, x, y in zip(WSET, means[1:], cods[1:]):
-        ax.annotate(rf"$w{{=}}{w}$", (x, y), xytext=(4, 4),
-                    textcoords="offset points", fontsize=7)
 
     ax.set_xlabel(xlabel)
     ax.set_ylim(0, 56)

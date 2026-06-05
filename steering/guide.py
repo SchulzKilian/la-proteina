@@ -118,12 +118,57 @@ class SteeringGuide:
         from steering.throttle import SteeringThrottle
         self.throttle = SteeringThrottle(config, self.predictor, self.feed_z_t_directly)
 
+        # Off-manifold signal panel (diagnostic only, no intervention). Logs a
+        # per-step set of latent-geometry signals so a within-w ceiling screen
+        # can test whether ANY signal predicts codesign at fixed w (and at which t).
+        mp = (config.get("manifold_panel", {}) or {})
+        self.manifold_panel = bool(mp.get("enabled", False))
+        self.mp_velocity_probe = bool(mp.get("velocity_probe", True))  # 2 extra fwd/step
+        self.mp_t_probe = float(mp.get("t_probe", 0.9))
+        self._prev_z1 = None
+
     @property
     def diagnostics(self) -> List[dict]:
         return self._diagnostics
 
     def reset_diagnostics(self) -> None:
         self._diagnostics = []
+        self._prev_z1 = None
+
+    @torch.no_grad()
+    def _manifold_panel(self, z_t, v_theta, guidance, t_scalar, mask, flow_step_fn):
+        """Per-step latent off-manifold signals (batch element 0). Diagnostic only."""
+        t = float(t_scalar)
+        vd = v_theta.detach()
+        z1_base = z_t + (1.0 - t) * vd                 # clean latent estimate (no guidance)
+        z1_guided = z1_base + (1.0 - t) * guidance     # with guidance applied
+        m = mask[0].bool()
+        zb = z1_base[0][m]; zg = z1_guided[0][m]; g0 = guidance[0][m]; v0 = vd[0][m]
+        eps = 1e-8
+        panel = {
+            "t": t,
+            "prior_drift": float((zg ** 2).mean() - (zb ** 2).mean()),  # pushed into prior tails
+            "z1_norm": float(zg.pow(2).mean().sqrt()),                  # rms latent magnitude
+            "latent_extremity": float(zg.abs().max()),                 # furthest dim into tails
+            "guidance_flow_cos": float(
+                (g0.flatten() @ v0.flatten()) / (g0.norm() * v0.norm() + eps)),  # along vs against flow
+        }
+        if self._prev_z1 is not None and self._prev_z1.shape == zg.shape:
+            panel["z1_jump"] = float((zg - self._prev_z1).norm())       # clean-estimate stability
+        else:
+            panel["z1_jump"] = float("nan")
+        self._prev_z1 = zg.detach().clone()
+        if self.mp_velocity_probe and flow_step_fn is not None:
+            try:
+                vg = flow_step_fn(z1_guided, self.mp_t_probe)  # model velocity at guided clean est
+                vb = flow_step_fn(z1_base, self.mp_t_probe)
+                ng = float(vg[0][m].norm()); nb = float(vb[0][m].norm())
+                panel["vel_norm_guided"] = ng
+                panel["vel_norm_base"] = nb
+                panel["vel_disagreement"] = ng - nb            # >0: guided step looks off-manifold
+            except Exception:
+                panel["vel_disagreement"] = float("nan")
+        return panel
 
     def guide(
         self,
@@ -318,6 +363,9 @@ class SteeringGuide:
             }
             if throttle_diag is not None:
                 diag["throttle"] = throttle_diag
+            if self.manifold_panel:
+                diag["manifold"] = self._manifold_panel(
+                    z_t.detach(), v_theta, guidance, t_scalar, mask, flow_step_fn)
             self._diagnostics.append(diag)
 
         return guidance, diag
