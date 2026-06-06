@@ -1,0 +1,77 @@
+# ALL-PROPERTIES -> AFDB-AVERAGE target steering (auto-written by run_afdb_target_sweep.sh).
+# target_value per property = noise-aware ensemble training mean => target_z = 0.
+steering:
+  enabled: true
+  checkpoint:
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_0_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_1_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_2_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_3_best.pt
+  - /home/ks2218/la-proteina/laproteina_steerability/logs/multitask_t1_noise_aware/20260505_110348/checkpoints/fold_4_best.pt
+  objectives:
+  - property: swi
+    direction: target
+    target_value: 0.77870283
+    weight: 1.0
+  - property: tango
+    direction: target
+    target_value: 999.19539
+    weight: 1.0
+  - property: net_charge
+    direction: target
+    target_value: -7.0359483
+    weight: 1.0
+  - property: pI
+    direction: target
+    target_value: 6.1311374
+    weight: 1.0
+  - property: iupred3
+    direction: target
+    target_value: 0.21576254
+    weight: 1.0
+  - property: iupred3_fraction_disordered
+    direction: target
+    target_value: 0.033637124
+    weight: 1.0
+  - property: shannon_entropy
+    direction: target
+    target_value: 4.0959626
+    weight: 1.0
+  - property: hydrophobic_patch_total_area
+    direction: target
+    target_value: 3964.2948
+    weight: 1.0
+  - property: hydrophobic_patch_n_large
+    direction: target
+    target_value: 12.175656
+    weight: 1.0
+  - property: sap
+    direction: target
+    target_value: 13.299647
+    weight: 1.0
+  - property: scm_positive
+    direction: target
+    target_value: 39.6119
+    weight: 1.0
+  - property: scm_negative
+    direction: target
+    target_value: -42.971911
+    weight: 1.0
+  - property: rg
+    direction: target
+    target_value: 21.876973
+    weight: 1.0
+  - property: camsol_intrinsic
+    direction: target
+    target_value: 0.17948947
+    weight: 1.0
+  schedule:
+    type: linear_ramp
+    w_max: 8.0
+    t_start: 0.3
+    t_end: 0.8
+    t_stop: 0.9
+  gradient_norm: unit
+  gradient_clip: 10.0
+  channel: local_latents
+  log_diagnostics: true
