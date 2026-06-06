@@ -1,0 +1,37 @@
+defaults:
+  - inference_base
+  - generation: uncond_codes_ca_only
+  - _self_
+
+run_name_: laproteina_hybrid_7s7d_step819_n6_nfe400
+config_name: inference_hybrid_7s7d_step819_n6_nfe400
+
+# Canonical N=6 × L∈{50,100,200} × nsteps=400 designability probe of the
+# layer-hybrid sparse/dense model (ca_only_hybrid_7s7d) at global_step 819
+# (epoch 8, best_val ckpt freshly rsynced 2026-06-04).
+#
+# Architecture: 14-layer CA-only model; first 7 layers sparse (K=40 neighbors:
+# n_seq=8, n_spatial=8, n_random=16), last 7 layers dense. Controlled by
+# layer_sparse_mask=[T,T,T,T,T,T,T,F,F,F,F,F,F,F] + layer_K_splits.
+# Full NN config (incl. sparse_attention=True, layer_sparse_mask, layer_K_splits)
+# is restored automatically from the ckpt via load_from_checkpoint — no NN
+# override needed here.
+#
+# CA-only: autoencoder_ckpt_path intentionally absent (latent_dim=None,
+# _ca_only_mode=True). Do NOT add an AE ckpt.
+#
+# This is a SINGLE-CKPT run — use generate.py (standard path), NOT
+# generate_hybrid.py (which is only for the two-ckpt dense-early/sparse-late
+# sampling scheme).
+#
+# nsteps inherited from inference_base.yaml (= 400; CLAUDE.md hard rule).
+ckpt_path: /home/ks2218/la-proteina
+ckpt_name: ca_only_hybrid_7s7d_step819.ckpt
+autoencoder_ckpt_path:
+
+generation:
+  dataset:
+    nsamples: 6
+    max_nsamples_per_batch: 6
+    nlens_cfg:
+      nres_lens: [50, 100, 200]
